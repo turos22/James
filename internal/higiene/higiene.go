@@ -112,7 +112,18 @@ func Varrer(raiz string) ([]Achado, error) {
 				achados = append(achados, Achado{Arquivo: caminho, Padrao: padrao})
 			}
 		}
+
+		// Arquivo de teste (_test.go) é o lugar mais comum de aparecer uma
+		// string de conexão de mentira, só pra exercitar parsing — mesma
+		// forma de um segredo real, mas sem ser um. Pular só esse padrão
+		// pra código de teste; os outros quatro (AWS, GitHub, JWT, PEM)
+		// continuam varrendo tudo, porque não têm o mesmo problema de
+		// colisão com fixture comum.
+		ehArquivoDeTeste := strings.HasSuffix(entrada.Name(), "_test.go")
 		for _, pr := range padroesRegex {
+			if pr.nome == "connection-string-com-senha" && ehArquivoDeTeste {
+				continue
+			}
 			if pr.padrao.Match(conteudo) {
 				achados = append(achados, Achado{Arquivo: caminho, Padrao: pr.nome})
 			}

@@ -237,3 +237,37 @@ func TestVarrerIgnoraEnvExample(t *testing.T) {
 		t.Errorf(".env.example é template, deveria ser ignorado; vieram %d achados: %+v", len(achados), achados)
 	}
 }
+
+func TestVarrerIgnoraConnectionStringEmArquivoDeTeste(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "conexao_test.go")
+	conteudo := `url := "` + "postgres" + `://x:` + `y@localhost:5433/james"`
+	if err := os.WriteFile(arquivo, []byte(conteudo), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf("DSN de mentira em arquivo _test.go deveria ser ignorada; vieram %d achados: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerAcusaAWSKeyMesmoEmArquivoDeTeste(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "conexao_test.go")
+	chave := "AKIA" + "IOSFODNN7EXAMPLE"
+	if err := os.WriteFile(arquivo, []byte(chave), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("padrões que não são connection-string continuam varrendo _test.go; esperava 1 achado, vieram %d: %+v", len(achados), achados)
+	}
+}
