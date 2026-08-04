@@ -70,3 +70,24 @@ func TestMontarSempreIncluiPeloMenosAUltimaMensagem(t *testing.T) {
 		t.Error("a última mensagem deveria sobreviver mesmo estourando o orçamento sozinha")
 	}
 }
+
+func TestMontarContaImagemComoCusto(t *testing.T) {
+	imagemGrande := make([]byte, 10000) // screenshot de mentira — só o tamanho importa aqui
+	j := Janela{OrcamentoTokens: 120}
+	mensagens := []agente.Mensagem{
+		{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
+		{Papel: agente.PapelUsuario, Texto: "com screenshot", Imagem: imagemGrande},
+		{Papel: agente.PapelUsuario, Texto: "última, curta"},
+	}
+
+	resultado := j.Montar(mensagens)
+
+	for _, m := range resultado {
+		if len(m.Imagem) > 0 {
+			t.Errorf("mensagem com screenshot de %d bytes deveria ter sido cortada (custo zero pra imagem reabriria o bug #4), mas sobreviveu: %+v", len(m.Imagem), m)
+		}
+	}
+	if resultado[len(resultado)-1].Texto != "última, curta" {
+		t.Error("a mensagem mais recente deveria sempre sobreviver ao corte")
+	}
+}

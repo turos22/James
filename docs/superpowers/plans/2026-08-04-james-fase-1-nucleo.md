@@ -3235,6 +3235,27 @@ func TestMontarSempreIncluiPeloMenosAUltimaMensagem(t *testing.T) {
 		t.Error("a última mensagem deveria sobreviver mesmo estourando o orçamento sozinha")
 	}
 }
+
+func TestMontarContaImagemComoCusto(t *testing.T) {
+	imagemGrande := make([]byte, 10000) // screenshot de mentira — só o tamanho importa aqui
+	j := Janela{OrcamentoTokens: 120}
+	mensagens := []agente.Mensagem{
+		{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
+		{Papel: agente.PapelUsuario, Texto: "com screenshot", Imagem: imagemGrande},
+		{Papel: agente.PapelUsuario, Texto: "última, curta"},
+	}
+
+	resultado := j.Montar(mensagens)
+
+	for _, m := range resultado {
+		if len(m.Imagem) > 0 {
+			t.Errorf("mensagem com screenshot de %d bytes deveria ter sido cortada (custo zero pra imagem reabriria o bug #4), mas sobreviveu: %+v", len(m.Imagem), m)
+		}
+	}
+	if resultado[len(resultado)-1].Texto != "última, curta" {
+		t.Error("a mensagem mais recente deveria sempre sobreviver ao corte")
+	}
+}
 ```
 
 - [ ] **Step 2: Rodar e confirmar falha**
@@ -3267,6 +3288,14 @@ func custoMensagem(m agente.Mensagem) int {
 	for _, r := range m.Resultados {
 		custo += EstimarTokens(r.Saida) + EstimarTokens(r.Erro)
 	}
+	// Imagem (screenshot, quando houver) é o payload mais pesado que uma
+	// mensagem pode carregar — ordens de grandeza maior que qualquer texto
+	// vizinho. Tratar como custo zero deixaria passar batido exatamente o
+	// cenário que este pacote existe pra evitar (bug #4). Não precisa ser
+	// preciso (é bytes binários, não texto), só não pode ser zero — usa a
+	// mesma proporção grosseira de EstimarTokens, que aqui tende a
+	// superestimar, e superestimar é o lado seguro pra um orçamento.
+	custo += (len(m.Imagem) + 3) / 4
 	return custo
 }
 
@@ -3297,7 +3326,7 @@ func (j Janela) Montar(mensagens []agente.Mensagem) []agente.Mensagem {
 - [ ] **Step 4: Rodar e confirmar sucesso**
 
 Run: `go test ./internal/memoria/... -v`
-Expected: PASS nos 4 testes.
+Expected: PASS nos 5 testes.
 
 - [ ] **Step 5: Commit**
 

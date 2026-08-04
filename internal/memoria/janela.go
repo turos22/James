@@ -20,6 +20,14 @@ func custoMensagem(m agente.Mensagem) int {
 	for _, r := range m.Resultados {
 		custo += EstimarTokens(r.Saida) + EstimarTokens(r.Erro)
 	}
+	// Imagem (screenshot, quando houver) é o payload mais pesado que uma
+	// mensagem pode carregar — ordens de grandeza maior que qualquer texto
+	// vizinho. Tratar como custo zero deixaria passar batido exatamente o
+	// cenário que este pacote existe pra evitar (bug #4). Não precisa ser
+	// preciso (é bytes binários, não texto), só não pode ser zero — usa a
+	// mesma proporção grosseira de EstimarTokens, que aqui tende a
+	// superestimar, e superestimar é o lado seguro pra um orçamento.
+	custo += (len(m.Imagem) + 3) / 4
 	return custo
 }
 
