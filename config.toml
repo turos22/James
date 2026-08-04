@@ -1,0 +1,21 @@
+[servidor]
+bind_loopback = "127.0.0.1:8080"
+bind_vpn_porta = 8443
+cert_arquivo = "certs/tailscale.crt"
+chave_arquivo = "certs/tailscale.key"
+
+[agente]
+# Conferir a lista vigente de modelos Gemini antes de trocar. Proibido:
+# gemini-2.5-flash-lite (mais fraco da família).
+modelo = "gemini-2.5-flash"
+max_iteracoes = 5
+timeout_segundos = 30
+
+[memoria]
+orcamento_tokens = 8000
+
+[permissao]
+timeout_aprovacao_segundos = 300
+
+[voz]
+voz_tts = "pt-BR-AntonioNeural"

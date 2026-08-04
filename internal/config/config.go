@@ -1,0 +1,126 @@
+// Package config carrega segredos do .env e o resto da configuração do
+// config.toml, com falha rápida: falta algo obrigatório, o jamesd não sobe.
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/joho/godotenv"
+)
+
+type Config struct {
+	GeminiAPIKey string
+	TavilyAPIKey string
+	DatabaseURL  string
+
+	BindLoopback string
+	BindVPNPorta int
+	CertArquivo  string
+	ChaveArquivo string
+
+	Modelo          string
+	MaxIteracoes    int
+	TimeoutSegundos int
+
+	OrcamentoTokens int
+
+	TimeoutAprovacaoSegundos int
+
+	VozTTS string
+}
+
+type arquivoToml struct {
+	Servidor struct {
+		BindLoopback string `toml:"bind_loopback"`
+		BindVPNPorta int    `toml:"bind_vpn_porta"`
+		CertArquivo  string `toml:"cert_arquivo"`
+		ChaveArquivo string `toml:"chave_arquivo"`
+	} `toml:"servidor"`
+	Agente struct {
+		Modelo          string `toml:"modelo"`
+		MaxIteracoes    int    `toml:"max_iteracoes"`
+		TimeoutSegundos int    `toml:"timeout_segundos"`
+	} `toml:"agente"`
+	Memoria struct {
+		OrcamentoTokens int `toml:"orcamento_tokens"`
+	} `toml:"memoria"`
+	Permissao struct {
+		TimeoutAprovacaoSegundos int `toml:"timeout_aprovacao_segundos"`
+	} `toml:"permissao"`
+	Voz struct {
+		VozTTS string `toml:"voz_tts"`
+	} `toml:"voz"`
+}
+
+// modeloDescartado é o único modelo proibido pela spec — o mais fraco da
+// família Gemini, causa provável do planejamento ruim de tools no app antigo.
+const modeloDescartado = "gemini-2.5-flash-lite"
+
+// Carregar lê o .env (mesmo diretório do config.toml, se existir) e o
+// config.toml em caminhoToml, aplica defaults e falha rápido se faltar
+// segredo obrigatório ou se o modelo estiver descartado.
+func Carregar(caminhoToml string) (*Config, error) {
+	_ = godotenv.Load(".env")
+
+	var arq arquivoToml
+	if _, err := os.Stat(caminhoToml); err == nil {
+		if _, err := toml.DecodeFile(caminhoToml, &arq); err != nil {
+			return nil, fmt.Errorf("erro ao ler %s: %w", caminhoToml, err)
+		}
+	}
+
+	cfg := &Config{
+		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
+		TavilyAPIKey: os.Getenv("TAVILY_API_KEY"),
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
+
+		BindLoopback: valorOuDefault(arq.Servidor.BindLoopback, "127.0.0.1:8080"),
+		BindVPNPorta: intOuDefault(arq.Servidor.BindVPNPorta, 8443),
+		CertArquivo:  valorOuDefault(arq.Servidor.CertArquivo, "certs/tailscale.crt"),
+		ChaveArquivo: valorOuDefault(arq.Servidor.ChaveArquivo, "certs/tailscale.key"),
+
+		Modelo:          valorOuDefault(arq.Agente.Modelo, "gemini-2.5-flash"),
+		MaxIteracoes:    intOuDefault(arq.Agente.MaxIteracoes, 5),
+		TimeoutSegundos: intOuDefault(arq.Agente.TimeoutSegundos, 30),
+
+		OrcamentoTokens: intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
+
+		TimeoutAprovacaoSegundos: intOuDefault(arq.Permissao.TimeoutAprovacaoSegundos, 300),
+
+		VozTTS: valorOuDefault(arq.Voz.VozTTS, "pt-BR-AntonioNeural"),
+	}
+
+	var faltando []string
+	if cfg.GeminiAPIKey == "" {
+		faltando = append(faltando, "GEMINI_API_KEY")
+	}
+	if cfg.DatabaseURL == "" {
+		faltando = append(faltando, "DATABASE_URL")
+	}
+	if len(faltando) > 0 {
+		return nil, fmt.Errorf("configuração incompleta, faltando: %s", strings.Join(faltando, ", "))
+	}
+
+	if cfg.Modelo == modeloDescartado {
+		return nil, fmt.Errorf("modelo %q está descartado pela spec (o mais fraco da família Gemini)", modeloDescartado)
+	}
+
+	return cfg, nil
+}
+
+func valorOuDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+func intOuDefault(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
