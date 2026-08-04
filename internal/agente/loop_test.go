@@ -1,0 +1,253 @@
+package agente
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"james/internal/ferramentas"
+	"james/internal/permissao"
+)
+
+// providerFalso devolve as respostas roteirizadas em ordem, uma por chamada
+// a Gerar. Não gasta token, não abre janela — a fronteira que o Provider
+// promete.
+type providerFalso struct {
+	respostas []Resposta
+	chamadas  int
+}
+
+func (p *providerFalso) Gerar(ctx context.Context, req Requisicao) (Resposta, error) {
+	if p.chamadas >= len(p.respostas) {
+		return Resposta{}, errors.New("providerFalso: sem mais respostas roteirizadas")
+	}
+	r := p.respostas[p.chamadas]
+	p.chamadas++
+	return r, nil
+}
+
+func (p *providerFalso) GerarStream(ctx context.Context, req Requisicao, emitir func(string)) (Resposta, error) {
+	return p.Gerar(ctx, req)
+}
+
+type ferramentaFalsa struct {
+	nome      string
+	nivel     ferramentas.Nivel
+	saida     string
+	erro      error
+	executada bool
+}
+
+func (f *ferramentaFalsa) Declaracao() ferramentas.Declaracao {
+	return ferramentas.Declaracao{Nome: f.nome}
+}
+func (f *ferramentaFalsa) Nivel() ferramentas.Nivel { return f.nivel }
+func (f *ferramentaFalsa) Executar(ctx context.Context, args map[string]any) (string, error) {
+	f.executada = true
+	return f.saida, f.erro
+}
+
+func novoRegistroCom(fs ...*ferramentaFalsa) ferramentas.Registro {
+	r := ferramentas.NovoRegistro()
+	for _, f := range fs {
+		_ = r.Registrar(f)
+	}
+	return r
+}
+
+func TestExecutarSemChamadaDevolveTextoDireto(t *testing.T) {
+	provider := &providerFalso{respostas: []Resposta{{Texto: "oi, tudo certo"}}}
+	loop := &Loop{Provider: provider, Ferramentas: ferramentas.NovoRegistro(), MaxIteracoes: 5}
+
+	resp, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "oi"}, permissao.Privilegiado, nil)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if resp.Texto != "oi, tudo certo" {
+		t.Errorf("Texto = %q, queria %q", resp.Texto, "oi, tudo certo")
+	}
+}
+
+func TestExecutarDespachaFerramentaSeguraSemAprovacao(t *testing.T) {
+	eco := &ferramentaFalsa{nome: "eco", nivel: ferramentas.NivelSeguro, saida: "resultado do eco"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "eco"}}},
+		{Texto: "feito"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(eco), MaxIteracoes: 5}
+
+	pediuAprovacao := false
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		pediuAprovacao = true
+		return true, nil
+	}
+
+	resp, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "roda o eco"}, permissao.Restrito, solicitar)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !eco.executada {
+		t.Error("ferramenta segura deveria ter sido executada")
+	}
+	if pediuAprovacao {
+		t.Error("ferramenta segura não deveria pedir aprovação, mesmo com perfil Restrito")
+	}
+	if resp.Texto != "feito" {
+		t.Errorf("Texto = %q, queria feito", resp.Texto)
+	}
+}
+
+func TestExecutarSolicitaAprovacaoParaFerramentaPerigosaComPerfilRestrito(t *testing.T) {
+	perigosa := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "executou"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "feito"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(perigosa), MaxIteracoes: 5}
+
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) { return true, nil }
+
+	_, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz a ação"}, permissao.Restrito, solicitar)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !perigosa.executada {
+		t.Error("ferramenta perigosa deveria ter executado após aprovação")
+	}
+}
+
+func TestExecutarNegaFerramentaPerigosaQuandoAprovacaoRecusada(t *testing.T) {
+	perigosa := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "não devia rodar"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "entendido, não fiz"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(perigosa), MaxIteracoes: 5}
+
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) { return false, nil }
+
+	_, mensagens, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz a ação"}, permissao.Restrito, solicitar)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if perigosa.executada {
+		t.Error("ferramenta perigosa não deveria ter executado — aprovação foi negada")
+	}
+
+	achouErroDeNegacao := false
+	for _, m := range mensagens {
+		for _, r := range m.Resultados {
+			if r.Erro == "ação negada pelo usuário" {
+				achouErroDeNegacao = true
+			}
+		}
+	}
+	if !achouErroDeNegacao {
+		t.Error("esperava um ResultadoFerramenta com Erro de negação no histórico")
+	}
+}
+
+func TestExecutarPrivilegiadoNuncaPedeAprovacao(t *testing.T) {
+	perigosa := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "ok"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "feito"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(perigosa), MaxIteracoes: 5}
+
+	pediuAprovacao := false
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		pediuAprovacao = true
+		return true, nil
+	}
+
+	_, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz a ação"}, permissao.Privilegiado, solicitar)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if pediuAprovacao {
+		t.Error("perfil Privilegiado nunca deveria pedir aprovação")
+	}
+	if !perigosa.executada {
+		t.Error("perfil Privilegiado deveria executar a ferramenta perigosa direto")
+	}
+}
+
+func TestExecutarErroDeToolNaoDerrubaLoop(t *testing.T) {
+	falha := &ferramentaFalsa{nome: "falha", nivel: ferramentas.NivelSeguro, erro: errors.New("comando não encontrado")}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "falha"}}},
+		{Texto: "tentei outra coisa"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(falha), MaxIteracoes: 5}
+
+	resp, mensagens, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "roda"}, permissao.Privilegiado, nil)
+	if err != nil {
+		t.Fatalf("erro de tool não deveria derrubar o loop (R2), veio: %v", err)
+	}
+	if resp.Texto != "tentei outra coisa" {
+		t.Errorf("Texto = %q, queria que o loop continuasse até resposta final", resp.Texto)
+	}
+
+	achouErro := false
+	for _, m := range mensagens {
+		for _, r := range m.Resultados {
+			if r.Erro == "comando não encontrado" {
+				achouErro = true
+			}
+		}
+	}
+	if !achouErro {
+		t.Error("esperava o erro da tool propagado em ResultadoFerramenta.Erro")
+	}
+}
+
+func TestExecutarEstouraTetoDeIteracoesRetornaErroHonesto(t *testing.T) {
+	nuncaTermina := &ferramentaFalsa{nome: "nunca_termina", nivel: ferramentas.NivelSeguro, saida: "de novo"}
+	respostas := make([]Resposta, 0, 4)
+	for i := 0; i < 4; i++ {
+		respostas = append(respostas, Resposta{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "nunca_termina"}}})
+	}
+	provider := &providerFalso{respostas: respostas}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(nuncaTermina), MaxIteracoes: 3}
+
+	_, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "roda"}, permissao.Privilegiado, nil)
+	if !errors.Is(err, ErroTetoIteracoes) {
+		t.Fatalf("erro = %v, queria ErroTetoIteracoes (R5: mensagem honesta ao estourar o teto)", err)
+	}
+}
+
+func TestExecutarChamaHooksDeInicioEFimPorFerramenta(t *testing.T) {
+	eco := &ferramentaFalsa{nome: "eco", nivel: ferramentas.NivelSeguro, saida: "ok"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "eco"}}},
+		{Texto: "feito"},
+	}}
+
+	var iniciadas []string
+	var concluidas []string
+	loop := &Loop{
+		Provider: provider, Ferramentas: novoRegistroCom(eco), MaxIteracoes: 5,
+		AoIniciarFerramenta:  func(c ChamadaFerramenta) { iniciadas = append(iniciadas, c.Nome) },
+		AoConcluirFerramenta: func(r ResultadoFerramenta) { concluidas = append(concluidas, r.Nome) },
+	}
+
+	_, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "roda o eco"}, permissao.Privilegiado, nil)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if len(iniciadas) != 1 || iniciadas[0] != "eco" {
+		t.Errorf("AoIniciarFerramenta chamado com %v, queria [eco]", iniciadas)
+	}
+	if len(concluidas) != 1 || concluidas[0] != "eco" {
+		t.Errorf("AoConcluirFerramenta chamado com %v, queria [eco]", concluidas)
+	}
+}
