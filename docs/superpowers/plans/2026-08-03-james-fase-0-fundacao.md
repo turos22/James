@@ -16,7 +16,7 @@
 
 **Nenhuma task começa antes disto.** São ações que só o Arthur pode executar.
 
-- [ ] **G1. Revogar/rotacionar as quatro credenciais**
+- [x] **G1. Revogar/rotacionar as quatro credenciais**
 
   Elas estão em texto puro no fonte **e compiladas dentro de três `.exe`**. Apagar do código não basta — quem já tem o binário tem a chave.
 
@@ -27,7 +27,7 @@
   | NVIDIA | `app.go:385` | **revogar sem repor** — o código que a usa é morto e será deletado | https://build.nvidia.com |
   | OpenRouter | `rodar_claude.ps1:6` | **revogar sem repor** — o Claude Code passa a usar a assinatura Pro | https://openrouter.ai/settings/keys |
 
-- [ ] **G2. Subir o Docker Desktop**
+- [x] **G2. Subir o Docker Desktop**
 
   Verificado em 2026-08-03: Docker 29.1.2 instalado, daemon parado.
   Confirmar com:
@@ -38,7 +38,7 @@ docker ps
 
   Esperado: cabeçalho de tabela, sem erro de pipe.
 
-- [ ] **G3. Instalar o Tailscale no PC e no celular**
+- [x] **G3. Instalar o Tailscale no PC e no celular**
 
   Mesma conta nos dois. https://tailscale.com/download
   Confirmar com (o binário não está no PATH do Git Bash):
@@ -84,7 +84,7 @@ Escrever a varredura **antes** de limpar, para que a limpeza seja verificável e
 - Create: `internal/higiene/higiene.go`
 - Create: `internal/higiene/higiene_test.go`
 
-- [ ] **Step 1: Renomear o módulo Go**
+- [x] **Step 1: Renomear o módulo Go**
 
 Trocar a linha 1 de `go.mod`:
 
@@ -94,7 +94,7 @@ module james
 
 Nenhum outro arquivo precisa mudar. Verificado: `grep -rn "meu-app-ts" --include="*.go" .` só encontra uma string de caminho de sistema de arquivos em `app.go:150`, não um import.
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [x] **Step 2: Escrever o teste que falha**
 
 Criar `internal/higiene/higiene_test.go`:
 
@@ -181,7 +181,7 @@ func TestRepositorioLimpo(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Rodar e confirmar que falha por não compilar**
+- [x] **Step 3: Rodar e confirmar que falha por não compilar**
 
 ```bash
 go test ./internal/higiene/ -v
@@ -189,7 +189,7 @@ go test ./internal/higiene/ -v
 
 Esperado: falha de compilação, `undefined: Varrer`.
 
-- [ ] **Step 4: Escrever a implementação mínima**
+- [x] **Step 4: Escrever a implementação mínima**
 
 Criar `internal/higiene/higiene.go`:
 
@@ -281,7 +281,7 @@ func Varrer(raiz string) ([]Achado, error) {
 }
 ```
 
-- [ ] **Step 5: Rodar e confirmar o resultado esperado**
+- [x] **Step 5: Rodar e confirmar o resultado esperado**
 
 ```bash
 go test ./internal/higiene/ -v
@@ -291,7 +291,7 @@ Esperado: os três primeiros testes **passam**; `TestRepositorioLimpo` **falha**
 
 **Essa falha é o objetivo da task.** Anotar a lista exata — é o roteiro da Task 2.
 
-- [ ] **Step 6: Sem commit**
+- [x] **Step 6: Sem commit**
 
 Repositório git ainda não existe. Seguir para a Task 2.
 
@@ -308,7 +308,7 @@ Zerar o `TestRepositorioLimpo`.
 - Modify: `main.go` (carga do `.env`)
 - Create: `.env.example`, `.env`, `.gitignore`
 
-- [ ] **Step 1: Apagar os binários contaminados**
+- [x] **Step 1: Apagar os binários contaminados**
 
 Lista corrigida contra o disco real na Task 1. `build/bin/meu-app-ts-dev.exe`,
 que a versão anterior deste plano mandava apagar, **não existe**. Em compensação
@@ -322,7 +322,7 @@ rm -f meu-app-ts.exe james.exe build/bin/meu-app-ts.exe
 > **Sempre use `go build -o /dev/null .` para checar compilação.** Um `go build .`
 > pelado deposita um binário de 28 MB na raiz com todo segredo que o fonte tiver.
 
-- [ ] **Step 2: Substituir a chave do Gemini**
+- [x] **Step 2: Substituir a chave do Gemini**
 
 Em `app.go`, dentro de `PerguntaAi`, trocar:
 
@@ -333,7 +333,7 @@ Em `app.go`, dentro de `PerguntaAi`, trocar:
     })
 ```
 
-- [ ] **Step 3: Substituir a chave da Tavily**
+- [x] **Step 3: Substituir a chave da Tavily**
 
 Em `app.go`, dentro de `BuscarNoTavily`, trocar a linha do literal por:
 
@@ -341,7 +341,7 @@ Em `app.go`, dentro de `BuscarNoTavily`, trocar a linha do literal por:
     apiKey := os.Getenv("TAVILY_API_KEY")
 ```
 
-- [ ] **Step 4: Remover o bloco morto da NVIDIA**
+- [x] **Step 4: Remover o bloco morto da NVIDIA**
 
 Deletar de `app.go` a função `chamadaResumo` inteira (classificador WEB/LOCAL/CHAT, nunca chamada por ninguém) e o tipo `NVIDIAApiResponse` que só ela usa. Isso elimina a terceira credencial em vez de parametrizá-la.
 
@@ -353,7 +353,7 @@ grep -n "chamadaResumo\|NVIDIAApiResponse" *.go
 
 Esperado após a remoção: nenhuma linha.
 
-- [ ] **Step 5: Limpar o `rodar_claude.ps1`**
+- [x] **Step 5: Limpar o `rodar_claude.ps1`**
 
 Substituir o arquivo inteiro por:
 
@@ -371,7 +371,7 @@ claude $Instrucao
 Read-Host "Tarefa finalizada. Pressione Enter para fechar"
 ```
 
-- [ ] **Step 6: Adicionar o carregamento do `.env`**
+- [x] **Step 6: Adicionar o carregamento do `.env`**
 
 ```bash
 go get github.com/joho/godotenv
@@ -401,7 +401,7 @@ func main() {
 
 O pacote `os` já está nos imports de `app.go` (linha 14) — nada a acrescentar lá.
 
-- [ ] **Step 7: Criar o `.env.example`**
+- [x] **Step 7: Criar o `.env.example`**
 
 ```bash
 # Credenciais do James. Copie para .env e preencha.
@@ -418,11 +418,11 @@ POSTGRES_PASSWORD=
 DATABASE_URL=postgres://james:SENHA@localhost:5433/james?sslmode=disable
 ```
 
-- [ ] **Step 8: Criar o `.env` real**
+- [x] **Step 8: Criar o `.env` real**
 
 Copiar `.env.example` para `.env` e preencher com as chaves **novas**, rotacionadas no gate G1. Escolher uma senha qualquer para o Postgres local e refletir em `DATABASE_URL`.
 
-- [ ] **Step 9: Criar o `.gitignore`**
+- [x] **Step 9: Criar o `.gitignore`**
 
 ```gitignore
 # Segredos
@@ -460,7 +460,7 @@ audios/audio_jarvis.mp3
 arquivos do Gui/
 ```
 
-- [ ] **Step 10: Rodar a guarda e confirmar que passa**
+- [x] **Step 10: Rodar a guarda e confirmar que passa**
 
 ```bash
 go test ./internal/higiene/ -v
@@ -468,7 +468,7 @@ go test ./internal/higiene/ -v
 
 Esperado: **os quatro testes passam**, incluindo `TestRepositorioLimpo`.
 
-- [ ] **Step 11: Confirmar que o projeto ainda compila**
+- [x] **Step 11: Confirmar que o projeto ainda compila**
 
 ```bash
 go build -o /dev/null . && go vet ./...
@@ -476,7 +476,7 @@ go build -o /dev/null . && go vet ./...
 
 Esperado: sem saída, exit 0 nos dois.
 
-- [ ] **Step 12: Sem commit**
+- [x] **Step 12: Sem commit**
 
 Ainda sem repositório. Seguir para a Task 3.
 
@@ -489,13 +489,13 @@ Só agora é seguro: a árvore está limpa e o `.gitignore` existe.
 **Files:**
 - Create: repositório git
 
-- [ ] **Step 1: Inicializar**
+- [x] **Step 1: Inicializar**
 
 ```bash
 git init -b main
 ```
 
-- [ ] **Step 2: Preparar tudo e inspecionar antes de commitar**
+- [x] **Step 2: Preparar tudo e inspecionar antes de commitar**
 
 ```bash
 git add -A && git status --short
@@ -503,7 +503,7 @@ git add -A && git status --short
 
 Ler a lista. Confirmar que **não** aparecem: `.env`, nenhum `.exe`, nenhum `.dll`, `Athena.db`, `node_modules/`, `TTs/`, `vosk/`.
 
-- [ ] **Step 3: Verificação dupla — a guarda sobre o que o git vai versionar**
+- [x] **Step 3: Verificação dupla — a guarda sobre o que o git vai versionar**
 
 ```bash
 git ls-files | grep -cE "\.(exe|dll|lib)$"
@@ -517,7 +517,7 @@ git ls-files | grep -c "^\.env$"
 
 Esperado: `0`.
 
-- [ ] **Step 4: Commit inicial**
+- [x] **Step 4: Commit inicial**
 
 ```bash
 git commit -m "chore: commit inicial do James com árvore limpa de credenciais
@@ -531,7 +531,7 @@ Inclui a spec e o plano das Fases 0 e 1.
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Confirmar que o histórico nasceu limpo**
+- [x] **Step 5: Confirmar que o histórico nasceu limpo**
 
 Os padrões vão com classe de caractere de propósito: escritos por extenso, o
 próprio comando viraria um achado da guarda quando este arquivo fosse varrido.
@@ -544,6 +544,104 @@ Esperado: `0`.
 
 ---
 
+## Correção descoberta durante a Task 4: `.env` derruba a guarda de higiene
+
+Achado durante a execução, não previsto na spec original: assim que o Arthur
+preencheu `.env` com as chaves reais (Gemini, Tavily), `TestRepositorioLimpo`
+passou a falhar acusando `.env` — mesmo ele estando corretamente no
+`.gitignore` e nunca rastreado pelo git. A guarda (Task 1) varre a árvore de
+trabalho inteira no disco, sem saber que `.env` é onde segredo local *deveria*
+morar por design.
+
+O propósito documentado da guarda é impedir **commit** de segredo, não zerar
+segredo no disco local — isso é impossível para um `.env` funcional. A correção
+é uma exclusão nominal explícita, não ensinar a guarda a interpretar
+`.gitignore`. Passo inserido antes da Task 4 original:
+
+### Task 3.5: Excluir `.env` da varredura de higiene
+
+**Files:**
+- Modify: `internal/higiene/higiene.go`
+- Modify: `internal/higiene/higiene_test.go`
+
+- [x] **Step 1: Escrever o teste que prova a exclusão**
+
+Adicionar a `higiene_test.go`:
+
+```go
+func TestVarrerIgnoraArquivoEnv(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, ".env")
+	if err := os.WriteFile(arquivo, []byte("TAVILY_API_KEY="+chaveFalsa()), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf(".env deveria ser ignorado — é onde segredo local mora por design, "+
+			"e já está protegido pelo .gitignore; vieram %d achados: %+v", len(achados), achados)
+	}
+}
+```
+
+- [x] **Step 2: Rodar e confirmar que falha**
+
+```bash
+go test ./internal/higiene/ -run TestVarrerIgnoraArquivoEnv -v
+```
+
+Esperado: FAIL, `.env` aparece como achado.
+
+- [x] **Step 3: Implementar a exclusão**
+
+Em `higiene.go`, adicionar ao lado de `diretoriosIgnorados` e `extensoesIgnoradas`:
+
+```go
+// arquivosIgnorados são nomes de arquivo (não caminho) que ficam de fora da
+// varredura por conterem segredo local por design. .env é o exemplo central:
+// já está protegido pelo .gitignore e nunca é commitado — a guarda existe
+// para impedir COMMIT de segredo, não para exigir zero segredo em disco.
+var arquivosIgnorados = map[string]bool{
+	".env": true,
+}
+```
+
+E no corpo de `Varrer`, junto aos outros filtros de entrada (antes da leitura do arquivo):
+
+```go
+		if arquivosIgnorados[entrada.Name()] {
+			return nil
+		}
+```
+
+- [x] **Step 4: Rodar e confirmar que passa**
+
+```bash
+go test ./internal/higiene/ -v
+```
+
+Esperado: 6/6 PASS, incluindo `TestRepositorioLimpo` (que agora deve voltar a
+passar contra a árvore real, já que o único achado que sobrava era o `.env`).
+
+- [x] **Step 5: Commit**
+
+```bash
+git add internal/higiene/ && git commit -m "fix: exclui .env da varredura de higiene
+
+.env guarda segredo local por design e já está protegido pelo .gitignore —
+a guarda existe para impedir commit de credencial, não para exigir zero
+segredo em disco. Descoberto quando o Arthur preencheu o .env real e
+TestRepositorioLimpo passou a falhar contra um arquivo que nunca seria
+commitado.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
 ## Task 4: Corrigir a diretiva `//go:embed` ausente
 
 Sem ela, `var assets embed.FS` fica vazio e `wails build` produz binário com tela em branco. Só `wails dev` funciona hoje, porque usa o servidor do Vite.
@@ -551,7 +649,7 @@ Sem ela, `var assets embed.FS` fica vazio e `wails build` produz binário com te
 **Files:**
 - Modify: `main.go:13-14`
 
-- [ ] **Step 1: Confirmar o defeito**
+- [x] **Step 1: Confirmar o defeito**
 
 ```bash
 grep -n -B2 "var assets embed.FS" main.go
@@ -559,7 +657,7 @@ grep -n -B2 "var assets embed.FS" main.go
 
 Esperado: a linha `var assets embed.FS` sem nenhum comentário `//go:embed` acima.
 
-- [ ] **Step 2: Garantir que o alvo do embed existe**
+- [x] **Step 2: Garantir que o alvo do embed existe**
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
@@ -567,7 +665,7 @@ cd frontend && npm install && npm run build && cd ..
 
 Esperado: `frontend/dist/` populado. `//go:embed` falha em tempo de compilação se o diretório não existir.
 
-- [ ] **Step 3: Adicionar a diretiva**
+- [x] **Step 3: Adicionar a diretiva**
 
 Em `main.go`, imediatamente acima de `var assets embed.FS`:
 
@@ -576,7 +674,7 @@ Em `main.go`, imediatamente acima de `var assets embed.FS`:
 var assets embed.FS
 ```
 
-- [ ] **Step 4: Confirmar que compila com o embed**
+- [x] **Step 4: Confirmar que compila com o embed**
 
 ```bash
 go build -o /dev/null .
@@ -584,7 +682,7 @@ go build -o /dev/null .
 
 Esperado: exit 0. Se `frontend/dist` estivesse faltando, aqui apareceria `pattern all:frontend/dist: no matching files found`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add main.go && git commit -m "fix: adiciona diretiva //go:embed ausente para os assets do frontend
@@ -607,7 +705,7 @@ Primeiro código do agente de dispositivo. Lógica pura, sem hardware, então é
 - Create: `dispositivo/tests/__init__.py`
 - Create: `dispositivo/tests/test_wake.py`
 
-- [ ] **Step 1: Criar o pacote Python**
+- [x] **Step 1: Criar o pacote Python**
 
 `dispositivo/pyproject.toml`:
 
@@ -633,13 +731,13 @@ pythonpath = ["."]
 
 Criar `dispositivo/james_device/__init__.py` e `dispositivo/tests/__init__.py` vazios.
 
-- [ ] **Step 2: Instalar o pytest**
+- [x] **Step 2: Instalar o pytest**
 
 ```bash
 cd dispositivo && python -m pip install -e ".[dev]" && cd ..
 ```
 
-- [ ] **Step 3: Escrever o teste que falha**
+- [x] **Step 3: Escrever o teste que falha**
 
 `dispositivo/tests/test_wake.py`:
 
@@ -671,7 +769,7 @@ def test_aceita_lista_de_variantes_customizada():
     assert contem_wake_word("james", ["chapolin"]) is False
 ```
 
-- [ ] **Step 4: Rodar e confirmar que falha**
+- [x] **Step 4: Rodar e confirmar que falha**
 
 ```bash
 cd dispositivo && python -m pytest -v; cd ..
@@ -679,7 +777,7 @@ cd dispositivo && python -m pytest -v; cd ..
 
 Esperado: `ModuleNotFoundError: No module named 'james_device.wake'`.
 
-- [ ] **Step 5: Escrever a implementação mínima**
+- [x] **Step 5: Escrever a implementação mínima**
 
 `dispositivo/james_device/wake.py`:
 
@@ -690,6 +788,7 @@ O STT em português transcreve "James" de várias formas. Esta função
 normaliza o que foi ouvido e compara contra a lista de variantes.
 """
 
+import re
 import unicodedata
 
 # Variantes com que o STT em português costuma transcrever "James".
@@ -712,22 +811,34 @@ def normalizar(texto: str) -> str:
 
 
 def contem_wake_word(texto: str, variantes: list[str] | None = None) -> bool:
-    """Informa se o texto ouvido contém alguma variante da wake word."""
+    """Informa se o texto ouvido contém alguma variante da wake word como palavra isolada."""
     if variantes is None:
         variantes = VARIANTES_PADRAO
     normalizado = normalizar(texto)
-    return any(normalizar(v) in normalizado for v in variantes)
+    return any(
+        re.search(rf"\b{re.escape(normalizar(v))}\b", normalizado)
+        for v in variantes
+    )
 ```
 
-- [ ] **Step 6: Rodar e confirmar que passa**
+> **Nota pós-implementação (commit `ba338a8`):** a primeira versão usava
+> `normalizar(v) in normalizado` (substring puro), que gerava falso positivo
+> em `"hyperjames"`, `"ohjamesboy"`, `"jaimesabe"`. A revisão de qualidade
+> pegou o problema; a versão acima, com `\b` (fronteira de palavra), é a que
+> de fato está commitada. Código atualizado aqui para não reintroduzir o bug
+> se alguém copiar deste plano no futuro.
+
+- [x] **Step 6: Rodar e confirmar que passa**
 
 ```bash
 cd dispositivo && python -m pytest -v; cd ..
 ```
 
-Esperado: 12 testes passando (1 + 5 + 5 + 1).
+Esperado (na primeira implementação): 12 testes passando (1 + 5 + 5 + 1).
+Depois do fix de fronteira de palavra (`ba338a8`), passaram a ser **15**
+(mais 3 casos de falso positivo cobertos em `test_ignora_texto_sem_wake_word`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add dispositivo/ && git commit -m "feat: adiciona detecção da wake word do James com suíte pytest
@@ -750,7 +861,7 @@ O `renderMessageContent` em `App.tsx:21-51` mistura parsing com renderização, 
 - Create: `frontend/src/lib/markdown.test.ts`
 - Modify: `frontend/src/App.tsx:21-51`
 
-- [ ] **Step 1: Instalar o vitest e atualizar a toolchain**
+- [x] **Step 1: Instalar o vitest e atualizar a toolchain**
 
 O Vite instalado é o 3.0.7, de 2022, e o vitest atual exige Vite 5+. Instalar as versões correntes:
 
@@ -760,7 +871,7 @@ cd frontend && npm install -D vitest@latest vite@latest @vitejs/plugin-react@lat
 
 Anotar as versões que caíram (`npm list vite vitest @vitejs/plugin-react`) — se a Task falhar adiante, é a primeira suspeita.
 
-- [ ] **Step 2: Adicionar o script de teste**
+- [x] **Step 2: Adicionar o script de teste**
 
 Em `frontend/package.json`, o bloco `scripts` passa a:
 
@@ -773,7 +884,7 @@ Em `frontend/package.json`, o bloco `scripts` passa a:
   },
 ```
 
-- [ ] **Step 3: Confirmar que o build ainda funciona depois do upgrade**
+- [x] **Step 3: Confirmar que o build ainda funciona depois do upgrade**
 
 ```bash
 cd frontend && npm run build && cd ..
@@ -781,7 +892,7 @@ cd frontend && npm run build && cd ..
 
 Esperado: build conclui e `frontend/dist/` é regenerado. **Se falhar, parar e resolver aqui** — a Task 4 depende de `frontend/dist` existir.
 
-- [ ] **Step 4: Escrever o teste que falha**
+- [x] **Step 4: Escrever o teste que falha**
 
 `frontend/src/lib/markdown.test.ts`:
 
@@ -818,7 +929,7 @@ describe("separarSegmentos", () => {
 });
 ```
 
-- [ ] **Step 5: Rodar e confirmar que falha**
+- [x] **Step 5: Rodar e confirmar que falha**
 
 ```bash
 cd frontend && npm test; cd ..
@@ -826,7 +937,7 @@ cd frontend && npm test; cd ..
 
 Esperado: falha de resolução, `Failed to resolve import "./markdown"`.
 
-- [ ] **Step 6: Escrever a implementação mínima**
+- [x] **Step 6: Escrever a implementação mínima**
 
 `frontend/src/lib/markdown.ts`:
 
@@ -859,6 +970,7 @@ export function separarSegmentos(conteudo: string): Segmento[] {
     const ehLinguagem =
       linhas.length > 1 &&
       primeira !== "" &&
+      /^\w/.test(primeira) &&
       !primeira.includes(" ") &&
       primeira.length < 20;
 
@@ -873,15 +985,26 @@ export function separarSegmentos(conteudo: string): Segmento[] {
 }
 ```
 
-- [ ] **Step 7: Rodar e confirmar que passa**
+> **Nota pós-implementação (commit `33e1eb7`):** a primeira versão não tinha
+> o `/^\w/.test(primeira)`. O `App.tsx` original (pré-extração) exigia que a
+> primeira linha do bloco começasse com caractere de palavra
+> (`/^\s*\w+/.test(lines[0])`); a extração inicial derrubou esse check sem
+> querer, fazendo um cabeçalho tipo `----` ou `===DIFF===` virar "linguagem"
+> por engano e sumir do bloco de código exibido. A revisão de qualidade
+> pegou a regressão comparando com o comportamento original. Código
+> atualizado aqui com o check restaurado.
+
+- [x] **Step 7: Rodar e confirmar que passa**
 
 ```bash
 cd frontend && npm test; cd ..
 ```
 
-Esperado: 4 testes passando.
+Esperado (na primeira implementação): 4 testes passando.
+Depois do fix de fronteira de caractere (`33e1eb7`), passaram a ser **7**
+(mais 3 casos: separador não vira linguagem, blocos consecutivos, crase sem fechamento).
 
-- [ ] **Step 8: Fazer o `App.tsx` usar a função extraída**
+- [x] **Step 8: Fazer o `App.tsx` usar a função extraída**
 
 Substituir todo o corpo de `renderMessageContent` (linhas 21-51 do arquivo original) por:
 
@@ -907,7 +1030,7 @@ E adicionar o import no topo do arquivo:
 import { separarSegmentos } from "./lib/markdown";
 ```
 
-- [ ] **Step 9: Confirmar que o build continua verde**
+- [x] **Step 9: Confirmar que o build continua verde**
 
 ```bash
 cd frontend && npm run build && npm test; cd ..
@@ -915,7 +1038,7 @@ cd frontend && npm run build && npm test; cd ..
 
 Esperado: build conclui e os 4 testes passam.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add frontend/ && git commit -m "refactor: extrai o parser de blocos de código do App.tsx e adiciona vitest
@@ -936,7 +1059,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `internal/armazenamento/postgres/conexao.go`
 - Create: `internal/armazenamento/postgres/conexao_test.go`
 
-- [ ] **Step 1: Criar o `docker-compose.yml`**
+- [x] **Step 1: Criar o `docker-compose.yml`**
 
 Porta 5433 no host de propósito, para não colidir com um Postgres já instalado na 5432. A senha vem do `.env`, não fica no arquivo versionado.
 
@@ -964,7 +1087,7 @@ volumes:
   james_pgdata:
 ```
 
-- [ ] **Step 2: Subir o banco**
+- [x] **Step 2: Subir o banco**
 
 ```bash
 docker compose up -d
@@ -978,7 +1101,7 @@ docker compose ps
 
 Esperado: `james-postgres` com status `Up` e `(healthy)`.
 
-- [ ] **Step 3: Escrever o teste que falha**
+- [x] **Step 3: Escrever o teste que falha**
 
 `internal/armazenamento/postgres/conexao_test.go`:
 
@@ -1028,7 +1151,7 @@ func TestAbrirConectaNoPostgresLocal(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Rodar e confirmar que falha**
+- [x] **Step 4: Rodar e confirmar que falha**
 
 ```bash
 go test ./internal/armazenamento/postgres/ -v
@@ -1036,7 +1159,7 @@ go test ./internal/armazenamento/postgres/ -v
 
 Esperado: falha de compilação, `undefined: Abrir` e `undefined: URLDoAmbiente`.
 
-- [ ] **Step 5: Escrever a implementação mínima**
+- [x] **Step 5: Escrever a implementação mínima**
 
 ```bash
 go get github.com/jackc/pgx/v5/pgxpool
@@ -1087,7 +1210,7 @@ func URLDoAmbiente() string {
 }
 ```
 
-- [ ] **Step 6: Rodar e confirmar que passa**
+- [x] **Step 6: Rodar e confirmar que passa**
 
 ```bash
 go test ./internal/armazenamento/postgres/ -v
@@ -1095,7 +1218,7 @@ go test ./internal/armazenamento/postgres/ -v
 
 Esperado: os dois testes passam. Se `TestAbrirConectaNoPostgresLocal` aparecer como `SKIP`, o `.env` não tem `DATABASE_URL` ou a senha não bate com a do container — corrigir antes de seguir, um skip aqui não conta como verde.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add docker-compose.yml internal/armazenamento/ go.mod go.sum && git commit -m "feat: adiciona PostgreSQL local e a camada de conexão com pgx
@@ -1124,7 +1247,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 > export TS="/c/Program Files/Tailscale/tailscale.exe"
 > ```
 
-- [ ] **Step 1: Confirmar o endereço do tailnet**
+- [x] **Step 1: Confirmar o endereço do tailnet**
 
 ```bash
 "$TS" status
@@ -1144,7 +1267,7 @@ Já levantado em 2026-08-03 — confirmar que segue valendo:
 Anotar também o nome DNS completo do PC (`desktop-dc358rs.<tailnet>.ts.net`),
 necessário no Step 3.
 
-- [ ] **Step 2: Provar que dá para fazer bind só na interface da VPN**
+- [x] **Step 2: Provar que dá para fazer bind só na interface da VPN**
 
 Criar `spike/bind/main.go`:
 
@@ -1190,7 +1313,7 @@ Anotar se respondeu e qual `RemoteAddr` a página mostrou — deve ser
 
 Depois, de outra máquina na LAN de casa que **não** esteja no tailnet, tentar o IP local do PC na porta 8099. **Esperado: recusa de conexão** — é isso que prova que o bind não vazou para a LAN.
 
-- [ ] **Step 3: Verificar a emissão de certificado TLS**
+- [x] **Step 3: Verificar a emissão de certificado TLS**
 
 ```bash
 "$TS" cert --help
@@ -1204,11 +1327,11 @@ Depois, com o nome DNS obtido no Step 1:
 
 Anotar: emitiu? Quais arquivos gerou? Deu erro pedindo habilitar HTTPS no painel do tailnet?
 
-- [ ] **Step 4: Verificar o WebView2 contra HTTPS do tailnet**
+- [x] **Step 4: Verificar o WebView2 contra HTTPS do tailnet**
 
 Com o `wails dev` rodando, abrir o DevTools do WebView2 e navegar até a URL HTTPS do tailnet. Anotar se houve aviso de certificado ou bloqueio de conteúdo misto.
 
-- [ ] **Step 5: Escrever as conclusões**
+- [x] **Step 5: Escrever as conclusões**
 
 Criar `docs/superpowers/spikes/2026-08-03-tailscale.md` com uma seção por pergunta e a resposta observada:
 
@@ -1220,13 +1343,13 @@ Criar `docs/superpowers/spikes/2026-08-03-tailscale.md` com uma seção por perg
 
 Cada resposta acompanhada da saída real do comando. Sem "deve funcionar".
 
-- [ ] **Step 6: Remover o código do spike**
+- [x] **Step 6: Remover o código do spike**
 
 ```bash
 rm -rf spike/
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add docs/superpowers/spikes/ && git commit -m "docs: registra o spike do Tailscale com bind, TLS e WebView2
@@ -1242,23 +1365,24 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 Nada é declarado pronto sem esta task rodar inteira e a saída ser colada.
 
-- [ ] **Step 1: Suíte Go completa**
+- [x] **Step 1: Suíte Go completa**
 
 ```bash
 go vet ./... && go test ./... -v
 ```
 
-Esperado: exit 0. `internal/higiene` com 4 testes verdes, `internal/armazenamento/postgres` com 2 verdes e nenhum SKIP.
+Esperado: exit 0. `internal/higiene` com 7 testes verdes, `internal/armazenamento/postgres` com 3 verdes e nenhum SKIP.
+(Números atualizados em relação à primeira redação deste plano — as suítes cresceram durante correções de revisão: ver notas pós-implementação nas Tasks 5, 6 e 7.)
 
-- [ ] **Step 2: Suíte Python**
+- [x] **Step 2: Suíte Python**
 
 ```bash
 cd dispositivo && python -m pytest -v; cd ..
 ```
 
-Esperado: 12 testes verdes.
+Esperado: 15 testes verdes (número atualizado — ver nota na Task 5).
 
-- [ ] **Step 3: Suíte TypeScript**
+- [x] **Step 3: Suíte TypeScript**
 
 ```bash
 cd frontend && npm test; cd ..
@@ -1266,7 +1390,7 @@ cd frontend && npm test; cd ..
 
 Esperado: 4 testes verdes.
 
-- [ ] **Step 4: O app legado ainda sobe**
+- [x] **Step 4: O app legado ainda sobe**
 
 ```bash
 go build -o /dev/null .
@@ -1274,7 +1398,7 @@ go build -o /dev/null .
 
 Esperado: exit 0.
 
-- [ ] **Step 5: Histórico do git limpo**
+- [x] **Step 5: Histórico do git limpo**
 
 ```bash
 git log -p | grep -cE "AIza[S]y|tvly[-]|nvapi[-]|sk-or-[v]1-"
@@ -1282,11 +1406,11 @@ git log -p | grep -cE "AIza[S]y|tvly[-]|nvapi[-]|sk-or-[v]1-"
 
 Esperado: `0`.
 
-- [ ] **Step 6: Revisão do diff**
+- [x] **Step 6: Revisão do diff**
 
 Rodar `/code-review` e `/security-review` sobre o branch. Tratar os achados antes de declarar a fase encerrada.
 
-- [ ] **Step 7: Atualizar o plano**
+- [x] **Step 7: Atualizar o plano**
 
 Marcar as checkboxes concluídas neste arquivo, anotar o que ficou aberto, e commitar.
 
@@ -1322,3 +1446,64 @@ Os critérios 5, 6, 7, 8 e 9 da spec que dependem do `jamesd` rodando pertencem 
 Ele foi movido para a Fase 1. Criá-lo agora produziria um arquivo de configuração
 que nenhum código lê — placeholder disfarçado. Ele nasce junto com o pacote
 `internal/config`, que é quem o consome.
+
+---
+
+## Status final — 2026-08-04
+
+**Fase encerrada. Todas as 9 tasks (mais a 3.5, descoberta em execução)
+concluídas, revisadas em duas etapas cada (conformidade + qualidade), e a
+verificação final (Task 9) rodou inteira com evidência fresca.**
+
+### Evidência da verificação final
+
+| Verificação | Resultado |
+|---|---|
+| `go vet ./...` | limpo |
+| `go test ./... -v` | `internal/higiene` 7/7, `internal/armazenamento/postgres` 3/3, sem SKIP |
+| `python -m pytest -v` (`dispositivo/`) | 15/15 |
+| `npm test` (`frontend/`) | 7/7 |
+| `go build -o /dev/null .` | exit 0 |
+| `git log -p \| grep -cE "AIza[S]y\|tvly[-]\|nvapi[-]\|sk-or-[v]1-"` | `0` |
+| Revisão de segurança do branch completo | aprovado, zero achado Crítico/Alto |
+| Revisão de qualidade do branch completo | aprovado, zero achado Crítico/Importante |
+| `docker compose ps` | `james-postgres` Up (healthy) |
+
+Histórico final: 11 commits, de `6f18fa8` (inicial) a `9793f78` (spike do
+Tailscale), passando por três correções descobertas em execução (`.env`
+derrubando a guarda de higiene, falso positivo de substring na wake word,
+regressão na detecção de linguagem do parser) — todas com teste TDD e
+commit próprio antes de seguir adiante.
+
+### O que ficou aberto (não bloqueia a fase, entra como backlog)
+
+1. **Cobertura genérica da guarda de higiene.** `internal/higiene` só detecta
+   os quatro prefixos de credencial que já circularam neste projeto (Gemini,
+   Tavily, NVIDIA, OpenRouter). Não cobre senha genérica em string de conexão
+   (`postgres://user:senha@...`), nem formatos de mercado como AWS
+   (`AKIA...`), GitHub (`ghp_...`), Slack (`xox...`), JWT ou chave privada
+   PEM. Achado da revisão de segurança final: como a Fase 1 vai fazer
+   `DATABASE_URL` circular de verdade em código e documentação, esse é o
+   próximo lugar óbvio onde a guarda poderia falhar em pegar um segredo real.
+   Vale reforçar a lista de padrões antes ou durante a Fase 1.
+
+2. **Critério para "correção descoberta em execução" virar seção documentada
+   no plano.** A correção do `.env` ganhou uma seção formal (Task 3.5, com
+   teste e commit documentados passo a passo); as outras duas (`ba338a8`,
+   `33e1eb7`) só existem como commits soltos no `git log`, sem seção
+   equivalente — tratamento inconsistente registrado pela revisão final.
+   Não foi corrigido retroativamente neste plano (só os blocos de código
+   desatualizados foram atualizados, com nota explicando a divergência).
+   Vale definir o critério antes da Fase 1, que provavelmente vai descobrir
+   mais correções deste tipo pelo caminho.
+
+3. **Confirmação do WebView2 real.** O spike do Tailscale validou HTTPS
+   contra um motor Chromium genérico, não contra o WebView2 dentro do shell
+   Wails de verdade (que ainda não existe). Evidência forte de que vai
+   funcionar sem fricção, mas não é confirmação definitiva — refazer esse
+   teste específico quando o shell da Fase 1 existir.
+
+### Próximo passo
+
+Fase 1 (núcleo: `jamesd`, `Provider`, ferramentas, permissão, API, memória,
+TTS entregue ao cliente) ganha plano próprio, partindo desta fundação.
