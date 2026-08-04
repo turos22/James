@@ -2876,6 +2876,29 @@ func TestMensagemRepositorioRespeitaLimite(t *testing.T) {
 		t.Fatalf("esperava 2 mensagens (limite), vieram %d", len(lista))
 	}
 }
+
+func TestMensagemRepositorioSalvarAtualizaSessao(t *testing.T) {
+	pool := abrirPoolMigrado(t)
+	sessoes := NovoSessaoRepositorio(pool)
+	mensagens := NovoMensagemRepositorio(pool)
+
+	sessao, err := sessoes.Criar(context.Background(), "sessão pra checar atualizada_em")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão de apoio: %v", err)
+	}
+
+	if _, err := mensagens.Salvar(context.Background(), sessao.ID, "usuario", "oi", nil); err != nil {
+		t.Fatalf("Salvar devolveu erro: %v", err)
+	}
+
+	atualizada, err := sessoes.BuscarPorID(context.Background(), sessao.ID)
+	if err != nil {
+		t.Fatalf("BuscarPorID devolveu erro: %v", err)
+	}
+	if !atualizada.AtualizadaEm.After(sessao.AtualizadaEm) {
+		t.Errorf("AtualizadaEm = %v, esperava depois da criação (%v) — Salvar deveria bater a sessão", atualizada.AtualizadaEm, sessao.AtualizadaEm)
+	}
+}
 ```
 
 - [ ] **Step 7: Rodar e confirmar falha**
@@ -2916,7 +2939,10 @@ func NovoMensagemRepositorio(pool *pgxpool.Pool) *MensagemRepositorio {
 	return &MensagemRepositorio{pool: pool}
 }
 
-// Salvar grava uma mensagem. chamadas pode ser nil (mensagem sem chamada de
+// Salvar grava uma mensagem e atualiza sessoes.atualizada_em — sem isso a
+// coluna nunca mudaria depois da criação da sessão, e Listar() (que ordena
+// por atualizada_em DESC) na prática ordenaria por criação, não por
+// atividade recente. chamadas pode ser nil (mensagem sem chamada de
 // ferramenta) — vira NULL em chamadas JSONB.
 func (r *MensagemRepositorio) Salvar(ctx context.Context, sessaoID uuid.UUID, papel, conteudo string, chamadas []byte) (Mensagem, error) {
 	var m Mensagem
@@ -2928,6 +2954,11 @@ func (r *MensagemRepositorio) Salvar(ctx context.Context, sessaoID uuid.UUID, pa
 	if err != nil {
 		return Mensagem{}, fmt.Errorf("erro ao salvar mensagem: %w", err)
 	}
+
+	if _, err := r.pool.Exec(ctx, `UPDATE sessoes SET atualizada_em = now() WHERE id = $1`, sessaoID); err != nil {
+		return Mensagem{}, fmt.Errorf("erro ao atualizar sessão: %w", err)
+	}
+
 	return m, nil
 }
 
