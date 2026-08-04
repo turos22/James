@@ -36,6 +36,7 @@ func TestResolverPerfil(t *testing.T) {
 	}{
 		{"loopback IPv4 é privilegiado", "127.0.0.1:54321", Privilegiado},
 		{"loopback IPv6 é privilegiado", "[::1]:54321", Privilegiado},
+		{"loopback IPv4-mapeado-em-IPv6 é privilegiado", "[::ffff:127.0.0.1]:54321", Privilegiado},
 		{"IP do tailnet é restrito", "100.96.219.29:54321", Restrito},
 		{"IP de LAN é restrito", "192.168.15.23:54321", Restrito},
 		{"endereço malformado é restrito por padrão (fail closed)", "não-é-um-endereço", Restrito},
