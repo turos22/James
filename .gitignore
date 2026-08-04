@@ -1,0 +1,37 @@
+# Segredos
+.env
+
+# Binários e artefatos de build
+*.exe
+build/bin/
+frontend/dist/
+frontend/package.json.md5
+
+# Dependências
+node_modules/
+__pycache__/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Bibliotecas nativas pesadas — baixadas à parte, não versionadas
+*.dll
+*.lib
+vosk/
+TTs/
+
+# Banco legado (migrado para Postgres na Fase 1)
+Athena.db
+Athena.db-shm
+Athena.db-wal
+
+# Histórico diário de conversa (mesma razão do Athena.db acima:
+# dado pessoal, não pertence ao repositório)
+Vault/Logs_Diarios/
+
+# Áudio gerado pelo TTS. Os assets do agente de dispositivo
+# (entrada.mp3, faaah.wav, um_minuto.mp3) continuam versionados.
+audios/audio_jarvis.mp3
+
+# Material de referência de terceiros (obsidian.py é insumo da Fase 4)
+arquivos do Gui/
