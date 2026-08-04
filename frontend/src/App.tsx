@@ -4,6 +4,7 @@ import { AlternarJanela, PerguntaAi } from "../wailsjs/go/main/App";
 // Importe a função de escuta de eventos do runtime do Wails
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import qfLogo from "./assets/images/QF.png";
+import { separarSegmentos } from "./lib/markdown";
 
 interface Message {
   role: "user" | "Athena";
@@ -18,37 +19,16 @@ function App() {
   ]);
   const [isTyping, setIsTyping] = useState(false);
 
-  const renderMessageContent = (content: string): string | Array<string | JSX.Element> => {
-    const parts = content.split(/```/g);
-    if (parts.length === 1) {
-      return parts[0];
-    }
-    const elements: Array<string | JSX.Element> = [];
-    parts.forEach((part, index) => {
-      if (index % 2 === 0) {
-        if (part.trim() !== '') {
-          elements.push(part);
-        }
-      } else {
-        const lines = part.split('\n');
-        let language = '';
-        let code = part;
-        if (lines.length > 1 && /^\s*\w+/.test(lines[0])) {
-          const possibleLang = lines[0].trim();
-          if (possibleLang && !possibleLang.includes(' ') && possibleLang.length < 20) {
-            language = possibleLang;
-            code = lines.slice(1).join('\n');
-          }
-        }
-        elements.push(
-          <pre className="code-block" key={index}>
-            <code className={language}>{code}</code>
-          </pre>
-        );
-      }
-    });
-    return elements;
-  };
+  const renderMessageContent = (content: string) =>
+    separarSegmentos(content).map((segmento, indice) =>
+      segmento.tipo === "texto" ? (
+        <span key={indice}>{segmento.conteudo}</span>
+      ) : (
+        <pre className="code-block" key={indice}>
+          <code className={segmento.linguagem}>{segmento.conteudo}</code>
+        </pre>
+      )
+    );
 
   const processarMensagem = async (texto: string) => {
     if (texto.trim() === "") return;
