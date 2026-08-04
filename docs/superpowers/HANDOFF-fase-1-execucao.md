@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 16 de 25 tasks fechadas
+## Estado exato: 17 de 25 tasks fechadas
 
-HEAD do worktree: `e4f7783` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `105ebd0` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -38,8 +38,8 @@ HEAD do worktree: `e4f7783` (branch `worktree-fase-1-nucleo`).
 | 14 | `internal/memoria` | ✅ fechada |
 | 15 | `internal/voz` | ✅ fechada |
 | 16 | `internal/api` REST | ✅ fechada |
-| **17** | **`internal/api` WS clientes + aprovação** | 🔶 **próxima — não começada** |
-| 18 | `internal/api` WS dispositivo | pendente |
+| 17 | `internal/api` WS clientes + aprovação | ✅ fechada (commits `abccca9` implementação + `105ebd0` fix pós-revisão) |
+| **18** | **`internal/api` WS dispositivo** | 🔶 **próxima — não começada** |
 | 19 | `prompts/sistema.md` + `cmd/jamesd` | pendente |
 | 20 | `cmd/migrar-historico` | pendente |
 | 21 | `james_device/conexao.py` | pendente |
@@ -134,14 +134,58 @@ falta de índice em `aprovacoes(sessao_id)`, etc.) — releia essa seção antes
 de decidir se algum desses vale resolver agora ou fica mesmo pro fechamento
 (Task 25) ou pra Fase 3.
 
+## Task 17 — o que ficou registrado pra quem ler depois
+
+Fechada com o ciclo completo (implementador → revisor de spec ✅ compliant →
+revisor de qualidade achou 1 Critical + 2 Important → fix aplicado direto por
+mim, sem novo subagente implementador → revisor de qualidade re-rodou e deu
+"Ready to merge: Yes"). Os achados corrigidos, todos reais e testados contra
+Postgres de verdade (não teatro):
+- **Critical**: desconexão do cliente (`ctx.Done()`) durante uma aprovação
+  pendente nunca gravava o estado final no banco — ficava `pendente` pra
+  sempre. Corrigido chamando `Aprovacoes.Decidir(context.Background(), ...,
+  "expirada")` nesse branch (precisa de `context.Background()` porque o `ctx`
+  original já está cancelado).
+- **Important**: tanto o branch de timeout quanto o de desconexão vazavam a
+  entrada em `registroAprovacoesPendentes.canais` pra sempre (só `resolver()`
+  limpava, e só é chamado quando "aprovar"/"negar" chega). Corrigido com um
+  novo método `remover(id)`.
+- **Important**: `BroadcastAprovacaoRequerida` segurava o mutex do hub durante
+  escrita bloqueante no socket — um cliente com socket travado bloquearia
+  Registrar/Remover de todas as outras conexões. Corrigido com snapshot da
+  lista sob lock + escrita fora do lock, e `SetWriteDeadline(5s)` em
+  `conexaoCliente.Enviar` como cinto e suspensório.
+
+Testes novos que provam os fixes (Postgres real, sem skip):
+`TestCriarSolicitarAprovacaoExpiraELimpaAoEstourarTimeout` e
+`TestCriarSolicitarAprovacaoExpiraELimpaAoDesconectar`
+(`internal/api/criar_solicitar_aprovacao_test.go`), mais
+`TestRemoverDescartaEntradaSemVazarNoMapa`/`TestRemoverIDDesconhecidoNaoQuebra`.
+
+**Ressalvas de robustez registradas pelo revisor (não bloqueiam, ficam pro
+backlog da fase — seção "Backlog acumulado" abaixo)**:
+- O `Decidir(context.Background(), ...)` no branch de desconexão não tem
+  timeout próprio — se o Postgres estiver lento nesse instante, essa limpeza
+  pode travar sem bound (diferente do branch de timeout normal, que ainda usa
+  o `ctx` original válido).
+- `ws.go` faz `defer conn.Close()` direto no `*websocket.Conn`, fora do mutex
+  `conexaoCliente.mu` que serializa as escritas — o gorilla/websocket exige
+  um único escritor concorrente incluindo `Close`, então existe uma race
+  teórica entre um `Enviar` em andamento (via broadcast) e o `Close` no fim
+  da conexão. Pré-existente, não introduzida por este fix, não avaliada como
+  bloqueante.
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 17: `internal/api` — WebSocket de clientes, aprovação e integração
-com o agente", copiar o texto completo, e dispatchar o subagente implementador
-seguindo o workflow acima. Essa é a task mais complexa do lote restante
-(envelope WS, `ClientesHub`, fila de aprovações pendentes, `processarTurno`
-compartilhado com a Task 18) — dar contexto extra sobre o que as Tasks
-13-16 já entregam (repositórios reais, `Servidor` de Task 16 que essa task
-estende) e sobre o que a Task 18 vai reusar de `processarTurno` (não
-implementar Task 18 agora, só deixar a função pronta pra ser reusada).
+"## Task 18: `internal/api/dispositivo.go` — endpoint WS do `james-device`",
+copiar o texto completo, e dispatchar o subagente implementador seguindo o
+workflow acima. Essa task fecha o outro lado da ponte com o `james-device`:
+reusa `processarTurno` (já pronto, entregue pela Task 17) para transformar
+`entrada_voz` numa conversa completa, com a resposta indo pros clientes
+Privilegiado via `BroadcastParaPrivilegiados` (novo método a implementar em
+`ClientesHub`, mesmo padrão de `BroadcastAprovacaoRequerida` mas sem o filtro
+condicional — todo evento originado do device vai só pra Privilegiado, nunca
+pra Restrito). Dar contexto extra sobre a forma final de `criarSolicitarAprovacao`
+e `processarTurno` (ambos em `internal/api/ws.go`) já que Task 18 reusa os
+dois sem modificar a assinatura.
