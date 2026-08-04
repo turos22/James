@@ -51,6 +51,7 @@ var extensoesIgnoradas = map[string]bool{
 // varredura por conterem segredo local por design. .env é o exemplo central:
 // já está protegido pelo .gitignore e nunca é commitado — a guarda existe
 // para impedir COMMIT de segredo, não para exigir zero segredo em disco.
+// Match exato de nome — .env.production ou .env.local continuam sendo varridos.
 var arquivosIgnorados = map[string]bool{
 	".env": true,
 }
@@ -76,7 +77,7 @@ func Varrer(raiz string) ([]Achado, error) {
 		if extensoesIgnoradas[strings.ToLower(filepath.Ext(caminho))] {
 			return nil
 		}
-		if arquivosIgnorados[entrada.Name()] {
+		if arquivosIgnorados[strings.ToLower(entrada.Name())] {
 			return nil
 		}
 

@@ -100,6 +100,23 @@ func TestVarrerIgnoraArquivoEnv(t *testing.T) {
 	}
 }
 
+func TestVarrerNaoIgnoraArquivoParecidoComEnv(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, ".env.production")
+	if err := os.WriteFile(arquivo, []byte("TAVILY_API_KEY="+chaveFalsa()), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Errorf(".env.production não é .env — a exclusão é por nome exato, "+
+			"este arquivo deveria continuar sendo varrido; vieram %d achados: %+v", len(achados), achados)
+	}
+}
+
 // TestRepositorioLimpo é a guarda de verdade: falha enquanto existir
 // qualquer credencial conhecida na árvore do projeto.
 func TestRepositorioLimpo(t *testing.T) {
