@@ -47,6 +47,14 @@ func TestRegistrarRejeitaNomeDuplicado(t *testing.T) {
 	}
 }
 
+func TestRegistrarNulaDevolveErroSemPanic(t *testing.T) {
+	r := NovoRegistro()
+
+	if err := r.Registrar(nil); err == nil {
+		t.Fatal("esperava erro ao registrar ferramenta nula, veio nil")
+	}
+}
+
 func TestBuscarNomeInexistenteDevolveFalse(t *testing.T) {
 	r := NovoRegistro()
 	_, ok := r.Buscar("não-existe")

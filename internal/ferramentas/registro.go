@@ -25,6 +25,10 @@ func (r *registro) Registrar(f Ferramenta) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if f == nil {
+		return fmt.Errorf("ferramenta nula não pode ser registrada")
+	}
+
 	nome := f.Declaracao().Nome
 	if nome == "" {
 		return fmt.Errorf("ferramenta sem nome não pode ser registrada")
