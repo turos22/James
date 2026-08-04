@@ -4,6 +4,7 @@ O STT em português transcreve "James" de várias formas. Esta função
 normaliza o que foi ouvido e compara contra a lista de variantes.
 """
 
+import re
 import unicodedata
 
 # Variantes com que o STT em português costuma transcrever "James".
@@ -26,8 +27,11 @@ def normalizar(texto: str) -> str:
 
 
 def contem_wake_word(texto: str, variantes: list[str] | None = None) -> bool:
-    """Informa se o texto ouvido contém alguma variante da wake word."""
+    """Informa se o texto ouvido contém alguma variante da wake word como palavra isolada."""
     if variantes is None:
         variantes = VARIANTES_PADRAO
     normalizado = normalizar(texto)
-    return any(normalizar(v) in normalizado for v in variantes)
+    return any(
+        re.search(rf"\b{re.escape(normalizar(v))}\b", normalizado)
+        for v in variantes
+    )

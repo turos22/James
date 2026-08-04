@@ -15,7 +15,10 @@ def test_reconhece_variantes_da_wake_word(ouvido):
     assert contem_wake_word(ouvido) is True
 
 
-@pytest.mark.parametrize("ouvido", ["athena", "bom dia", "", "jazz", "gosto de games"])
+@pytest.mark.parametrize(
+    "ouvido",
+    ["athena", "bom dia", "", "jazz", "gosto de games", "hyperjames", "ohjamesboy", "jaimesabe"],
+)
 def test_ignora_texto_sem_wake_word(ouvido):
     assert contem_wake_word(ouvido) is False
 
