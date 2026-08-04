@@ -128,3 +128,112 @@ func TestRepositorioLimpo(t *testing.T) {
 		t.Errorf("credencial encontrada: %s (padrão %q)", a.Arquivo, a.Padrao)
 	}
 }
+
+func TestVarrerAcusaConnectionStringComSenha(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "config_real.toml")
+	conteudo := "url = \"" + "postgres" + "://james:" + "SegredoReal123" + "@localhost:5433/james\""
+	if err := os.WriteFile(arquivo, []byte(conteudo), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("esperava 1 achado de connection string, vieram %d: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerAcusaAWSAccessKey(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "notas.txt")
+	chave := "AKIA" + "IOSFODNN7EXAMPLE"
+	if err := os.WriteFile(arquivo, []byte(chave), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("esperava 1 achado de AWS key, vieram %d: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerAcusaTokenGitHub(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "notas.txt")
+	token := "ghp_" + "000000000000000000000000000000000000"
+	if err := os.WriteFile(arquivo, []byte(token), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("esperava 1 achado de token GitHub, vieram %d: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerAcusaJWT(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "notas.txt")
+	jwt := "eyJhbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0" + "." + "dGVzdHNpZ25hdHVyZQ"
+	if err := os.WriteFile(arquivo, []byte(jwt), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("esperava 1 achado de JWT, vieram %d: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerAcusaBlocoPEM(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, "chave.txt")
+	// Quebrado em duas literais pra não bater no próprio regex de PEM
+	// quando este arquivo de teste é varrido por TestRepositorioLimpo —
+	// mesmo espírito de chaveFalsa() acima.
+	pem := "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIExemplo\n-----END RSA PRIVATE KEY-----"
+	if err := os.WriteFile(arquivo, []byte(pem), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 1 {
+		t.Fatalf("esperava 1 achado de bloco PEM, vieram %d: %+v", len(achados), achados)
+	}
+}
+
+func TestVarrerIgnoraEnvExample(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, ".env.example")
+	// Quebrado em mais literais que o necessário pro conteúdo em si (o
+	// arquivo .env.example é ignorado por nome de qualquer forma), mas
+	// assim o texto-fonte deste teste não bate no próprio regex de
+	// connection-string quando TestRepositorioLimpo varre este arquivo.
+	conteudo := "DATABASE_URL=" + "postgres" + "://james:" + "SENHA@localhost:5433/james"
+	if err := os.WriteFile(arquivo, []byte(conteudo), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf(".env.example é template, deveria ser ignorado; vieram %d achados: %+v", len(achados), achados)
+	}
+}

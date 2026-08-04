@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -28,6 +29,19 @@ var padroes = []string{
 	"sk-or-" + "v1-", // OpenRouter
 }
 
+// padroesRegex cobre segredos sem prefixo fixo — precisam de forma, não
+// substring. Cada entrada carrega um nome descritivo pro Achado.
+var padroesRegex = []struct {
+	nome   string
+	padrao *regexp.Regexp
+}{
+	{"connection-string-com-senha", regexp.MustCompile(`://[^:/@\s]+:[^:/@\s]+@`)},
+	{"aws-access-key", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
+	{"token-github", regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}`)},
+	{"jwt", regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)},
+	{"chave-privada-pem", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
+}
+
 // diretoriosIgnorados nunca entram na varredura: são dependências de
 // terceiros ou artefatos de build que não versionamos.
 var diretoriosIgnorados = map[string]bool{
@@ -36,6 +50,10 @@ var diretoriosIgnorados = map[string]bool{
 	"TTs":          true,
 	"vosk":         true,
 	"dist":         true,
+	"docs":         true, // specs/planos mostram formato de connection
+	// string como exemplo (placeholder tipo "SENHA"), não segredo real —
+	// o risco de verdade (config.toml, .env, código-fonte, binário
+	// compilado) continua coberto fora de docs/
 }
 
 // extensoesIgnoradas pula bibliotecas nativas de terceiros. São 68 MB de
@@ -53,7 +71,8 @@ var extensoesIgnoradas = map[string]bool{
 // para impedir COMMIT de segredo, não para exigir zero segredo em disco.
 // Match exato de nome — .env.production ou .env.local continuam sendo varridos.
 var arquivosIgnorados = map[string]bool{
-	".env": true,
+	".env":         true,
+	".env.example": true,
 }
 
 // Varrer percorre raiz recursivamente e devolve toda ocorrência de
@@ -91,6 +110,11 @@ func Varrer(raiz string) ([]Achado, error) {
 		for _, padrao := range padroes {
 			if bytes.Contains(conteudo, []byte(padrao)) {
 				achados = append(achados, Achado{Arquivo: caminho, Padrao: padrao})
+			}
+		}
+		for _, pr := range padroesRegex {
+			if pr.padrao.Match(conteudo) {
+				achados = append(achados, Achado{Arquivo: caminho, Padrao: pr.nome})
 			}
 		}
 		return nil
