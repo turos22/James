@@ -26,6 +26,7 @@ export function separarSegmentos(conteudo: string): Segmento[] {
     const ehLinguagem =
       linhas.length > 1 &&
       primeira !== "" &&
+      /^\w/.test(primeira) &&
       !primeira.includes(" ") &&
       primeira.length < 20;
 

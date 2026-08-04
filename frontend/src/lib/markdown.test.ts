@@ -27,4 +27,24 @@ describe("separarSegmentos", () => {
       { tipo: "codigo", linguagem: "", conteudo: "isto é código\nmais\n" },
     ]);
   });
+
+  it("não trata linha de separador/cabeçalho como linguagem", () => {
+    expect(separarSegmentos("```----\ncodigo aqui\n```")).toEqual([
+      { tipo: "codigo", linguagem: "", conteudo: "----\ncodigo aqui\n" },
+    ]);
+  });
+
+  it("trata blocos de código consecutivos como segmentos distintos", () => {
+    expect(separarSegmentos("```py\ncode1\n``````go\ncode2\n```")).toEqual([
+      { tipo: "codigo", linguagem: "py", conteudo: "code1\n" },
+      { tipo: "codigo", linguagem: "go", conteudo: "code2\n" },
+    ]);
+  });
+
+  it("degrada bem quando a crase tripla não fecha", () => {
+    const resultado = separarSegmentos("```py\ncode sem fechar");
+    expect(resultado).toEqual([
+      { tipo: "codigo", linguagem: "py", conteudo: "code sem fechar" },
+    ]);
+  });
 });
