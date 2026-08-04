@@ -114,60 +114,48 @@ func TestEnviarAcaoEstouraTimeoutSemResposta(t *testing.T) {
 
 // TestResolverResultadoDuploMesmoIdNaoTrava cobre o cenário de um device com
 // bug (ou frame duplicado na rede) mandando dois resultado_acao pro mesmo
-// id: o primeiro resolve EnviarAcao, o segundo tem que ser um no-op —
-// jamais travar. No endpoint WS real (Task 18), ResolverResultado roda
-// dentro da única goroutine que lê a conexão; travar aqui travaria a
-// leitura da conexão inteira.
+// id: o primeiro resolve, o segundo tem que ser um no-op — jamais travar.
+// No endpoint WS real (Task 18), ResolverResultado roda dentro da única
+// goroutine que lê a conexão; travar aqui travaria a leitura inteira.
+//
+// Deliberadamente não usa EnviarAcao/goroutine concorrente pra montar o
+// canal pendente — depender de duas goroutines correndo pra forçar a janela
+// de corrida é não-determinístico (o agendador do Go costuma drenar o
+// primeiro valor rápido demais pro segundo send nunca chegar a bloquear,
+// mesmo contra a versão com bug). Em vez disso, o teste é a própria
+// package `dispositivo`, então monta o estado "pendente" direto no mapa
+// interno — reproduz o cenário de forma determinística: ninguém nunca vai
+// ler do canal, então uma segunda chamada que tente mandar pra ele sem
+// checar se já foi resolvido trava pra sempre, sem depender de sorte de
+// escalonamento.
 func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
 	h := NovoHub()
-	conexao := &conexaoFalsa{}
-	h.Registrar(conexao)
-
-	type resultado struct {
-		saida string
-		err   error
-	}
-	saidaCh := make(chan resultado, 1)
-	go func() {
-		saida, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click"})
-		saidaCh <- resultado{saida, err}
-	}()
-
-	var id string
-	for {
-		primeiro, ok := conexao.primeiroEnviado()
-		if ok {
-			var envelope map[string]any
-			_ = json.Unmarshal(primeiro, &envelope)
-			id = envelope["id"].(string)
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
+	const id = "id-de-teste"
+	espera := make(chan resultadoAcao, 1)
+	h.mu.Lock()
+	h.pendentes[id] = espera
+	h.mu.Unlock()
 
 	feito := make(chan struct{})
 	go func() {
 		h.ResolverResultado(id, "primeiro", "")
-		h.ResolverResultado(id, "segundo", "") // frame duplicado — tem que ser no-op
+		h.ResolverResultado(id, "segundo", "") // pendente já devia ter sido removido — tem que ser no-op
 		close(feito)
 	}()
 
 	select {
 	case <-feito:
 	case <-time.After(2 * time.Second):
-		t.Fatal("ResolverResultado duplicado travou (deveria ser no-op não-bloqueante)")
+		t.Fatal("segunda chamada a ResolverResultado travou (deveria ser no-op não-bloqueante, já que o pendente já foi resolvido)")
 	}
 
 	select {
-	case r := <-saidaCh:
-		if r.err != nil {
-			t.Fatalf("EnviarAcao devolveu erro: %v", r.err)
-		}
+	case r := <-espera:
 		if r.saida != "primeiro" {
-			t.Errorf("saida = %q, queria %q (só a primeira resolução deve valer)", r.saida, "primeiro")
+			t.Errorf("valor entregue no canal = %+v, queria saida=primeiro (só a primeira resolução deve valer)", r)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("EnviarAcao não terminou a tempo")
+	default:
+		t.Fatal("esperava que a primeira chamada a ResolverResultado tivesse mandado o resultado pro canal")
 	}
 }
 
