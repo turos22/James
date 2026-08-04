@@ -167,11 +167,19 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 			}
 			return aprovado, nil
 		case <-time.After(s.TimeoutAprovacao):
+			s.AprovacoesPendentes.remover(aprovacao.ID.String())
 			if err := s.Aprovacoes.Decidir(ctx, aprovacao.ID, "expirada"); err != nil {
 				slog.Error("erro ao expirar aprovação", "erro", err)
 			}
 			return false, nil
 		case <-ctx.Done():
+			// ctx já foi cancelado (cliente desconectou) — precisa de um
+			// contexto novo pra ainda conseguir gravar o estado final; sem
+			// isso a aprovação ficaria "pendente" pra sempre no banco.
+			s.AprovacoesPendentes.remover(aprovacao.ID.String())
+			if err := s.Aprovacoes.Decidir(context.Background(), aprovacao.ID, "expirada"); err != nil {
+				slog.Error("erro ao expirar aprovação por desconexão", "erro", err)
+			}
 			return false, ctx.Err()
 		}
 	}

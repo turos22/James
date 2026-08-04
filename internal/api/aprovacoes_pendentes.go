@@ -34,3 +34,12 @@ func (r *registroAprovacoesPendentes) resolver(id string, aprovado bool) bool {
 	c <- aprovado
 	return true
 }
+
+// remover descarta a entrada pendente sem entregar decisão — usado quando
+// quem chamou aguardar() desiste (timeout ou desconexão do cliente) antes
+// de "aprovar"/"negar" chegar, pra não vazar a entrada do mapa pra sempre.
+func (r *registroAprovacoesPendentes) remover(id string) {
+	r.mu.Lock()
+	delete(r.canais, id)
+	r.mu.Unlock()
+}
