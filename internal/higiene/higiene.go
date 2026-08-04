@@ -47,6 +47,14 @@ var extensoesIgnoradas = map[string]bool{
 	".lib": true,
 }
 
+// arquivosIgnorados são nomes de arquivo (não caminho) que ficam de fora da
+// varredura por conterem segredo local por design. .env é o exemplo central:
+// já está protegido pelo .gitignore e nunca é commitado — a guarda existe
+// para impedir COMMIT de segredo, não para exigir zero segredo em disco.
+var arquivosIgnorados = map[string]bool{
+	".env": true,
+}
+
 // Varrer percorre raiz recursivamente e devolve toda ocorrência de
 // credencial conhecida, inclusive dentro de binários compilados.
 func Varrer(raiz string) ([]Achado, error) {
@@ -66,6 +74,9 @@ func Varrer(raiz string) ([]Achado, error) {
 			return nil
 		}
 		if extensoesIgnoradas[strings.ToLower(filepath.Ext(caminho))] {
+			return nil
+		}
+		if arquivosIgnorados[entrada.Name()] {
 			return nil
 		}
 

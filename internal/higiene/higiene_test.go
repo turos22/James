@@ -83,6 +83,23 @@ func TestVarrerIgnoraExtensaoDeBibliotecaNativa(t *testing.T) {
 	}
 }
 
+func TestVarrerIgnoraArquivoEnv(t *testing.T) {
+	raiz := t.TempDir()
+	arquivo := filepath.Join(raiz, ".env")
+	if err := os.WriteFile(arquivo, []byte("TAVILY_API_KEY="+chaveFalsa()), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf(".env deveria ser ignorado — é onde segredo local mora por design, "+
+			"e já está protegido pelo .gitignore; vieram %d achados: %+v", len(achados), achados)
+	}
+}
+
 // TestRepositorioLimpo é a guarda de verdade: falha enquanto existir
 // qualquer credencial conhecida na árvore do projeto.
 func TestRepositorioLimpo(t *testing.T) {
