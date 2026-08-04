@@ -6418,8 +6418,8 @@ git commit -m "feat: jamesd serve a SPA embutida; shell vira invólucro Wails m�
 ## Task 25: Remoção do código morto e fechamento da Fase 1
 
 **Files:**
-- Delete: `app.go`, `database.go`, `main.go` (raiz), `processador_voz.py`
-- Delete: `TTs/`, `vosk/`, `libvosk.dll`, `libvosk.lib`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`, `vosk_api.h`, `run_athena.bat`
+- Delete (rastreados pelo git — `git rm` funciona): `app.go`, `database.go`, `main.go` (raiz), `processador_voz.py`, `run_athena.bat`, `vosk_api.h`
+- **Não rastreados, nada a fazer no git:** `TTs/`, `vosk/`, `libvosk.dll`, `libvosk.lib`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll` já estão em `.gitignore` desde o primeiro commit da Fase 0 (`git ls-files` confirma: nunca entraram no histórico). Não existem nem dentro deste worktree — `git worktree` só copia arquivo rastreado. Se ainda estiverem cluttering o checkout original do Arthur fora do worktree, é `rm -rf` manual dele, fora do escopo desta task (não é operação de git)
 - Keep: `rodar_claude.ps1` (ainda usado por `ferramentas.ClaudeCode`, caminho relativo à raiz do repo — `jamesd` continua rodando a partir daí)
 - Keep: `Athena.db`, `Athena.db-shm`, `Athena.db-wal` no disco (fonte de dados do `cmd/migrar-historico` — não apagar, só continuam fora do git via `.gitignore` já existente da Fase 0)
 - Keep: `Vault/` intocado (Fase 4)
@@ -6432,13 +6432,13 @@ go build -o /dev/null ./...
 
 Se compilar limpo com `app.go`/`database.go`/`main.go` (raiz) ainda presentes, é sinal de que já estão órfãos (nenhum pacote novo os importa — eles são `package main` na raiz, isolados). Confirmar visualmente que nenhum arquivo novo (`cmd/`, `internal/`) importa símbolos deles antes de apagar.
 
-- [ ] **Step 2: Remover os arquivos mortos**
+- [ ] **Step 2: Remover os arquivos mortos rastreados**
 
 ```bash
 git rm app.go database.go main.go processador_voz.py run_athena.bat vosk_api.h
-git rm -r TTs vosk
-git rm libvosk.dll libvosk.lib libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll
 ```
+
+(`TTs/`, `vosk/` e as DLLs não aparecem em `git ls-files` — não rodar `git rm` neles, vai falhar com "did not match any files" porque nunca foram commitados.)
 
 - [ ] **Step 3: Rodar a suíte inteira**
 
