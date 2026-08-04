@@ -6,16 +6,37 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
+	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
+	"james/internal/memoria"
+	"james/internal/voz"
 )
 
 type Servidor struct {
 	Sessoes        *postgres.SessaoRepositorio
 	Mensagens      *postgres.MensagemRepositorio
+	Aprovacoes     *postgres.AprovacaoRepositorio
 	DiretorioAudio string
+
+	Loop                *agente.Loop
+	Memoria             memoria.Janela
+	SistemaPrompt       string
+	Clientes            *ClientesHub
+	AprovacoesPendentes *registroAprovacoesPendentes
+	TimeoutAprovacao    time.Duration
+	// TimeoutTurno limita cada chamada ao Provider dentro do loop do
+	// agente (R4 — timeout em tudo). Zero desativa o limite (usado nos
+	// testes deste pacote, que não têm rede real pra travar).
+	TimeoutTurno time.Duration
+
+	// Sintetizador é opcional — nil (padrão nos testes) pula a geração de
+	// áudio sem quebrar o turno (spec 4.7, Task 15).
+	Sintetizador *voz.Sintetizador
+	VozTTS       string
 }
 
 func (s *Servidor) Rotas() http.Handler {
@@ -25,6 +46,7 @@ func (s *Servidor) Rotas() http.Handler {
 	mux.HandleFunc("POST /api/sessoes", s.criarSessao)
 	mux.HandleFunc("GET /api/sessoes/{id}/mensagens", s.listarMensagens)
 	mux.HandleFunc("GET /api/audio/{id}", s.servirAudio)
+	mux.HandleFunc("GET /ws", s.ws)
 	return mux
 }
 
