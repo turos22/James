@@ -1330,8 +1330,10 @@ func TestParaGenaiContentsMapeiaPapeis(t *testing.T) {
 	if contents[1].Role != "model" {
 		t.Errorf("contents[1].Role = %q, queria model", contents[1].Role)
 	}
-	if contents[2].Role != "function" {
-		t.Errorf("contents[2].Role = %q, queria function (bug #6 do Anexo A: app.go antigo usava \"tool\")", contents[2].Role)
+	if contents[2].Role != "user" {
+		t.Errorf("contents[2].Role = %q, queria user — a API Gemini não tem role \"function\"; "+
+			"NewContentFromFunctionResponse do SDK usa RoleUser por padrão (corrige o bug #6 do Anexo A, "+
+			"onde o app.go antigo usava \"tool\" sem confirmar se era aceito)", contents[2].Role)
 	}
 }
 
@@ -1445,10 +1447,14 @@ func paraGenaiContents(mensagens []agente.Mensagem) []*genai.Content {
 					Response: map[string]any{"output": saida},
 				}})
 			}
-			// "function" é o role correto pra resposta de tool na API Gemini —
-			// corrige o bug #6 do Anexo A, onde o app.go antigo usava "tool"
-			// sem confirmar se era aceito.
-			contents = append(contents, &genai.Content{Role: "function", Parts: parts})
+			// "user" é o role correto pra resposta de tool na API Gemini —
+			// confirmado contra a doc oficial do SDK via context7
+			// (NewContentFromFunctionResponse: "Defaults to RoleUser if
+			// role is empty", exemplo mostra role="user"). Não existe role
+			// "function" nesta API — isso é de outras APIs (ex.: OpenAI).
+			// Corrige o bug #6 do Anexo A, onde o app.go antigo usava
+			// "tool" sem confirmar se era aceito.
+			contents = append(contents, &genai.Content{Role: "user", Parts: parts})
 		}
 	}
 	return contents
@@ -1585,7 +1591,7 @@ go run ./cmd/smoke-gemini
 
 Criar um `cmd/smoke-gemini/main.go` temporário (não commitado — deletar depois do teste manual) que chama `gemini.Novo` e `Gerar` com uma pergunta simples e imprime `resp.Texto`. Confirmar que:
 1. a resposta chega sem erro
-2. o role `"function"` é aceito pela API quando há uma chamada de ferramenta simulada no histórico (testar com uma `Mensagem` `PapelFerramenta` manual)
+2. o role `"user"` pra `Mensagem` `PapelFerramenta` (resposta de tool) é aceito pela API de verdade num turno com chamada de ferramenta simulada no histórico — a escolha já é respaldada pela doc oficial do SDK (`NewContentFromFunctionResponse` usa `RoleUser` por padrão), mas vale a confirmação empírica contra a API real antes de fechar a fase
 
 Documentar o resultado (colado, não resumido) no PR ou no commit de fechamento da fase.
 

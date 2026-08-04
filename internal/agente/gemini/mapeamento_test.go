@@ -30,8 +30,10 @@ func TestParaGenaiContentsMapeiaPapeis(t *testing.T) {
 	if contents[1].Role != "model" {
 		t.Errorf("contents[1].Role = %q, queria model", contents[1].Role)
 	}
-	if contents[2].Role != "function" {
-		t.Errorf("contents[2].Role = %q, queria function (bug #6 do Anexo A: app.go antigo usava \"tool\")", contents[2].Role)
+	if contents[2].Role != "user" {
+		t.Errorf("contents[2].Role = %q, queria user — a API Gemini não tem role \"function\"; "+
+			"NewContentFromFunctionResponse do SDK usa RoleUser por padrão (corrige o bug #6 do Anexo A, "+
+			"onde o app.go antigo usava \"tool\" sem confirmar se era aceito)", contents[2].Role)
 	}
 }
 

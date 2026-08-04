@@ -38,10 +38,17 @@ func paraGenaiContents(mensagens []agente.Mensagem) []*genai.Content {
 					Response: map[string]any{"output": saida},
 				}})
 			}
-			// "function" é o role correto pra resposta de tool na API Gemini —
-			// corrige o bug #6 do Anexo A, onde o app.go antigo usava "tool"
-			// sem confirmar se era aceito.
-			contents = append(contents, &genai.Content{Role: "function", Parts: parts})
+			// "user" é o role correto pra resposta de tool na API Gemini —
+			// confirmado contra a documentação oficial do SDK
+			// (NewContentFromFunctionResponse: "Defaults to RoleUser if
+			// role is empty", com exemplo mostrando role="user"). Não
+			// existe role "function" nesta API — isso vem de outras APIs
+			// (ex.: OpenAI). Corrige o bug #6 do Anexo A, onde o app.go
+			// antigo usava "tool" sem confirmar se era aceito; a primeira
+			// tentativa de correção deste pacote usou "function" por
+			// suposição e foi corrigida antes de mergear, depois de
+			// verificação contra a doc real via context7.
+			contents = append(contents, &genai.Content{Role: "user", Parts: parts})
 		}
 	}
 	return contents
