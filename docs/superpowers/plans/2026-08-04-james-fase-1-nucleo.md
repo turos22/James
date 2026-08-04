@@ -2939,26 +2939,32 @@ func NovoMensagemRepositorio(pool *pgxpool.Pool) *MensagemRepositorio {
 	return &MensagemRepositorio{pool: pool}
 }
 
-// Salvar grava uma mensagem e atualiza sessoes.atualizada_em — sem isso a
-// coluna nunca mudaria depois da criação da sessão, e Listar() (que ordena
-// por atualizada_em DESC) na prática ordenaria por criação, não por
-// atividade recente. chamadas pode ser nil (mensagem sem chamada de
+// Salvar grava uma mensagem e atualiza sessoes.atualizada_em num único
+// statement atômico (CTE de escrita) — sem isso a coluna nunca mudaria
+// depois da criação da sessão, e Listar() (que ordena por atualizada_em
+// DESC) na prática ordenaria por criação, não por atividade recente.
+// Atômico de propósito: duas instruções separadas (INSERT depois UPDATE)
+// deixariam uma janela onde a mensagem já foi gravada mas Salvar devolve
+// erro como se nada tivesse persistido — um chamador com retry duplicaria
+// a mensagem no histórico. Com um statement só, erro significa que nada
+// foi salvo, ponto final. chamadas pode ser nil (mensagem sem chamada de
 // ferramenta) — vira NULL em chamadas JSONB.
 func (r *MensagemRepositorio) Salvar(ctx context.Context, sessaoID uuid.UUID, papel, conteudo string, chamadas []byte) (Mensagem, error) {
 	var m Mensagem
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO mensagens (sessao_id, papel, conteudo, chamadas) VALUES ($1,$2,$3,$4)
-		 RETURNING id, sessao_id, papel, conteudo, chamadas, criada_em`,
+		`WITH nova AS (
+			INSERT INTO mensagens (sessao_id, papel, conteudo, chamadas)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, sessao_id, papel, conteudo, chamadas, criada_em
+		)
+		UPDATE sessoes SET atualizada_em = now() WHERE id = $1
+		RETURNING (SELECT id FROM nova), (SELECT sessao_id FROM nova), (SELECT papel FROM nova),
+		          (SELECT conteudo FROM nova), (SELECT chamadas FROM nova), (SELECT criada_em FROM nova)`,
 		sessaoID, papel, conteudo, chamadas,
 	).Scan(&m.ID, &m.SessaoID, &m.Papel, &m.Conteudo, &m.Chamadas, &m.CriadaEm)
 	if err != nil {
 		return Mensagem{}, fmt.Errorf("erro ao salvar mensagem: %w", err)
 	}
-
-	if _, err := r.pool.Exec(ctx, `UPDATE sessoes SET atualizada_em = now() WHERE id = $1`, sessaoID); err != nil {
-		return Mensagem{}, fmt.Errorf("erro ao atualizar sessão: %w", err)
-	}
-
 	return m, nil
 }
 
