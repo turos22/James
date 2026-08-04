@@ -15,8 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErroDispositivoAusente é devolvido por EnviarAcao quando não há nenhum
+// james-device conectado no momento do pedido — nunca um panic (R3).
 var ErroDispositivoAusente = errors.New("máquina física indisponível: james-device não conectado")
 
+// AcaoTela é o pedido de ação de tela que vira mensagem WS pro james-device.
 type AcaoTela struct {
 	Acao  string `json:"acao"`
 	X     int    `json:"x,omitempty"`
@@ -40,23 +43,37 @@ type resultadoAcao struct {
 	erro  string
 }
 
+// Hub é a ponte com o james-device: mantém a conexão WS atual e casa cada
+// EnviarAcao pendente com o resultado_acao correspondente pelo id.
 type Hub struct {
 	mu        sync.Mutex
 	conexao   Conexao
 	pendentes map[string]chan resultadoAcao
-	Timeout   time.Duration
+
+	// Timeout é quanto EnviarAcao espera por um resultado_acao antes de
+	// desistir (R4). Deve ser ajustado antes do Hub entrar em uso
+	// concorrente — não é protegido por mutex e mutar em runtime, com
+	// EnviarAcao já em andamento em outra goroutine, é uma corrida de dados.
+	Timeout time.Duration
 }
 
+// NovoHub cria um Hub pronto pra uso, sem device conectado.
 func NovoHub() *Hub {
 	return &Hub{pendentes: make(map[string]chan resultadoAcao), Timeout: 10 * time.Second}
 }
 
+// Registrar associa a conexão WS do device conectado. Substitui
+// silenciosamente qualquer conexão registrada antes — a antiga não recebe
+// nenhuma notificação; é responsabilidade de quem chama fechar/descartar a
+// conexão anterior antes de registrar uma nova, se isso importar.
 func (h *Hub) Registrar(c Conexao) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.conexao = c
 }
 
+// Desregistrar remove a conexão atual. A partir daí, EnviarAcao volta a
+// devolver ErroDispositivoAusente.
 func (h *Hub) Desregistrar() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -108,12 +125,28 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (string, error) {
 // ResolverResultado é chamado pelo endpoint WS do device quando chega um
 // resultado_acao — casa pelo id de correlação com quem está esperando em
 // EnviarAcao.
+//
+// O id é removido de pendentes ANTES do send, e o send é não-bloqueante: um
+// segundo resultado_acao pro mesmo id (frame duplicado ou device com bug)
+// nunca trava. Um id genuinamente atrasado (já expirado ou já resolvido)
+// vira um no-op limpo — não um deadlock. Isso importa porque, no endpoint WS
+// real (Task 18), ResolverResultado roda dentro da única goroutine que lê a
+// conexão do device; travar aqui trava a leitura da conexão inteira.
 func (h *Hub) ResolverResultado(id, saida, erro string) {
 	h.mu.Lock()
 	espera, ok := h.pendentes[id]
+	if ok {
+		delete(h.pendentes, id)
+	}
 	h.mu.Unlock()
 	if !ok {
 		return
 	}
-	espera <- resultadoAcao{saida: saida, erro: erro}
+	select {
+	case espera <- resultadoAcao{saida: saida, erro: erro}:
+	default:
+		// Ninguém mais está esperando nesse channel (não deveria acontecer
+		// já que acabamos de tirá-lo de pendentes sob lock, mas o select
+		// não-bloqueante garante que mesmo assim nunca travamos aqui).
+	}
 }

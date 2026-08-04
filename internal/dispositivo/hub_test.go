@@ -112,6 +112,65 @@ func TestEnviarAcaoEstouraTimeoutSemResposta(t *testing.T) {
 	}
 }
 
+// TestResolverResultadoDuploMesmoIdNaoTrava cobre o cenário de um device com
+// bug (ou frame duplicado na rede) mandando dois resultado_acao pro mesmo
+// id: o primeiro resolve EnviarAcao, o segundo tem que ser um no-op —
+// jamais travar. No endpoint WS real (Task 18), ResolverResultado roda
+// dentro da única goroutine que lê a conexão; travar aqui travaria a
+// leitura da conexão inteira.
+func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	type resultado struct {
+		saida string
+		err   error
+	}
+	saidaCh := make(chan resultado, 1)
+	go func() {
+		saida, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click"})
+		saidaCh <- resultado{saida, err}
+	}()
+
+	var id string
+	for {
+		primeiro, ok := conexao.primeiroEnviado()
+		if ok {
+			var envelope map[string]any
+			_ = json.Unmarshal(primeiro, &envelope)
+			id = envelope["id"].(string)
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	feito := make(chan struct{})
+	go func() {
+		h.ResolverResultado(id, "primeiro", "")
+		h.ResolverResultado(id, "segundo", "") // frame duplicado — tem que ser no-op
+		close(feito)
+	}()
+
+	select {
+	case <-feito:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ResolverResultado duplicado travou (deveria ser no-op não-bloqueante)")
+	}
+
+	select {
+	case r := <-saidaCh:
+		if r.err != nil {
+			t.Fatalf("EnviarAcao devolveu erro: %v", r.err)
+		}
+		if r.saida != "primeiro" {
+			t.Errorf("saida = %q, queria %q (só a primeira resolução deve valer)", r.saida, "primeiro")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnviarAcao não terminou a tempo")
+	}
+}
+
 func TestDesregistrarVoltaAErroDispositivoAusente(t *testing.T) {
 	h := NovoHub()
 	h.Registrar(&conexaoFalsa{})
