@@ -251,3 +251,89 @@ func TestExecutarChamaHooksDeInicioEFimPorFerramenta(t *testing.T) {
 		t.Errorf("AoConcluirFerramenta chamado com %v, queria [eco]", concluidas)
 	}
 }
+
+func TestExecutarFerramentaDesconhecidaDevolveErroSemExecutarNada(t *testing.T) {
+	naoRegistrada := &ferramentaFalsa{nome: "fantasma", nivel: ferramentas.NivelSeguro, saida: "não devia rodar"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "fantasma"}}},
+		{Texto: "feito"},
+	}}
+	// fantasma nunca é registrada — só o provider "acha" que ela existe.
+	loop := &Loop{Provider: provider, Ferramentas: ferramentas.NovoRegistro(), MaxIteracoes: 5}
+
+	_, mensagens, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "roda a fantasma"}, permissao.Privilegiado, nil)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if naoRegistrada.executada {
+		t.Error("ferramenta não registrada não deveria ter sido executada")
+	}
+
+	achouErro := false
+	for _, m := range mensagens {
+		for _, r := range m.Resultados {
+			if r.Nome == "fantasma" && r.Erro != "" {
+				achouErro = true
+			}
+		}
+	}
+	if !achouErro {
+		t.Error("esperava um ResultadoFerramenta com Erro não vazio para ferramenta desconhecida")
+	}
+}
+
+func TestExecutarErroDeAprovacaoTemPrecedenciaSobreAprovado(t *testing.T) {
+	perigosa := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "não devia rodar"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "feito"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(perigosa), MaxIteracoes: 5}
+
+	erroAprovacao := errors.New("canal de aprovação caiu")
+	// Roteirizado pra devolver aprovado=true JUNTO com um erro — trava a
+	// ordem exata do despacho: erro checado antes do bool, nunca aprovado
+	// por omissão quando o canal de aprovação falha.
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		return true, erroAprovacao
+	}
+
+	_, mensagens, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz a ação"}, permissao.Restrito, solicitar)
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if perigosa.executada {
+		t.Error("ferramenta perigosa não deveria ter executado — solicitarAprovacao devolveu erro")
+	}
+
+	achouErroDeAprovacao := false
+	for _, m := range mensagens {
+		for _, r := range m.Resultados {
+			if r.Nome == "perigosa" && r.Erro != "" && r.Erro != "ação negada pelo usuário" {
+				achouErroDeAprovacao = true
+			}
+		}
+	}
+	if !achouErroDeAprovacao {
+		t.Error("esperava ResultadoFerramenta.Erro refletindo o erro do canal de aprovação, não um sucesso")
+	}
+}
+
+func TestExecutarContextoJaCanceladoDevolveErroSemChamarProvider(t *testing.T) {
+	provider := &providerFalso{respostas: []Resposta{{Texto: "nunca deveria chegar aqui"}}}
+	loop := &Loop{Provider: provider, Ferramentas: ferramentas.NovoRegistro(), MaxIteracoes: 5}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := loop.Executar(ctx, "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "oi"}, permissao.Privilegiado, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("erro = %v, queria context.Canceled", err)
+	}
+	if provider.chamadas != 0 {
+		t.Errorf("provider.chamadas = %d, queria 0 — contexto já cancelado não devia chamar o provider", provider.chamadas)
+	}
+}

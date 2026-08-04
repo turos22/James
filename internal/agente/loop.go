@@ -42,6 +42,13 @@ func (l *Loop) Executar(ctx context.Context, sistema string, historico []Mensage
 	mensagens := append(append([]Mensagem{}, historico...), entrada)
 
 	for i := 0; i < l.MaxIteracoes; i++ {
+		// Defesa em profundidade: um cliente WS desconectado cancela o
+		// ctx, e o loop não deve seguir despachando chamadas de ferramenta
+		// (possivelmente já aprovadas, NivelPerigoso) entre iterações.
+		if err := ctx.Err(); err != nil {
+			return Resposta{}, mensagens, err
+		}
+
 		req := Requisicao{Sistema: sistema, Mensagens: mensagens, Declaracoes: l.Ferramentas.Declaracoes()}
 		resp, err := l.Provider.Gerar(ctx, req)
 		if err != nil {
