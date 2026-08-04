@@ -21,6 +21,12 @@ func TestAbrirRecusaURLVazia(t *testing.T) {
 	}
 }
 
+func TestAbrirRecusaURLMalformada(t *testing.T) {
+	if _, err := Abrir(context.Background(), "não-é-uma-url"); err == nil {
+		t.Fatal("esperava erro para URL malformada, veio nil")
+	}
+}
+
 func TestAbrirConectaNoPostgresLocal(t *testing.T) {
 	url := URLDoAmbiente()
 	if url == "" {
