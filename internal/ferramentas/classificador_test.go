@@ -48,6 +48,21 @@ func TestComandoEhLeitura(t *testing.T) {
 		{"pipeline com escrita no fim", "Get-Process | Stop-Process", false},
 		{"pipeline com escrita no meio", "Get-Content a | Set-Content b | Get-Item c", false},
 
+		// Rejeitados por quebra de linha. Newline separa statement no
+		// PowerShell exatamente como ';', então sem esta regra um comando de
+		// escrita se esconde depois do primeiro verbo de leitura e o
+		// classificador devolve leitura — fail OPEN, o oposto do que a
+		// postura exige.
+		{"newline esconde escrita", "Get-Process\nRemove-Item C:\\temp\\x.txt", false},
+		{"crlf esconde escrita", "Get-Process\r\nRemove-Item C:\\temp\\x.txt", false},
+		{"newline mesmo entre duas leituras", "Get-Process\nGet-Date", false},
+		{"tab vertical", "Get-Process\vRemove-Item x", false},
+		{"form feed", "Get-Process\fRemove-Item x", false},
+		{"separador de linha unicode", "Get-Process\u2028Remove-Item x", false},
+
+		// Espaço e tab continuam sendo separador de argumento normal.
+		{"tab entre argumentos", "Get-Content\tC:\\temp\\log.txt", true},
+
 		// Degenerados.
 		{"vazio", "", false},
 		{"só espaço", "   ", false},

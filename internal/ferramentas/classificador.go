@@ -1,6 +1,9 @@
 package ferramentas
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // tokensProibidos reprovam o comando em qualquer posição, mesmo que o verbo
 // pareça leitura: cada um permite encadear, expandir ou executar código fora
@@ -45,6 +48,10 @@ func ComandoEhLeitura(comando string) bool {
 		return false
 	}
 
+	if !ehUmaLinhaSo(c) {
+		return false
+	}
+
 	for _, token := range tokensProibidos {
 		if strings.Contains(c, token) {
 			return false
@@ -55,6 +62,24 @@ func ComandoEhLeitura(comando string) bool {
 	// reprova o comando inteiro.
 	for _, estagio := range strings.Split(c, "|") {
 		if !estagioEhLeitura(estagio) {
+			return false
+		}
+	}
+	return true
+}
+
+// ehUmaLinhaSo rejeita qualquer espaço em branco que não seja espaço comum ou
+// tab. Newline separa statement no PowerShell exatamente como ';', então sem
+// esta regra "Get-Process\nRemove-Item x" passaria como leitura: estagioEhLeitura
+// só olha o primeiro campo, e o comando de escrita se esconderia depois da
+// quebra. Era fail OPEN — o oposto da postura desta função.
+//
+// A regra é por exclusão em vez de listar separadores um a um porque assim
+// cobre de uma vez \n, \r, \v, \f e os separadores de linha do Unicode
+// (U+2028/U+2029), sem depender de alguém lembrar de cada um.
+func ehUmaLinhaSo(comando string) bool {
+	for _, r := range comando {
+		if unicode.IsSpace(r) && r != ' ' && r != '\t' {
 			return false
 		}
 	}
