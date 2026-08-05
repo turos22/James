@@ -45,3 +45,32 @@ func TestComandoSistemaNivelPerigoso(t *testing.T) {
 		t.Error("executar_comando_sistema deve ser NivelPerigoso")
 	}
 }
+
+func TestComandoSistemaConfirmacaoNecessaria(t *testing.T) {
+	casos := []struct {
+		nome    string
+		args    map[string]any
+		querido bool
+	}{
+		{"leitura não exige", map[string]any{"comando": "Get-Process"}, false},
+		{"escrita exige", map[string]any{"comando": "Remove-Item x"}, true},
+		{"argumento ausente exige", map[string]any{}, true},
+		{"argumento vazio exige", map[string]any{"comando": ""}, true},
+		{"argumento de tipo errado exige", map[string]any{"comando": 42}, true},
+	}
+
+	c := NovoComandoSistema()
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			if got := c.ConfirmacaoNecessaria(caso.args); got != caso.querido {
+				t.Errorf("ConfirmacaoNecessaria(%v) = %v, queria %v", caso.args, got, caso.querido)
+			}
+		})
+	}
+}
+
+// TestComandoSistemaImplementaExigeConfirmacao trava a asserção de tipo que o
+// loop faz: sem ela, o gate silenciosamente não pega a ferramenta.
+func TestComandoSistemaImplementaExigeConfirmacao(t *testing.T) {
+	var _ ExigeConfirmacao = NovoComandoSistema()
+}

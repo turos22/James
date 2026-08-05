@@ -6,9 +6,9 @@ import (
 	"os/exec"
 )
 
-// ComandoSistema porta o comportamento de app.go:187 (ExecutarNoTerminal)
-// como está — sem sandboxing, sem allowlist de comando. Consertar isso é
-// Fase 3; aqui só entra atrás da interface Ferramenta.
+// ComandoSistema executa PowerShell. Não há allowlist de comando — a
+// contenção escolhida (Fase 3, decisão D2) é confirmação humana pra comando
+// de escrita, via ConfirmacaoNecessaria, mais timeout e limite de saída.
 type ComandoSistema struct {
 	Executor func(comando string) (saida string, err error)
 }
@@ -34,6 +34,18 @@ func (c *ComandoSistema) Declaracao() Declaracao {
 }
 
 func (c *ComandoSistema) Nivel() Nivel { return NivelPerigoso }
+
+// ConfirmacaoNecessaria implementa ExigeConfirmacao: comando de escrita pede
+// confirmação humana mesmo do perfil Privilegiado. Argumento ausente, vazio
+// ou de tipo errado devolve true (fail closed) — a validação de argumento em
+// si continua acontecendo em Executar.
+func (c *ComandoSistema) ConfirmacaoNecessaria(args map[string]any) bool {
+	comando, ok := args["comando"].(string)
+	if !ok {
+		return true
+	}
+	return !ComandoEhLeitura(comando)
+}
 
 func (c *ComandoSistema) Executar(ctx context.Context, args map[string]any) (string, error) {
 	comando, ok := args["comando"].(string)
