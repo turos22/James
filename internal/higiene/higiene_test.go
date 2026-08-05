@@ -100,6 +100,30 @@ func TestVarrerIgnoraArquivoEnv(t *testing.T) {
 	}
 }
 
+func TestVarrerIgnoraDiretorioCerts(t *testing.T) {
+	raiz := t.TempDir()
+	if err := os.Mkdir(filepath.Join(raiz, "certs"), 0o700); err != nil {
+		t.Fatalf("não consegui criar o diretório certs: %v", err)
+	}
+	arquivo := filepath.Join(raiz, "certs", "tailscale.key")
+	// Quebrado em duas literais pra não bater no próprio regex de PEM
+	// quando este arquivo de teste é varrido por TestRepositorioLimpo —
+	// mesmo espírito de TestVarrerAcusaBlocoPEM acima.
+	pem := "-----BEGIN " + "PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----"
+	if err := os.WriteFile(arquivo, []byte(pem), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf("certs/ deveria ser ignorado — certificado TLS da VPN gerado localmente por "+
+			"máquina, já protegido pelo .gitignore; vieram %d achados: %+v", len(achados), achados)
+	}
+}
+
 func TestVarrerNaoIgnoraArquivoParecidoComEnv(t *testing.T) {
 	raiz := t.TempDir()
 	arquivo := filepath.Join(raiz, ".env.production")

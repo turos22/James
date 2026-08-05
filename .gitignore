@@ -10,6 +10,11 @@ frontend/dist/
 frontend/package.json.md5
 web/dist/
 
+# Certificado TLS da VPN Tailscale — gerado localmente por máquina
+# (tailscale cert), nunca é o mesmo em duas máquinas, não é segredo
+# "roubável" fora da rede, mas não faz sentido versionar.
+certs/
+
 # Dependências
 node_modules/
 __pycache__/

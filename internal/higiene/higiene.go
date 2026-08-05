@@ -54,6 +54,10 @@ var diretoriosIgnorados = map[string]bool{
 	// string como exemplo (placeholder tipo "SENHA"), não segredo real —
 	// o risco de verdade (config.toml, .env, código-fonte, binário
 	// compilado) continua coberto fora de docs/
+	"certs": true, // certificado TLS da VPN Tailscale (tailscale cert),
+	// gerado localmente por máquina — já coberto pelo .gitignore, nunca é
+	// commitado. Mesma razão de .env em arquivosIgnorados: a guarda existe
+	// pra impedir commit de segredo, não pra exigir zero segredo em disco.
 }
 
 // extensoesIgnoradas pula bibliotecas nativas de terceiros. São 68 MB de
