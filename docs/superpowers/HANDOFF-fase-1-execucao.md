@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 19 de 25 tasks fechadas
+## Estado exato: 20 de 25 tasks fechadas
 
-HEAD do worktree: `d1ee120` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `c119acd` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -41,8 +41,8 @@ HEAD do worktree: `d1ee120` (branch `worktree-fase-1-nucleo`).
 | 17 | `internal/api` WS clientes + aprovação | ✅ fechada (commits `abccca9` implementação + `105ebd0` fix pós-revisão) |
 | 18 | `internal/api` WS dispositivo | ✅ fechada (commits `c8d63af` implementação + `2e0b72f` fix pós-revisão) |
 | 19 | `prompts/sistema.md` + `cmd/jamesd` | ✅ fechada (commits `b2fd281` implementação + `d1ee120` fix pós-revisão) |
-| **20** | **`cmd/migrar-historico`** | 🔶 **próxima — não começada** |
-| 21 | `james_device/conexao.py` | pendente |
+| 20 | `cmd/migrar-historico` | ✅ fechada (commits `2355bde` implementação + `c119acd` fix pós-revisão) |
+| **21** | **`james_device/conexao.py`** | 🔶 **próxima — não começada** |
 | 22 | `james_device/tela.py` + `main.py` | pendente |
 | 23 | `web/` rewire + card de aprovação | pendente |
 | 24 | SPA embutida + `shell/` | pendente |
@@ -208,17 +208,44 @@ Nenhuma das duas tasks teve desvio do texto do plano na implementação —
 os dois ciclos de fix vieram só da rodada de revisão de qualidade, não de
 erro de leitura da spec.
 
+## Task 20 — resumo
+
+Achado **Important** único: idempotência de `executar()` era só "sessão já
+existe → pula tudo" — se a migração falhasse no meio do laço de inserts, a
+sessão ficava parcial no banco, e rodar de novo achava essa sessão e pulava
+o resto silenciosamente (exit 0, perda de dado de histórico sem sinal
+nenhum). Corrigido envolvendo criação da sessão + todos os inserts numa
+única transação Postgres (bypassando os repositórios `SessaoRepositorio`/
+`MensagemRepositorio` só nesse caminho de escrita, já que eles só falam
+com `*pgxpool.Pool`, não `pgx.Tx`). Teste novo prova o rollback forçando
+falha real com um byte nulo no conteúdo de uma mensagem (Postgres rejeita
+`\x00` em texto).
+
+## Mudança de stack a partir daqui
+
+As Tasks 1-20 são todas Go (`internal/`, `cmd/`). A partir da **Task 21** o
+trabalho é **Python** (`dispositivo/james_device/`) — o cliente que roda na
+própria máquina do Arthur, conecta no `jamesd` via WebSocket, e expõe voz +
+controle de tela pro sistema operacional. O workflow de subagent-driven-
+development (implementador → revisor de spec → revisor de qualidade)
+continua o mesmo, só troca a stack — adaptar as regras de ambiente Go
+(nunca `go build` sem `-o`, etc.) pras equivalentes Python (rodar
+`pip install -e ".[dev]"` dentro de `dispositivo/`, testes via `pytest`,
+sem regra de build binário).
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 20: `cmd/migrar-historico` — comando avulso de migração de dados
-(Decisão P3)", copiar o texto completo, e dispatchar o subagente
-implementador seguindo o workflow acima. Essa task migra o histórico do
-SQLite antigo (`Athena.db`, schema `mensagens(id, role, content, created_at)`)
-pro Postgres novo: cria uma sessão "Histórico Athena", mapeia `role`
-(`user`→`usuario`, `assistant`→`modelo`) e é idempotente (rodar 2x não
-duplica a sessão nem as mensagens — os testes do plano já cobrem isso
-com `TestExecutarEIdempotente`). Usa `modernc.org/sqlite` (driver puro Go,
-sem cgo) — confirmar que já está no `go.mod` ou se precisa de `go get`
-antes de implementar. Não depende de nada das Tasks 17-19 (é um comando
-avulso, isolado), só dos repositórios Postgres da Task 13.
+"## Task 21: `dispositivo/james_device/conexao.py` — cliente WS com
+reconexão e heartbeat", copiar o texto completo, e dispatchar o subagente
+implementador seguindo o workflow acima. Essa task substitui o socket TCP
+cru do `processador_voz.py` antigo (bug #12 do Anexo A) por um cliente
+WebSocket de verdade: conecta de fora pra dentro (invariante I1 — nunca
+escuta porta, sempre disca pro `jamesd`), reconecta sozinho se o `jamesd`
+reiniciar, trata `acao_tela` chamando um manipulador injetado e devolve
+`resultado_acao`. Usa `websockets>=13.0` (adicionar em
+`dispositivo/pyproject.toml`) e testes com `pytest` usando um `FakeWS` que
+simula o client real de `websockets.sync.client.connect` (context manager +
+iterável de mensagens + `.send()`). Não depende de nada das Tasks Go — só
+do contrato de envelope WS (`{tipo, id, dados}`) já fixado pelas Tasks
+17/18 do lado Go.
