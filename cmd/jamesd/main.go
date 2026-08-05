@@ -62,16 +62,13 @@ func executar() error {
 	dispositivoHub := dispositivo.NovoHub()
 
 	registro := ferramentas.NovoRegistro()
-	comandoSistema := ferramentas.NovoComandoSistema()
-	comandoSistema.Timeout = time.Duration(cfg.TerminalTimeoutSegundos) * time.Second
-	comandoSistema.MaxBytesSaida = cfg.TerminalMaxBytesSaida
-	if err := registro.Registrar(comandoSistema); err != nil {
+	if err := registro.Registrar(construirComandoSistema(cfg)); err != nil {
 		return fmt.Errorf("registrar executar_comando_sistema: %w", err)
 	}
-	if err := registro.Registrar(ferramentas.NovoClaudeCode()); err != nil {
+	if err := registro.Registrar(construirClaudeCode(cfg)); err != nil {
 		return fmt.Errorf("registrar perguntar_ao_claude_code: %w", err)
 	}
-	if err := registro.Registrar(ferramentas.NovaBusca(cfg.TavilyAPIKey)); err != nil {
+	if err := registro.Registrar(construirBusca(cfg)); err != nil {
 		return fmt.Errorf("registrar pesquisar_internet: %w", err)
 	}
 	if err := registro.Registrar(ferramentas.NovoManipularInterface(dispositivoHub)); err != nil {
