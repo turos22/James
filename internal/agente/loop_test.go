@@ -337,3 +337,112 @@ func TestExecutarContextoJaCanceladoDevolveErroSemChamarProvider(t *testing.T) {
 		t.Errorf("provider.chamadas = %d, queria 0 — contexto já cancelado não devia chamar o provider", provider.chamadas)
 	}
 }
+
+// ferramentaQueExigeConfirmacao é NivelSeguro (passa pelo Pode de qualquer
+// perfil) mas exige confirmação conforme os args — é o formato do
+// ComandoSistema depois da Task 3.
+type ferramentaQueExigeConfirmacao struct {
+	ferramentaFalsa
+	exige bool
+}
+
+func (f *ferramentaQueExigeConfirmacao) ConfirmacaoNecessaria(args map[string]any) bool {
+	return f.exige
+}
+
+func TestPrivilegiadoConfirmaQuandoFerramentaExige(t *testing.T) {
+	tool := &ferramentaQueExigeConfirmacao{
+		ferramentaFalsa: ferramentaFalsa{nome: "escrever", nivel: ferramentas.NivelSeguro, saida: "feito"},
+		exige:           true,
+	}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "escrever"}}},
+		{Texto: "pronto"},
+	}}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("Registrar devolveu erro: %v", err)
+	}
+	loop := &Loop{Provider: provider, Ferramentas: registro, MaxIteracoes: 5}
+
+	pediuAprovacao := false
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		pediuAprovacao = true
+		return true, nil
+	}
+
+	if _, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "escreve"}, permissao.Privilegiado, solicitar); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !pediuAprovacao {
+		t.Error("Privilegiado deveria confirmar quando a ferramenta exige, não pediu")
+	}
+	if !tool.executada {
+		t.Error("ferramenta deveria ter executado depois da confirmação")
+	}
+}
+
+func TestPrivilegiadoNaoConfirmaQuandoFerramentaNaoExige(t *testing.T) {
+	tool := &ferramentaQueExigeConfirmacao{
+		ferramentaFalsa: ferramentaFalsa{nome: "ler", nivel: ferramentas.NivelSeguro, saida: "conteúdo"},
+		exige:           false,
+	}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "ler"}}},
+		{Texto: "pronto"},
+	}}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("Registrar devolveu erro: %v", err)
+	}
+	loop := &Loop{Provider: provider, Ferramentas: registro, MaxIteracoes: 5}
+
+	pediuAprovacao := false
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		pediuAprovacao = true
+		return true, nil
+	}
+
+	if _, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "lê"}, permissao.Privilegiado, solicitar); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if pediuAprovacao {
+		t.Error("Privilegiado não deveria confirmar leitura, pediu")
+	}
+}
+
+// TestRestritoContinuaAprovandoMesmoSemExigencia trava a Decisão D3 da spec:
+// ExigeConfirmacao só acrescenta aprovação, nunca remove a que o Nivel() já
+// impõe. Sem esta trava, um ConfirmacaoNecessaria devolvendo false poderia
+// liberar o celular.
+func TestRestritoContinuaAprovandoMesmoSemExigencia(t *testing.T) {
+	tool := &ferramentaQueExigeConfirmacao{
+		ferramentaFalsa: ferramentaFalsa{nome: "ler", nivel: ferramentas.NivelPerigoso, saida: "conteúdo"},
+		exige:           false,
+	}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "ler"}}},
+		{Texto: "pronto"},
+	}}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("Registrar devolveu erro: %v", err)
+	}
+	loop := &Loop{Provider: provider, Ferramentas: registro, MaxIteracoes: 5}
+
+	pediuAprovacao := false
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		pediuAprovacao = true
+		return true, nil
+	}
+
+	if _, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "lê"}, permissao.Restrito, solicitar); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !pediuAprovacao {
+		t.Error("Restrito deve continuar pedindo aprovação para NivelPerigoso mesmo sem exigência extra")
+	}
+}

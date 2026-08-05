@@ -31,3 +31,17 @@ type Ferramenta interface {
 	Nivel() Nivel
 	Executar(ctx context.Context, args map[string]any) (string, error)
 }
+
+// ExigeConfirmacao é implementada por ferramentas em que uma chamada
+// específica precisa de confirmação humana mesmo vinda de um perfil
+// Privilegiado — o caso do comando PowerShell de escrita.
+//
+// O contrato é deliberadamente aditivo: o despacho só usa esta interface pra
+// LIGAR a exigência de aprovação, nunca pra desligar a que o Nivel() já
+// impõe. É o que garante, na forma do código e não na disciplina de quem
+// mexe depois, que o perfil Restrito nunca seja afrouxado.
+//
+// Ferramenta que não implementa se comporta exatamente como antes.
+type ExigeConfirmacao interface {
+	ConfirmacaoNecessaria(args map[string]any) bool
+}

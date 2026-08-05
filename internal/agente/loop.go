@@ -88,7 +88,14 @@ func (l *Loop) despacharSemHook(ctx context.Context, chamada ChamadaFerramenta, 
 		return ResultadoFerramenta{ID: chamada.ID, Nome: chamada.Nome, Erro: fmt.Sprintf("ferramenta %q não encontrada", chamada.Nome)}
 	}
 
-	if !perfil.Pode(tool.Nivel()) {
+	precisaAprovar := !perfil.Pode(tool.Nivel())
+	// Aditivo por contrato (ver ferramentas.ExigeConfirmacao): só liga, nunca
+	// desliga o que o Nivel() já exigiu.
+	if exigente, ok := tool.(ferramentas.ExigeConfirmacao); ok && exigente.ConfirmacaoNecessaria(chamada.Args) {
+		precisaAprovar = true
+	}
+
+	if precisaAprovar {
 		if solicitarAprovacao == nil {
 			return ResultadoFerramenta{ID: chamada.ID, Nome: chamada.Nome, Erro: "ação negada pelo usuário"}
 		}
