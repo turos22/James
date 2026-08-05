@@ -141,8 +141,8 @@ Algoritmo, nesta ordem:
 
 3. **Allowlist do primeiro token de cada estágio**, comparação case-insensitive:
    - Prefixo `get-` (o verbo `Get` é definido como somente-leitura pelas diretrizes de verbo do PowerShell).
-   - Nomes completos: `test-path`, `resolve-path`, `split-path`, `join-path`, `select-object`, `select-string`, `sort-object`, `group-object`, `compare-object`, `measure-object`, `format-list`, `format-table`, `format-wide`, `out-string`, `convertto-json`, `convertfrom-json`, `write-output`.
-   - Aliases: `dir`, `ls`, `gci`, `cat`, `gc`, `type`, `pwd`, `echo`, `select`, `sort`, `measure`, `ft`, `fl`.
+   - Nomes completos: `test-path`, `resolve-path`, `split-path`, `join-path`, `select-object`, `select-string`, `where-object`, `sort-object`, `group-object`, `compare-object`, `measure-object`, `format-list`, `format-table`, `format-wide`, `out-string`, `convertto-json`, `convertfrom-json`, `write-output`.
+   - Aliases: `dir`, `ls`, `gci`, `cat`, `gc`, `type`, `pwd`, `echo`, `select`, `where`, `sort`, `measure`, `ft`, `fl`.
    - Sem parâmetro: `whoami`, `hostname`, `date`.
 
 4. **Qualquer outra coisa devolve `false`** — incluindo comando vazio, caminho de executável, chamada por operador `&`, e qualquer cmdlet de módulo de terceiro.
@@ -189,7 +189,13 @@ Flags confirmadas por `claude --help` nesta máquina em 2026-08-05: `-p/--print`
 
 **Timeout próprio**, de configuração, na casa de minutos — o Claude Code é ordens de grandeza mais lento que um comando de shell, e o timeout do terminal não serve.
 
-**Sessão persistente:** o UUID da sessão do James é usado diretamente como `--session-id`, o que dispensa qualquer tabela de mapeamento ou estado novo. Se reusar o mesmo id não retomar o contexto e for necessário `--resume` da segunda chamada em diante, a implementação descobre isso executando de verdade. Este ponto é **verificação obrigatória com saída real** no plano, não suposição.
+**Sessão persistente:** o UUID da sessão do James é usado diretamente como `--session-id`, o que dispensa qualquer tabela de mapeamento entre identidades e qualquer persistência nova no Postgres.
+
+O id chega à ferramenta pelo `context`, não por campo de struct: cada ferramenta é construída **uma vez** em `cmd/jamesd/main.go` e compartilhada por todas as conversas e todos os clientes, então um campo seria global e misturaria sessões. O `internal/api` carimba o id no contexto antes de rodar o loop.
+
+A ferramenta guarda em memória um conjunto de quais sessões já foram iniciadas, para escolher entre `--session-id` (criar) e `--resume` (continuar). É estado em memória, não persistido: reiniciar o `jamesd` faz a próxima chamada criar sessão nova, o que é o comportamento correto. O conjunto cresce em um booleano por conversa e nunca é podado — aceitável para um processo de uso pessoal, e o lugar óbvio de apertar caso o consumo apareça.
+
+Se reusar o mesmo id já retomar o contexto sozinho, dispensando o `--resume`, a implementação descobre isso executando de verdade. Este ponto é **verificação obrigatória com saída real** no plano, não suposição.
 
 **Retorno para o modelo:** o JSON de `--output-format json` é parseado em struct tipada e o resultado real é devolvido. A string fixa `"Claude Code iniciado. Tarefa enviada para o agente."` morre. Falha do Claude Code (exit code, timeout, JSON inesperado) vira erro de verdade para o modelo.
 
