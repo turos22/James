@@ -16,9 +16,13 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 24 de 25 tasks fechadas
+## Estado exato: 25 de 25 tasks fechadas — todas as tasks do plano concluídas
 
-HEAD do worktree: `bb5fef5` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `efd89b9` (branch `worktree-fase-1-nucleo`).
+
+**Falta só a "Verificação final da Fase 1"** (seção separada no plano, depois
+da Task 25) — ver seção própria abaixo. Não é uma task numerada, é o
+checklist de fechamento formal da fase.
 
 | Task | O que é | Status |
 |---|---|---|
@@ -46,7 +50,7 @@ HEAD do worktree: `bb5fef5` (branch `worktree-fase-1-nucleo`).
 | 22 | `james_device/tela.py` + `main.py` | ✅ fechada (commits `e991cac` implementação + `55a46b0` fix pós-revisão) |
 | 23 | `web/` rewire + card de aprovação | ✅ fechada (commits `7546fef` rename + `66d5c09` conteúdo, zero fix pós-revisão) |
 | 24 | SPA embutida + `shell/` | ✅ fechada (commits `02a31b1` implementação + `bb5fef5` fix pós-revisão) |
-| **25** | **remoção de código morto e fechamento** | 🔶 **próxima e última — não começada** |
+| 25 | remoção de código morto e fechamento | ✅ fechada (commit `efd89b9`, zero achado dos dois revisores) |
 
 **Rastreamento formal:** existe uma lista de tasks no harness (TaskList) com IDs
 #1-32 espelhando exatamente essa tabela (mais as 6 tasks de brainstorming/plano
@@ -346,38 +350,88 @@ Confirmado (revisor de spec, com testes descartáveis próprios): a ordem
 de registro do catch-all em `Rotas()` é só estética — o `http.ServeMux`
 do Go 1.22+ resolve por especificidade de padrão, não por ordem.
 
-## Próxima ação concreta — Task 25, a última da Fase 1
+## Task 25 — resumo
 
-Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na
-seção "## Task 25: Remoção do código morto e fechamento da Fase 1", copiar
-o texto completo (Steps 1-5), e dispatchar o subagente implementador
-seguindo o workflow acima. É puramente mecânica: `git rm app.go
-database.go main.go processador_voz.py run_athena.bat vosk_api.h`
-(arquivos órfãos, substituídos pelas Tasks 1-24 — confirmar antes que
-nada novo os importa), rodar a suíte inteira (`go vet ./... && go test
-./...`, `pytest dispositivo/`, `npm test --prefix web`) com evidência
-real colada, rodar a guarda de credenciais (`go test ./internal/higiene/...
--run TestRepositorioLimpo -v`), commit.
+Fechada sem nenhum achado dos dois revisores (zero Critical/Important/Minor
+— só deleção pura de 6 arquivos órfãos: `app.go`, `database.go`, `main.go`
+raiz, `processador_voz.py`, `run_athena.bat`, `vosk_api.h`). O revisor de
+qualidade foi além do pedido e reproduziu a falha de build pré-Task-25 num
+worktree temporário isolado, confirmando de forma independente que era
+exatamente o `main.go` da raiz (embed quebrado desde a Task 23) que
+impedia `go build -o /dev/null ./...`/`go vet ./...` do repo inteiro de
+rodarem limpos — **essa é a primeira vez em toda a sessão que o repo
+inteiro compila/vetoa limpo**, não só pacotes escopados.
 
-**Depois que a Task 25 fechar, a Fase 1 ainda não está formalmente
-encerrada** — existe uma seção separada no plano, "## Verificação final
-da Fase 1", com 10 critérios de aceitação da spec (seção 9). Desses:
-- **Automatizáveis, já cobertos ou fáceis de rodar de novo**: itens 1
-  (`go vet && go test`), 2 (`pytest`), 3 (`npm test`), 8 (idempotência do
-  `cmd/migrar-historico`, já provada exaustivamente na Task 20), 9/10
-  (guarda de credenciais, mesma da Task 25 Step 4).
-- **Item 4** (jamesd falha rápido sem `GEMINI_API_KEY`) dá pra testar sem
-  hardware especial — rodar `go run ./cmd/jamesd` com a variável removida
-  temporariamente do ambiente do processo (nunca do `.env` de verdade) e
-  confirmar a mensagem de erro, depois confirmar que sobe normal com ela
-  presente.
-- **Itens 5, 6 e 7 exigem hardware/rede real que esta sessão não tem**:
-  item 5 precisa abrir a janela nativa do `shell/` de verdade (ambiente
-  gráfico); item 6 precisa de um celular real conectado na VPN Tailscale;
-  item 7 precisa rodar `python -m james_device.main` de verdade (microfone)
-  e depois matá-lo enquanto o `jamesd` está de pé. **Nenhum desses três é
-  responsabilidade de um subagente automatizado** — ficam pro Arthur
-  verificar à mão depois que a Task 25 fechar, com evidência real colada
-  (a regra de "evidência antes de afirmação" do CLAUDE.md dele vale aqui
-  também: não declarar a fase fechada sem essas três terem rodado de
-  verdade).
+## Verificação final da Fase 1 — status real (rodado nesta sessão)
+
+Seção separada do plano (depois da Task 25), 10 critérios da spec seção 9.
+Todos os itens abaixo foram **rodados de verdade nesta sessão**, com
+evidência real (não "deve funcionar"):
+
+1. ✅ `go vet ./... && go test ./...` — limpo, 13 pacotes com teste, todos
+   `ok` (Task 25, confirmado 2x pelos revisores).
+2. ✅ `pytest dispositivo/` — 29/29 passou.
+3. ✅ `npm test --prefix web` — 17/17 passou.
+4. ✅ **`jamesd` falha rápido sem `GEMINI_API_KEY`, com mensagem clara**:
+   rodei `env GEMINI_API_KEY= go run ./cmd/jamesd` (só no ambiente do
+   subprocesso, nunca tocando o `.env` real — `godotenv.Load` respeita
+   var já setada, mesmo vazia, e não sobrescreve) → saída real:
+   `ERROR jamesd não subiu erro="configuração: configuração incompleta,
+   faltando: GEMINI_API_KEY"`, exit 1, sem travar. **E também testei o
+   caminho positivo**: com `.env`/`config.toml` reais, `go run ./cmd/jamesd`
+   subiu de verdade — conectou Postgres, aplicou migrações, `GET
+   /api/saude` respondeu `{"status":"ok"}` HTTP 200, `GET /` (SPA
+   embutida da Task 24) respondeu HTTP 200. Achou até a interface
+   Tailscale real da máquina e tentou o bind da VPN — falhou por falta
+   de `certs/tailscale.crt` (não existe neste worktree), mas **confirmou
+   ao vivo o fix da Task 19**: o loopback continuou de pé, só logou erro,
+   não derrubou o processo. Processo derrubado limpo depois (PID via
+   `netstat`), porta liberada, `git status` confirmado limpo (nenhum
+   arquivo tocado pelo teste).
+5. ❌ **Não verificado — precisa do Arthur**. Abrir a janela nativa do
+   `shell/` de verdade (`cd shell && wails dev` ou `wails build` + rodar o
+   `.exe`) contra o `jamesd` de pé, clicar pra expandir o chat, mandar
+   mensagem, confirmar resposta — exige ambiente gráfico real que esta
+   sessão não tem.
+6. ❌ **Não verificado — precisa do Arthur**. Celular real na VPN
+   Tailscale abrindo a mesma UI, conversando em modo Restrito, disparando
+   o card de aprovação (`CardAprovacao.tsx`, Task 23) no desktop e
+   aprovando/negando fim a fim. Exige um segundo dispositivo físico na
+   VPN, que esta sessão não tem.
+7. ❌ **Não verificado — precisa do Arthur**. Rodar `python -m
+   james_device.main` de verdade (microfone real) e depois matá-lo
+   enquanto o `jamesd` está de pé, confirmar que o `jamesd` não cai e a
+   tool de tela devolve erro claro em vez de travar. Exige microfone real
+   funcionando — fora do que esta sessão consegue simular.
+8. ✅ `cmd/migrar-historico` — idempotência (inclusive falha parcial com
+   rollback) provada exaustivamente na Task 20
+   (`TestExecutarMigraMensagensEMapeiaPapel`, `TestExecutarEIdempotente`,
+   `TestExecutarFalhaNoMeioNaoDeixaSessaoParcial`), reconfirmada na suíte
+   completa da Task 25.
+9. ✅ **`git log -p` sem credencial em nenhum commit** — varri `git log
+   --all -p` inteiro (não só a árvore atual — isso é mais amplo que a
+   guarda de higiene, que só varre arquivos no disco) contra os mesmos
+   padrões do `internal/higiene`: 15 hits de "connection-string-com-senha"
+   (todos confirmados placeholder/fixture — `.env.example` com senha
+   genérica de 5 letras batendo em lista de placeholders conhecidos,
+   `config_test.go` com `postgres://x:...@localhost`, docs de plano
+   citando o mesmo exemplo), 1 hit de "chave-privada-pem" (é o próprio
+   texto do padrão regex definido em `internal/higiene/higiene.go`,
+   autorreferência, não uma chave real), zero hits de AWS/GitHub/JWT/
+   Gemini/Tavily/NVIDIA/OpenRouter em todo o histórico. Nenhum valor real
+   foi impresso em nenhum momento desta verificação (sempre `grep -c` ou
+   redação antes de exibir).
+10. ✅ Nenhuma chave em texto puro — mesma varredura do item 9, mais a
+    guarda de higiene (`TestRepositorioLimpo`) já passando na árvore atual.
+
+**Resumo: 7 de 10 critérios verificados de verdade nesta sessão (1, 2, 3,
+4, 8, 9, 10). Os 3 restantes (5, 6, 7) exigem hardware que esta sessão não
+tem — janela gráfica real, celular físico na VPN, microfone real — e
+ficam explicitamente pro Arthur rodar à mão antes de considerar a Fase 1
+100% fechada.** Todo o código, todos os testes automatizados e toda a
+varredura de segurança possível sem hardware físico estão feitos e
+verdes. As 25 tasks do plano estão todas commitadas e revisadas (66
+commits desde o commit inicial do repo até aqui — `git log --oneline
+6f18fa8..HEAD | wc -l`, contagem real — cada task com ciclo
+implementador → revisor de spec → revisor de qualidade, achados reais
+corrigidos com evidência antes de fechar).
