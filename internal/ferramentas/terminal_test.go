@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestComandoSistemaExecutaViaExecutorInjetado(t *testing.T) {
@@ -97,4 +98,111 @@ func TestComandoSistemaConfirmacaoNecessaria(t *testing.T) {
 // loop faz: sem ela, o gate silenciosamente não pega a ferramenta.
 func TestComandoSistemaImplementaExigeConfirmacao(t *testing.T) {
 	var _ ExigeConfirmacao = NovoComandoSistema()
+}
+
+func TestCodificarComandoProduzUTF16LEBase64(t *testing.T) {
+	// "A" em UTF-16LE é 0x41 0x00; em base64, "QQA=".
+	if got := codificarComando("A"); got != "QQA=" {
+		t.Errorf("codificarComando(\"A\") = %q, queria QQA=", got)
+	}
+}
+
+// TestExecutarPowerShellDeVerdadeComAcentoEAspas roda o PowerShell real: é o
+// único jeito de provar que o comando atravessa as duas camadas de parsing de
+// shell sem se quebrar. Não usa mock de propósito.
+func TestExecutarPowerShellDeVerdadeComAcentoEAspas(t *testing.T) {
+	if testing.Short() {
+		t.Skip("usa o PowerShell real")
+	}
+	res, err := executarPowerShell(context.Background(), `Write-Output "ação 'com' aspas"`)
+	if err != nil {
+		t.Fatalf("executarPowerShell devolveu erro: %v", err)
+	}
+	if !strings.Contains(res.Stdout, "ação 'com' aspas") {
+		t.Errorf("stdout = %q, queria o texto com acento e aspas intactos", res.Stdout)
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit code = %d, queria 0", res.ExitCode)
+	}
+}
+
+// TestExecutarPowerShellDeVerdadeRespeitaOTimeout prova que o processo é
+// morto de verdade, não só abandonado.
+func TestExecutarPowerShellDeVerdadeRespeitaOTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("usa o PowerShell real")
+	}
+	c := &ComandoSistema{Executor: executarPowerShell, Timeout: 2 * time.Second, MaxBytesSaida: 1000}
+
+	inicio := time.Now()
+	_, err := c.Executar(context.Background(), map[string]any{"comando": "Start-Sleep -Seconds 30"})
+	decorrido := time.Since(inicio)
+
+	if err == nil {
+		t.Fatal("esperava erro de timeout, veio nil")
+	}
+	if !strings.Contains(err.Error(), "tempo limite") {
+		t.Errorf("erro deveria dizer que foi timeout, veio %q", err.Error())
+	}
+	if decorrido > 10*time.Second {
+		t.Errorf("demorou %s — o processo não foi morto no timeout", decorrido)
+	}
+}
+
+func TestExecutarPowerShellDeVerdadeCapturaExitCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("usa o PowerShell real")
+	}
+	res, err := executarPowerShell(context.Background(), "exit 3")
+	if err != nil {
+		t.Fatalf("executarPowerShell devolveu erro: %v", err)
+	}
+	if res.ExitCode != 3 {
+		t.Errorf("exit code = %d, queria 3", res.ExitCode)
+	}
+}
+
+// TestExecutarPowerShellDeVerdadeNaoDeixaBOM é cinto e suspensório: mesmo
+// com UTF8Encoding::new($false) (que não deveria gravar BOM), confirma que
+// nenhum U+FEFF sobrevive até o Go. BOM vazando pro modelo é sujeira que não
+// aparece na tela e reaparece como bug estranho lá na frente.
+func TestExecutarPowerShellDeVerdadeNaoDeixaBOM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("usa o PowerShell real")
+	}
+	res, err := executarPowerShell(context.Background(), `Write-Output "ok"`)
+	if err != nil {
+		t.Fatalf("executarPowerShell devolveu erro: %v", err)
+	}
+	bom := string(rune(0xFEFF))
+	if strings.HasPrefix(res.Stdout, bom) {
+		t.Errorf("stdout começa com BOM: %q", res.Stdout)
+	}
+}
+
+// TestPrefixoDeEncodingNaoVazaParaOClassificador prova, e não apenas assume,
+// que ConfirmacaoNecessaria roda sobre o comando cru dos args — nunca sobre a
+// versão que executarPowerShell prefixa com a linha de forçar UTF-8. Newline
+// reprova qualquer comando em ComandoEhLeitura (ehUmaLinhaSo): se o prefixo
+// vazasse pro classificador, até Get-Process passaria a exigir confirmação.
+// loop.go despacharSemHook chama ConfirmacaoNecessaria(chamada.Args) e depois
+// Executar(ctx, chamada.Args) com o mesmo mapa, sem mutação entre as duas —
+// este teste é a contraparte em nível de unidade dessa leitura de código.
+func TestPrefixoDeEncodingNaoVazaParaOClassificador(t *testing.T) {
+	comandoCru := "Get-Process"
+
+	// Confere a premissa com o prefixo de verdade (não uma newline
+	// inventada à mão): o comando do jeito que executarPowerShell de fato
+	// manda pro PowerShell seria reprovado por ComandoEhLeitura.
+	comandoComoSeriaEnviado := prefixoUTF8 + comandoCru
+	if ComandoEhLeitura(comandoComoSeriaEnviado) {
+		t.Fatal("premissa quebrou: comando prefixado deveria reprovar em ComandoEhLeitura por causa do newline")
+	}
+
+	// Caminho real: ConfirmacaoNecessaria recebe os args do jeito que
+	// chegam do modelo, sem qualquer prefixo de encoding.
+	c := NovoComandoSistema()
+	if c.ConfirmacaoNecessaria(map[string]any{"comando": comandoCru}) {
+		t.Fatal("ConfirmacaoNecessaria exigiu confirmação pra Get-Process — o prefixo de encoding vazou pro classificador")
+	}
 }
