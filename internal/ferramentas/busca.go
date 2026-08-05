@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // aberturaExterno e fechamentoExterno delimitam tudo que veio da internet.
@@ -26,10 +27,13 @@ type Busca struct {
 	MaxResultados int
 }
 
-func NovaBusca(apiKey string) *Busca {
+// NovaBusca monta a busca com um cliente HTTP próprio. Nunca
+// http.DefaultClient: ele não tem timeout, e uma API lenta penduraria o turno
+// inteiro.
+func NovaBusca(apiKey string, timeout time.Duration) *Busca {
 	return &Busca{
 		APIKey:        apiKey,
-		Cliente:       http.DefaultClient,
+		Cliente:       &http.Client{Timeout: timeout},
 		URL:           "https://api.tavily.com/search",
 		MaxResultados: 5,
 	}

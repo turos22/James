@@ -28,16 +28,28 @@ func TestConstruirComandoSistemaAplicaConfig(t *testing.T) {
 	}
 }
 
-// TestConstruirBuscaNaoDevolveNil é só o ponto de costura por enquanto — a
-// Task 11 injeta timeout/max_resultados de verdade em ferramentas.Busca e
-// ganha asserção completa aqui.
-func TestConstruirBuscaNaoDevolveNil(t *testing.T) {
-	cfg := &config.Config{TavilyAPIKey: "chave-de-teste"}
+// TestConstruirBuscaAplicaConfig prova que Cliente.Timeout e MaxResultados
+// chegam com o valor do config, não zero — mesma falha silenciosa que
+// motivou a extração em TestConstruirComandoSistemaAplicaConfig: a ferramenta
+// funciona do mesmo jeito, só que sem timeout e sem limite, e compilar não
+// acusa nada.
+func TestConstruirBuscaAplicaConfig(t *testing.T) {
+	cfg := &config.Config{
+		TavilyAPIKey:         "chave-de-teste",
+		BuscaTimeoutSegundos: 15,
+		BuscaMaxResultados:   3,
+	}
 
 	b := construirBusca(cfg)
 
 	if b == nil {
 		t.Fatal("construirBusca devolveu nil")
+	}
+	if b.Cliente.Timeout != 15*time.Second {
+		t.Errorf("Cliente.Timeout = %s, queria %s", b.Cliente.Timeout, 15*time.Second)
+	}
+	if b.MaxResultados != 3 {
+		t.Errorf("MaxResultados = %d, queria 3", b.MaxResultados)
 	}
 }
 

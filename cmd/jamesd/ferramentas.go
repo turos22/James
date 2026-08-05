@@ -20,11 +20,15 @@ func construirComandoSistema(cfg *config.Config) *ferramentas.ComandoSistema {
 	return c
 }
 
-// construirBusca ainda não aplica nenhuma configuração: cfg.BuscaTimeoutSegundos
-// e cfg.BuscaMaxResultados existem desde a Task 7, mas ferramentas.Busca ainda
-// não tem campo pra eles. A Task 11 preenche esta função.
+// construirBusca aplica timeout e limite de resultados vindos do config.toml
+// na ferramenta de busca — mesmo motivo de construirComandoSistema: nunca o
+// cliente HTTP default sem timeout, e nunca a ferramenta funcionando "quase
+// certo" (sem limite) sem que um teste acuse.
 func construirBusca(cfg *config.Config) *ferramentas.Busca {
-	return ferramentas.NovaBusca(cfg.TavilyAPIKey)
+	b := ferramentas.NovaBusca(cfg.TavilyAPIKey,
+		time.Duration(cfg.BuscaTimeoutSegundos)*time.Second)
+	b.MaxResultados = cfg.BuscaMaxResultados
+	return b
 }
 
 // construirClaudeCode ainda não aplica nenhuma configuração: cfg.ClaudeCodeDiretorio

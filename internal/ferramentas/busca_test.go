@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuscaEnviaPayloadMelhorado(t *testing.T) {
@@ -150,15 +152,46 @@ func TestBuscaRejeitaRespostaMalformada(t *testing.T) {
 }
 
 func TestBuscaRejeitaArgumentoAusente(t *testing.T) {
-	b := NovaBusca("chave")
+	b := NovaBusca("chave", 20*time.Second)
 	if _, err := b.Executar(context.Background(), map[string]any{}); err == nil {
 		t.Fatal("esperava erro por parâmetro query ausente, veio nil")
 	}
 }
 
 func TestBuscaNivelSeguro(t *testing.T) {
-	b := NovaBusca("chave")
+	b := NovaBusca("chave", 20*time.Second)
 	if b.Nivel() != NivelSeguro {
 		t.Error("pesquisar_internet deve ser NivelSeguro")
 	}
+}
+
+// TestNovaBuscaTemTimeout trava o achado da Fase 3: http.DefaultClient não
+// tem timeout nenhum, e uma Tavily lenta penduraria o turno indefinidamente.
+func TestNovaBuscaTemTimeout(t *testing.T) {
+	b := NovaBusca("chave", 20*time.Second)
+	if b.Cliente.Timeout == 0 {
+		t.Error("o cliente HTTP da busca precisa de timeout, veio 0")
+	}
+}
+
+// TestBuscaContraTavilyDeVerdade só roda com TAVILY_API_KEY no ambiente. É o
+// que prova que o payload e o parsing batem com a API real, e não só com o
+// servidor de mentira dos outros testes.
+func TestBuscaContraTavilyDeVerdade(t *testing.T) {
+	chave := os.Getenv("TAVILY_API_KEY")
+	if chave == "" {
+		t.Skip("TAVILY_API_KEY não definida")
+	}
+	b := NovaBusca(chave, 30*time.Second)
+	saida, err := b.Executar(context.Background(), map[string]any{"query": "quem ganhou a copa do mundo de 2022"})
+	if err != nil {
+		t.Fatalf("busca real devolveu erro: %v", err)
+	}
+	if !strings.Contains(saida, "Resposta sintetizada:") {
+		t.Errorf("a API real não devolveu resposta sintetizada: %q", saida)
+	}
+	if !strings.Contains(saida, aberturaExterno) {
+		t.Errorf("faltou o bloco de conteúdo não confiável: %q", saida)
+	}
+	t.Logf("saída real da Tavily:\n%s", saida)
 }
