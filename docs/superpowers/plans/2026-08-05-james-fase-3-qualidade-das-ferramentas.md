@@ -2086,6 +2086,27 @@ func TestClaudeCodeRejeitaJSONInesperado(t *testing.T) {
 	}
 }
 
+// TestClaudeCodeSempreExigeConfirmacao trava a decisão D10. O spike da Task 13
+// provou que acceptEdits executa shell em modo headless; sem esta confirmação,
+// perguntar_ao_claude_code vira um caminho indireto pra shell arbitrário que
+// contorna o gate do executar_comando_sistema.
+func TestClaudeCodeSempreExigeConfirmacao(t *testing.T) {
+	var _ ExigeConfirmacao = NovoClaudeCode()
+
+	c := NovoClaudeCode()
+	casos := []map[string]any{
+		{"instrucao": "lista os arquivos"},
+		{"instrucao": "apaga tudo"},
+		{},
+		nil,
+	}
+	for _, args := range casos {
+		if !c.ConfirmacaoNecessaria(args) {
+			t.Errorf("ConfirmacaoNecessaria(%v) = false; o Claude Code deve confirmar SEMPRE", args)
+		}
+	}
+}
+
 // TestClaudeCodeUsaOFixtureReal roda o parser contra a saída de verdade
 // capturada no spike da Task 13.
 func TestClaudeCodeUsaOFixtureReal(t *testing.T) {
@@ -2176,6 +2197,18 @@ func (c *ClaudeCode) Declaracao() Declaracao {
 }
 
 func (c *ClaudeCode) Nivel() Nivel { return NivelPerigoso }
+
+// ConfirmacaoNecessaria implementa ExigeConfirmacao e devolve sempre true
+// (decisão D10). O spike da Task 13 mostrou que --permission-mode acceptEdits
+// EXECUTA comando de shell em modo headless, sem recusa — a premissa contrária,
+// que motivou D6, era falsa. Sem esta confirmação, o modelo teria pelo Claude
+// Code um caminho indireto pra shell arbitrário, contornando o classificador e
+// o gate que esta mesma fase construiu pro executar_comando_sistema.
+//
+// Sempre true, e não condicional aos args: a instrução é texto livre em
+// linguagem natural, e não há como classificar com honestidade o que o Claude
+// Code vai decidir fazer com ela.
+func (c *ClaudeCode) ConfirmacaoNecessaria(map[string]any) bool { return true }
 
 func (c *ClaudeCode) Executar(ctx context.Context, args map[string]any) (string, error) {
 	instrucao, ok := args["instrucao"].(string)

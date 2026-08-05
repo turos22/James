@@ -66,6 +66,7 @@ A "Fase 2" não existe: o número foi absorvido pela Fase 1 (Postgres) e pela Fa
 | D7 | Melhoria da busca | `advanced` + `include_answer` + saída formatada e marcada como não confiável | A marcação é defesa em profundidade; o gate de D2 continua sendo a barreira real |
 | D8 | Local de execução da fase | Direto em `main`, commit por task | Escolha do Arthur. Permite testar ao vivo a cada passo sem trocar de checkout |
 | D9 | Momento do diagnóstico do bug da aprovação | Durante a execução, como task do plano, e por último | É o único item de duração desconhecida; na frente, bloquearia trabalho já totalmente especificado |
+| D10 | Contenção do `perguntar_ao_claude_code`, depois que o spike derrubou a premissa de D6 | A ferramenta implementa `ExigeConfirmacao` devolvendo sempre `true`: toda chamada pede confirmação humana, inclusive no Privilegiado | Tomada em 2026-08-05, durante a execução, ao descobrir que `acceptEdits` executa shell. Trata o Claude Code igual ao comando PowerShell de escrita, reusando a máquina que a fase já construiu, em vez de mutilar a ferramenta com `--disallowedTools Bash` (que tiraria rodar teste e build, metade do valor de um agente de desenvolvimento). O custo é um clique numa chamada que já leva minutos e custa dinheiro — fricção desprezível no caso de uso real |
 
 ---
 
@@ -199,7 +200,15 @@ Se reusar o mesmo id já retomar o contexto sozinho, dispensando o `--resume`, a
 
 **Retorno para o modelo:** o JSON de `--output-format json` é parseado em struct tipada e o resultado real é devolvido. A string fixa `"Claude Code iniciado. Tarefa enviada para o agente."` morre. Falha do Claude Code (exit code, timeout, JSON inesperado) vira erro de verdade para o modelo.
 
-`Nivel()` continua `NivelPerigoso`: `acceptEdits` escreve arquivo. A ferramenta **não** implementa `ExigeConfirmacao` — o nível já cobre.
+`Nivel()` continua `NivelPerigoso`: `acceptEdits` escreve arquivo. A ferramenta **também implementa `ExigeConfirmacao`**, devolvendo sempre `true` — ver D10.
+
+### 6.1 Correção da premissa de D6 (verificada em 2026-08-05)
+
+D6 foi decidida com a afirmação de que `acceptEdits` "edita arquivos sem perguntar, mas não executa Bash arbitrário sem permissão". **Essa afirmação está errada.** Execução real registrada em [`spikes/2026-08-05-claude-code-headless.md`](../spikes/2026-08-05-claude-code-headless.md), item 6: com `--permission-mode acceptEdits` em modo `-p`, o Claude Code **executou** um comando de shell, `permission_denials` voltou vazio, e não houve recusa nem espera.
+
+A consequência é séria e específica: sem contenção adicional, `perguntar_ao_claude_code` daria ao modelo um caminho indireto para shell arbitrário, **contornando** o classificador e o gate de confirmação que esta mesma fase construiu para o `executar_comando_sistema`. O diretório dedicado limita dano a arquivo, mas não confina comando de shell.
+
+**D10 fecha esse caminho.**
 
 ---
 
