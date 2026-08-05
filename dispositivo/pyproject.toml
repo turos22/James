@@ -18,6 +18,15 @@ dev = ["pytest>=8.0"]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+# Sem isso, a descoberta automática de pacotes do setuptools vê assets/
+# (áudios estáticos, Task 22) e james_device/ como dois pacotes de topo
+# concorrentes e recusa o build ("Multiple top-level packages discovered
+# in a flat-layout") — achado ao rodar pip install -e do zero (o install
+# editable anterior nunca tinha sido refeito depois que assets/ passou a
+# existir, então isso ficou escondido).
+[tool.setuptools.packages.find]
+include = ["james_device*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
