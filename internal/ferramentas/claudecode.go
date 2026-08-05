@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,32 @@ type ClaudeCode struct {
 	Diretorio string
 
 	Timeout time.Duration
+
+	// mu protege sessoesIniciadas: sessões diferentes despacham em paralelo, e
+	// uma mesma sessão pode ter mais de uma chamada em voo.
+	mu               sync.Mutex
+	sessoesIniciadas map[string]bool
+}
+
+func (c *ClaudeCode) jaIniciou(sessaoID string) bool {
+	if sessaoID == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessoesIniciadas[sessaoID]
+}
+
+func (c *ClaudeCode) marcarIniciada(sessaoID string) {
+	if sessaoID == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessoesIniciadas == nil {
+		c.sessoesIniciadas = make(map[string]bool)
+	}
+	c.sessoesIniciadas[sessaoID] = true
 }
 
 func NovoClaudeCode() *ClaudeCode {
@@ -97,13 +124,20 @@ func (c *ClaudeCode) Executar(ctx context.Context, args map[string]any) (string,
 		defer cancelar()
 	}
 
-	bruto, err := c.Executor(ctxClaude, c.Diretorio, MontarArgs(instrucao, "", false))
+	sessaoID := SessaoDo(ctx)
+	bruto, err := c.Executor(ctxClaude, c.Diretorio,
+		MontarArgs(instrucao, sessaoID, c.jaIniciou(sessaoID)))
 	if errors.Is(ctxClaude.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("Claude Code excedeu o tempo limite de %s e foi encerrado", c.Timeout)
 	}
 	if err != nil {
 		return "", fmt.Errorf("erro ao rodar Claude Code: %w", err)
 	}
+
+	// Só no caminho de sucesso: se a primeira chamada morreu antes de a sessão
+	// existir, a próxima precisa tentar criar de novo, não retomar uma sessão
+	// que nunca existiu.
+	c.marcarIniciada(sessaoID)
 
 	var res resultadoClaudeCode
 	if err := json.Unmarshal(bruto, &res); err != nil {

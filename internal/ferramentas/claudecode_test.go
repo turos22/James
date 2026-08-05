@@ -235,3 +235,131 @@ func TestMontarArgsSemSessaoOmiteAsDuasFlags(t *testing.T) {
 		}
 	}
 }
+
+// sessaoDeTeste monta um ctx com id de sessão, que é como o id chega à
+// ferramenta em produção (posto pelo internal/api antes do loop rodar).
+func sessaoDeTeste(id string) context.Context {
+	return ComSessao(context.Background(), id)
+}
+
+func TestClaudeCodePrimeiraChamadaCriaSessao(t *testing.T) {
+	var argsRecebidos []string
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			argsRecebidos = args
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	ctx := sessaoDeTeste("11111111-2222-3333-4444-555555555555")
+	if _, err := c.Executar(ctx, map[string]any{"instrucao": "faz X"}); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !slices.Contains(argsRecebidos, "--session-id") {
+		t.Errorf("primeira chamada deveria usar --session-id: %v", argsRecebidos)
+	}
+	if !slices.Contains(argsRecebidos, "11111111-2222-3333-4444-555555555555") {
+		t.Errorf("o id da sessão do James deveria ir como id da sessão do Claude Code: %v", argsRecebidos)
+	}
+}
+
+func TestClaudeCodeSegundaChamadaRetomaSessao(t *testing.T) {
+	var ultimosArgs []string
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			ultimosArgs = args
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	ctx := sessaoDeTeste("11111111-2222-3333-4444-555555555555")
+	if _, err := c.Executar(ctx, map[string]any{"instrucao": "faz X"}); err != nil {
+		t.Fatalf("primeira chamada devolveu erro: %v", err)
+	}
+	if _, err := c.Executar(ctx, map[string]any{"instrucao": "agora ajusta"}); err != nil {
+		t.Fatalf("segunda chamada devolveu erro: %v", err)
+	}
+
+	if !slices.Contains(ultimosArgs, "--resume") {
+		t.Errorf("segunda chamada deveria retomar a sessão: %v", ultimosArgs)
+	}
+}
+
+// TestClaudeCodeSessoesDiferentesNaoSeMisturam é o teste que o desenho antigo
+// (campo no struct) não passaria: uma única instância da ferramenta atende
+// todas as conversas, e a conversa B não pode retomar a sessão da conversa A.
+func TestClaudeCodeSessoesDiferentesNaoSeMisturam(t *testing.T) {
+	var ultimosArgs []string
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			ultimosArgs = args
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	if _, err := c.Executar(sessaoDeTeste("aaaa"), map[string]any{"instrucao": "faz X"}); err != nil {
+		t.Fatalf("chamada da sessão A devolveu erro: %v", err)
+	}
+	if _, err := c.Executar(sessaoDeTeste("bbbb"), map[string]any{"instrucao": "faz Y"}); err != nil {
+		t.Fatalf("chamada da sessão B devolveu erro: %v", err)
+	}
+
+	if slices.Contains(ultimosArgs, "--resume") {
+		t.Errorf("a sessão B é nova e não pode retomar a de A: %v", ultimosArgs)
+	}
+}
+
+// TestClaudeCodeFalhaNaoMarcaSessaoComoIniciada evita o estado preso: se a
+// primeira chamada morreu antes de criar a sessão, a próxima precisa tentar
+// criar de novo em vez de retomar uma sessão que nunca existiu.
+func TestClaudeCodeFalhaNaoMarcaSessaoComoIniciada(t *testing.T) {
+	var ultimosArgs []string
+	falhar := true
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			ultimosArgs = args
+			if falhar {
+				return nil, errors.New("claude sumiu")
+			}
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	ctx := sessaoDeTeste("11111111-2222-3333-4444-555555555555")
+	if _, err := c.Executar(ctx, map[string]any{"instrucao": "faz X"}); err == nil {
+		t.Fatal("esperava erro na primeira chamada")
+	}
+	falhar = false
+	if _, err := c.Executar(ctx, map[string]any{"instrucao": "faz X de novo"}); err != nil {
+		t.Fatalf("segunda chamada devolveu erro: %v", err)
+	}
+	if !slices.Contains(ultimosArgs, "--session-id") {
+		t.Errorf("depois de falhar, deveria tentar criar a sessão de novo: %v", ultimosArgs)
+	}
+}
+
+// TestClaudeCodeSemSessaoNoContextoNaoQuebra cobre o caminho dos testes e de
+// qualquer chamador que não ponha sessão no ctx.
+func TestClaudeCodeSemSessaoNoContextoNaoQuebra(t *testing.T) {
+	var argsRecebidos []string
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			argsRecebidos = args
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	if _, err := c.Executar(context.Background(), map[string]any{"instrucao": "faz X"}); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	for _, arg := range argsRecebidos {
+		if arg == "--session-id" || arg == "--resume" {
+			t.Errorf("sem sessão no ctx, não deveria haver %q: %v", arg, argsRecebidos)
+		}
+	}
+}

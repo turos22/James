@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"james/internal/agente"
+	"james/internal/ferramentas"
 	"james/internal/permissao"
 )
 
@@ -111,6 +112,11 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 		ctxTurno, cancelar = context.WithTimeout(ctx, s.TimeoutTurno)
 		defer cancelar()
 	}
+
+	// Ferramentas que mantêm estado por conversa (perguntar_ao_claude_code)
+	// leem o id da sessão daqui — é o único canal que atravessa api → agente
+	// → ferramentas.
+	ctxTurno = ferramentas.ComSessao(ctxTurno, sessaoID.String())
 
 	resp, mensagens, err := loop.Executar(ctxTurno, s.SistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
 	if err != nil {
