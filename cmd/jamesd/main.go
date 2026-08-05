@@ -62,7 +62,10 @@ func executar() error {
 	dispositivoHub := dispositivo.NovoHub()
 
 	registro := ferramentas.NovoRegistro()
-	if err := registro.Registrar(ferramentas.NovoComandoSistema()); err != nil {
+	comandoSistema := ferramentas.NovoComandoSistema()
+	comandoSistema.Timeout = time.Duration(cfg.TerminalTimeoutSegundos) * time.Second
+	comandoSistema.MaxBytesSaida = cfg.TerminalMaxBytesSaida
+	if err := registro.Registrar(comandoSistema); err != nil {
 		return fmt.Errorf("registrar executar_comando_sistema: %w", err)
 	}
 	if err := registro.Registrar(ferramentas.NovoClaudeCode()); err != nil {
