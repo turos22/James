@@ -43,7 +43,17 @@ def escutar_e_enviar(conexao: ConexaoJames):
     recognizer = sr.Recognizer()
     recognizer.dynamic_energy_threshold = True
 
-    with sr.Microphone() as source:
+    try:
+        microfone = sr.Microphone()
+    except Exception:
+        # PyAudio ausente ou sem dispositivo de entrada — sr.Microphone()
+        # levanta na hora, sem log nenhum por padrão. Falhar alto continua
+        # certo aqui (não dá pra escutar sem microfone), mas sem isso a
+        # única pista que sobrava era o traceback cru no console.
+        logger.exception("não consegui abrir o microfone — PyAudio instalado? dispositivo de entrada disponível?")
+        raise
+
+    with microfone as source:
         recognizer.adjust_for_ambient_noise(source, duration=1)
         logger.info("escuta ativa iniciada")
 
