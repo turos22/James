@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 23 de 25 tasks fechadas
+## Estado exato: 24 de 25 tasks fechadas
 
-HEAD do worktree: `66d5c09` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `bb5fef5` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -45,8 +45,8 @@ HEAD do worktree: `66d5c09` (branch `worktree-fase-1-nucleo`).
 | 21 | `james_device/conexao.py` | ✅ fechada (commits `c0619cc` implementação + `bcd0742` fix pós-revisão) |
 | 22 | `james_device/tela.py` + `main.py` | ✅ fechada (commits `e991cac` implementação + `55a46b0` fix pós-revisão) |
 | 23 | `web/` rewire + card de aprovação | ✅ fechada (commits `7546fef` rename + `66d5c09` conteúdo, zero fix pós-revisão) |
-| **24** | **SPA embutida + `shell/`** | 🔶 **próxima — não começada** |
-| 25 | remoção de código morto e fechamento | pendente |
+| 24 | SPA embutida + `shell/` | ✅ fechada (commits `02a31b1` implementação + `bb5fef5` fix pós-revisão) |
+| **25** | **remoção de código morto e fechamento** | 🔶 **próxima e última — não começada** |
 
 **Rastreamento formal:** existe uma lista de tasks no harness (TaskList) com IDs
 #1-32 espelhando exatamente essa tabela (mais as 6 tasks de brainstorming/plano
@@ -327,28 +327,57 @@ mais desde a Task 23) — isso é esperado, é exatamente o arquivo que a
 Task 25 vai deletar; a Task 24 não mexe nele, cria `web/embed.go` e
 `shell/main.go` novos e independentes.
 
-## Próxima ação concreta
+## Task 24 — resumo
 
-Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 24: `jamesd` serve a SPA embutida + `shell/` Wails mínimo", copiar
-o texto completo, e dispatchar o subagente implementador seguindo o
-workflow acima. Essa task: cria `web/embed.go` (embute `web/dist` via
-`go:embed`), adiciona `EmbutidosSPA fs.FS` ao `Servidor` (`internal/api/
-rest.go`) com rota catch-all `/` registrada DEPOIS das rotas `/api/*` e
-`/ws*` (prioridade), liga isso em `cmd/jamesd/main.go`, e cria um `shell/`
-novo — invólucro Wails mínimo sem UI própria (`shell/frontend/index.html`
-só redireciona pra `http://127.0.0.1:8080/`, `shell/main.go` sobe uma
-janela frameless/transparente/always-on-top apontando pro `jamesd`
-local), com `shell/wails.json` adaptado do `wails.json` da raiz (que
-depois é removido). Precisa de `npm run build --prefix web` rodando de
-verdade ANTES do `go build` (senão `web/embed.go` não tem `dist/` pra
-embutir). O smoke test de janela nativa (Step 9) é manual — não é
-responsabilidade do subagente implementador, fica pro fechamento da fase
-(Task 25 + verificação final). Atenção à nota do próprio plano: a API
-exata de `assetserver.Options`/`options.App` deve ser conferida contra a
-versão instalada do Wails (usar context7 se `go build` reclamar de campo
-inexistente).
+Achou 2 **Important**, nenhum Critical: (1) `shell/frontend/wailsjs/
+runtime/` (489 linhas de scaffold auto-gerado pelo `wails` CLI, sem
+referência real em lugar nenhum) inflava o binário publicado e
+contradizia o objetivo declarado ("shell mínimo sem lógica própria") —
+removido e adicionado ao `.gitignore` (é regenerado automaticamente por
+`wails dev`/`wails build`, não precisa ser versionado). (2) O catch-all/
+`EmbutidosSPA` — comportamento central que fecha o invariante I3 — não
+tinha teste nenhum cobrindo — 3 testes novos em `internal/api/
+rest_test.go` usando `testing/fstest.MapFS` (sem precisar de Postgres):
+catch-all serve conteúdo embutido, rotas de API vencem o catch-all mesmo
+com `EmbutidosSPA` setado, `Rotas()` não panica com `EmbutidosSPA` nil.
+21/21 testes de `internal/api` passam com `-race` limpo.
 
-Depois da Task 24, só falta a Task 25 (remoção de código morto +
-fechamento formal da fase, com a checklist de 10 critérios de aceitação
-da spec seção 9) pra fase inteira fechar.
+Confirmado (revisor de spec, com testes descartáveis próprios): a ordem
+de registro do catch-all em `Rotas()` é só estética — o `http.ServeMux`
+do Go 1.22+ resolve por especificidade de padrão, não por ordem.
+
+## Próxima ação concreta — Task 25, a última da Fase 1
+
+Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na
+seção "## Task 25: Remoção do código morto e fechamento da Fase 1", copiar
+o texto completo (Steps 1-5), e dispatchar o subagente implementador
+seguindo o workflow acima. É puramente mecânica: `git rm app.go
+database.go main.go processador_voz.py run_athena.bat vosk_api.h`
+(arquivos órfãos, substituídos pelas Tasks 1-24 — confirmar antes que
+nada novo os importa), rodar a suíte inteira (`go vet ./... && go test
+./...`, `pytest dispositivo/`, `npm test --prefix web`) com evidência
+real colada, rodar a guarda de credenciais (`go test ./internal/higiene/...
+-run TestRepositorioLimpo -v`), commit.
+
+**Depois que a Task 25 fechar, a Fase 1 ainda não está formalmente
+encerrada** — existe uma seção separada no plano, "## Verificação final
+da Fase 1", com 10 critérios de aceitação da spec (seção 9). Desses:
+- **Automatizáveis, já cobertos ou fáceis de rodar de novo**: itens 1
+  (`go vet && go test`), 2 (`pytest`), 3 (`npm test`), 8 (idempotência do
+  `cmd/migrar-historico`, já provada exaustivamente na Task 20), 9/10
+  (guarda de credenciais, mesma da Task 25 Step 4).
+- **Item 4** (jamesd falha rápido sem `GEMINI_API_KEY`) dá pra testar sem
+  hardware especial — rodar `go run ./cmd/jamesd` com a variável removida
+  temporariamente do ambiente do processo (nunca do `.env` de verdade) e
+  confirmar a mensagem de erro, depois confirmar que sobe normal com ela
+  presente.
+- **Itens 5, 6 e 7 exigem hardware/rede real que esta sessão não tem**:
+  item 5 precisa abrir a janela nativa do `shell/` de verdade (ambiente
+  gráfico); item 6 precisa de um celular real conectado na VPN Tailscale;
+  item 7 precisa rodar `python -m james_device.main` de verdade (microfone)
+  e depois matá-lo enquanto o `jamesd` está de pé. **Nenhum desses três é
+  responsabilidade de um subagente automatizado** — ficam pro Arthur
+  verificar à mão depois que a Task 25 fechar, com evidência real colada
+  (a regra de "evidência antes de afirmação" do CLAUDE.md dele vale aqui
+  também: não declarar a fase fechada sem essas três terem rodado de
+  verdade).
