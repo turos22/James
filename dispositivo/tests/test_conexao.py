@@ -13,6 +13,7 @@ class FakeWS:
     def __init__(self, mensagens=None):
         self._mensagens = list(mensagens or [])
         self.enviados = []
+        self.fechado = False
 
     def __enter__(self):
         return self
@@ -25,6 +26,37 @@ class FakeWS:
 
     def send(self, mensagem):
         self.enviados.append(json.loads(mensagem))
+
+    def close(self):
+        self.fechado = True
+
+
+class FakeWSBloqueante:
+    """Simula um recv() bloqueado esperando mensagem — só o `for ws` de
+    _sessao retorna quando close() é chamado, como o socket real faria ao
+    ser fechado por fora enquanto está ocioso esperando dado."""
+
+    def __init__(self):
+        self._liberar = threading.Event()
+        self.fechado = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        self._liberar.wait()
+        return
+        yield  # nunca executado — só faz __iter__ ser um gerador
+
+    def send(self, mensagem):
+        pass
+
+    def close(self):
+        self.fechado = True
+        self._liberar.set()
 
 
 def test_tratar_acao_tela_chama_manipulador_e_envia_resultado():
@@ -90,3 +122,82 @@ def test_heartbeat_enviado_periodicamente():
 
     assert len(ws.enviados) >= 1
     assert ws.enviados[0]["tipo"] == "heartbeat"
+
+
+def test_mensagem_malformada_nao_derruba_a_sessao():
+    chamadas = []
+
+    def manipulador(dados):
+        chamadas.append(dados)
+        return {"saida": "ok"}
+
+    envelope_bom = json.dumps({"tipo": "acao_tela", "id": "1", "dados": {"acao": "click"}})
+    ws = FakeWS(mensagens=["isso não é json válido", envelope_bom])
+
+    conexao = ConexaoJames("ws://localhost/ws/dispositivo", manipulador)
+    conexao._sessao(ws)  # não deve levantar exceção por causa da 1ª mensagem
+
+    assert chamadas == [{"acao": "click"}]
+    assert ws.enviados[-1]["tipo"] == "resultado_acao"
+
+
+def test_manipulador_com_bug_nao_derruba_a_sessao():
+    def manipulador_com_bug(dados):
+        raise ValueError("bug no manipulador")
+
+    envelope_com_bug = json.dumps({"tipo": "acao_tela", "id": "1", "dados": {}})
+    envelope_depois = json.dumps({"tipo": "ping", "id": "2", "dados": {}})
+    ws = FakeWS(mensagens=[envelope_com_bug, envelope_depois])
+
+    conexao = ConexaoJames("ws://localhost/ws/dispositivo", manipulador_com_bug)
+    conexao._sessao(ws)  # não deve propagar o ValueError do manipulador
+
+    # chegou até a 2ª mensagem (tipo desconhecido, ignorado) — prova que a
+    # sessão continuou depois do erro na 1ª, em vez de morrer ali
+    assert ws.enviados == []
+
+
+def test_executar_nao_para_pra_sempre_se_sessao_levantar_erro_inesperado():
+    chamadas = {"n": 0}
+
+    def conectar_com_sessao_quebrada(url):
+        chamadas["n"] += 1
+        if chamadas["n"] == 1:
+            # 1ª sessão: mensagem que quebra o parsing dentro do próprio
+            # __iter__ do ws (não um erro tratável por _sessao) — simula um
+            # erro inesperado que escapa da rede de segurança por mensagem.
+            class WSQuebrado(FakeWS):
+                def __iter__(self):
+                    raise RuntimeError("erro inesperado de baixo nível")
+
+            return WSQuebrado()
+        return FakeWS(mensagens=[])
+
+    conexao = ConexaoJames(
+        "ws://localhost/ws/dispositivo",
+        lambda dados: {},
+        intervalo_reconexao=0.01,
+        conectar=conectar_com_sessao_quebrada,
+    )
+    thread = threading.Thread(target=conexao.executar, daemon=True)
+    thread.start()
+    time.sleep(0.1)
+    conexao.parar()
+    thread.join(timeout=1)
+
+    assert chamadas["n"] >= 2, "erro inesperado na 1ª sessão deveria ter permitido reconectar, não matar o loop"
+
+
+def test_parar_fecha_a_conexao_ativa_e_libera_sessao_ociosa_bloqueada():
+    ws = FakeWSBloqueante()
+    conexao = ConexaoJames("ws://localhost/ws/dispositivo", lambda dados: {})
+
+    thread = threading.Thread(target=conexao._sessao, args=(ws,), daemon=True)
+    thread.start()
+    time.sleep(0.05)  # dá tempo da thread entrar no wait() bloqueado
+
+    conexao.parar()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive(), "parar() deveria ter liberado a sessão bloqueada em recv()"
+    assert ws.fechado is True

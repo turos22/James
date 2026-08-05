@@ -29,9 +29,21 @@ class ConexaoJames:
         self.intervalo_reconexao = intervalo_reconexao
         self._conectar = conectar
         self._parar = threading.Event()
+        self._ws_atual = None
+        self._lock_ws_atual = threading.Lock()
 
     def parar(self):
         self._parar.set()
+        # Sem isso, uma sessão conectada e ociosa (esperando recv() sem
+        # nenhuma mensagem chegando) nunca percebe que devia parar — o
+        # for/iter em _sessao só retorna quando o socket real gera alguma
+        # atividade. Fechar a conexão ativa força esse retorno.
+        with self._lock_ws_atual:
+            if self._ws_atual is not None:
+                try:
+                    self._ws_atual.close()
+                except Exception:
+                    pass
 
     def executar(self):
         """Loop principal: conecta, processa mensagens, reconecta se cair.
@@ -41,7 +53,13 @@ class ConexaoJames:
                 with self._conectar(self.url) as ws:
                     logger.info("conectado ao jamesd em %s", self.url)
                     self._sessao(ws)
-            except (OSError, ConnectionClosed) as erro:
+            except Exception as erro:
+                # Exception genérica de propósito, não só (OSError,
+                # ConnectionClosed): _sessao já isola erro por mensagem (ver
+                # abaixo), mas isso é a rede de segurança final — nenhum erro
+                # inesperado pode matar o loop de reconexão pra sempre, já
+                # que "reconecta sozinho se cair" é a promessa central deste
+                # módulo (achado do revisor de qualidade da Task 21).
                 logger.info(
                     "conexão com jamesd caiu (%s), tentando de novo em %ss", erro, self.intervalo_reconexao
                 )
@@ -49,11 +67,23 @@ class ConexaoJames:
                 time.sleep(self.intervalo_reconexao)
 
     def _sessao(self, ws):
+        with self._lock_ws_atual:
+            self._ws_atual = ws
         tarefa = threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True)
         tarefa.start()
-        for mensagem_bruta in ws:
-            envelope = json.loads(mensagem_bruta)
-            self._tratar(ws, envelope)
+        try:
+            for mensagem_bruta in ws:
+                try:
+                    envelope = json.loads(mensagem_bruta)
+                    self._tratar(ws, envelope)
+                except Exception:
+                    # JSON malformado ou erro dentro do manipulador não pode
+                    # derrubar a sessão inteira — só essa mensagem é
+                    # descartada, a conexão continua de pé pra próxima.
+                    logger.exception("erro ao tratar mensagem do jamesd, ignorando e seguindo na mesma sessão")
+        finally:
+            with self._lock_ws_atual:
+                self._ws_atual = None
 
     def _heartbeat_loop(self, ws):
         while not self._parar.is_set():
