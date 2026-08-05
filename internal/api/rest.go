@@ -12,6 +12,7 @@ import (
 
 	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
+	"james/internal/dispositivo"
 	"james/internal/memoria"
 	"james/internal/voz"
 )
@@ -37,6 +38,10 @@ type Servidor struct {
 	// áudio sem quebrar o turno (spec 4.7, Task 15).
 	Sintetizador *voz.Sintetizador
 	VozTTS       string
+
+	// DispositivoHub é a ponte com o james-device (Task 18): registra a
+	// conexão WS do device e casa acao_tela/resultado_acao.
+	DispositivoHub *dispositivo.Hub
 }
 
 func (s *Servidor) Rotas() http.Handler {
@@ -47,6 +52,7 @@ func (s *Servidor) Rotas() http.Handler {
 	mux.HandleFunc("GET /api/sessoes/{id}/mensagens", s.listarMensagens)
 	mux.HandleFunc("GET /api/audio/{id}", s.servirAudio)
 	mux.HandleFunc("GET /ws", s.ws)
+	mux.HandleFunc("GET /ws/dispositivo", s.wsDispositivo)
 	return mux
 }
 

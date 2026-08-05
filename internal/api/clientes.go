@@ -80,3 +80,23 @@ func (h *ClientesHub) BroadcastAprovacaoRequerida(id string, dados any) {
 		_ = c.Enviar("aprovacao_requerida", id, dados)
 	}
 }
+
+// BroadcastParaPrivilegiados manda qualquer evento (token, ferramenta_*,
+// resposta_final, erro) pra todo cliente Privilegiado conectado — é como o
+// dono da máquina vê a resposta a uma entrada de voz vinda do device, já
+// que a voz não chega por um cliente WS específico. Mesmo padrão de
+// BroadcastAprovacaoRequerida: snapshot sob lock, escreve fora do lock.
+func (h *ClientesHub) BroadcastParaPrivilegiados(tipo, id string, dados any) {
+	h.mu.Lock()
+	privilegiados := make([]ClienteConectado, 0, len(h.todos))
+	for c := range h.todos {
+		if c.Perfil() == permissao.Privilegiado {
+			privilegiados = append(privilegiados, c)
+		}
+	}
+	h.mu.Unlock()
+
+	for _, c := range privilegiados {
+		_ = c.Enviar(tipo, id, dados)
+	}
+}
