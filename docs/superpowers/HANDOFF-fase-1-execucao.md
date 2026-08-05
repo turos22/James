@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 17 de 25 tasks fechadas
+## Estado exato: 19 de 25 tasks fechadas
 
-HEAD do worktree: `105ebd0` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `d1ee120` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -39,9 +39,9 @@ HEAD do worktree: `105ebd0` (branch `worktree-fase-1-nucleo`).
 | 15 | `internal/voz` | ✅ fechada |
 | 16 | `internal/api` REST | ✅ fechada |
 | 17 | `internal/api` WS clientes + aprovação | ✅ fechada (commits `abccca9` implementação + `105ebd0` fix pós-revisão) |
-| **18** | **`internal/api` WS dispositivo** | 🔶 **próxima — não começada** |
-| 19 | `prompts/sistema.md` + `cmd/jamesd` | pendente |
-| 20 | `cmd/migrar-historico` | pendente |
+| 18 | `internal/api` WS dispositivo | ✅ fechada (commits `c8d63af` implementação + `2e0b72f` fix pós-revisão) |
+| 19 | `prompts/sistema.md` + `cmd/jamesd` | ✅ fechada (commits `b2fd281` implementação + `d1ee120` fix pós-revisão) |
+| **20** | **`cmd/migrar-historico`** | 🔶 **próxima — não começada** |
 | 21 | `james_device/conexao.py` | pendente |
 | 22 | `james_device/tela.py` + `main.py` | pendente |
 | 23 | `web/` rewire + card de aprovação | pendente |
@@ -175,17 +175,50 @@ backlog da fase — seção "Backlog acumulado" abaixo)**:
   da conexão. Pré-existente, não introduzida por este fix, não avaliada como
   bloqueante.
 
+## Task 18 — resumo
+
+Fechada com o ciclo completo, achado **Important** único (não Critical desta
+vez): `conexaoDispositivo.Enviar` (novo, `internal/api/dispositivo.go`) não
+tinha `SetWriteDeadline` — mesmo padrão de bug já corrigido na Task 17 pro
+lado do cliente, reaparecendo no socket do device. Agravante: `dispositivo.Hub.
+EnviarAcao` chama `Enviar` de forma síncrona ANTES do próprio `select` de
+timeout/cancelamento, então sem deadline o travamento escapava até do
+timeout do turno chamador. Corrigido reusando a constante `tempoLimiteEscrita`
+(5s) já definida em `clientes.go`. `BroadcastParaPrivilegiados` nasceu
+correta desde a implementação (já usando o padrão snapshot-fora-do-lock
+da Task 17, sem repetir o bug antigo).
+
+## Task 19 — resumo
+
+`cmd/jamesd/main.go` amarra tudo (config, Postgres, Gemini, ferramentas,
+API). Achou 2 **Important**, ambos sobre a filosofia de degradação
+graciosa que o próprio código já declarava mas não seguia por completo:
+- Erro de `ListenAndServeTLS` (cert do Tailscale ainda não emitido, cenário
+  plausível de primeiro deploy) escrevia no mesmo canal fatal do loopback e
+  matava o processo inteiro via `os.Exit`, mesmo com o loopback já servindo
+  com sucesso. Corrigido: canal fatal (`errosServidor`, agora tamanho 1) só
+  recebe do loopback; a goroutine da VPN, em erro, só loga e segue.
+- `resolverIPTailscale` não checava `net.FlagUp` — interface Tailscale
+  presente mas down (deslogada) podia reter IP obsoleto de sessão anterior
+  (comum no Windows) e gerar um erro de bind confuso em vez do erro claro
+  que a função foi desenhada pra dar. Corrigido com checagem de `FlagUp`
+  antes de consultar `Addrs()`, mais teste novo cobrindo esse caminho.
+
+Nenhuma das duas tasks teve desvio do texto do plano na implementação —
+os dois ciclos de fix vieram só da rodada de revisão de qualidade, não de
+erro de leitura da spec.
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 18: `internal/api/dispositivo.go` — endpoint WS do `james-device`",
-copiar o texto completo, e dispatchar o subagente implementador seguindo o
-workflow acima. Essa task fecha o outro lado da ponte com o `james-device`:
-reusa `processarTurno` (já pronto, entregue pela Task 17) para transformar
-`entrada_voz` numa conversa completa, com a resposta indo pros clientes
-Privilegiado via `BroadcastParaPrivilegiados` (novo método a implementar em
-`ClientesHub`, mesmo padrão de `BroadcastAprovacaoRequerida` mas sem o filtro
-condicional — todo evento originado do device vai só pra Privilegiado, nunca
-pra Restrito). Dar contexto extra sobre a forma final de `criarSolicitarAprovacao`
-e `processarTurno` (ambos em `internal/api/ws.go`) já que Task 18 reusa os
-dois sem modificar a assinatura.
+"## Task 20: `cmd/migrar-historico` — comando avulso de migração de dados
+(Decisão P3)", copiar o texto completo, e dispatchar o subagente
+implementador seguindo o workflow acima. Essa task migra o histórico do
+SQLite antigo (`Athena.db`, schema `mensagens(id, role, content, created_at)`)
+pro Postgres novo: cria uma sessão "Histórico Athena", mapeia `role`
+(`user`→`usuario`, `assistant`→`modelo`) e é idempotente (rodar 2x não
+duplica a sessão nem as mensagens — os testes do plano já cobrem isso
+com `TestExecutarEIdempotente`). Usa `modernc.org/sqlite` (driver puro Go,
+sem cgo) — confirmar que já está no `go.mod` ou se precisa de `go get`
+antes de implementar. Não depende de nada das Tasks 17-19 (é um comando
+avulso, isolado), só dos repositórios Postgres da Task 13.
