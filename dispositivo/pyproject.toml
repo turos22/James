@@ -3,7 +3,7 @@ name = "james-device"
 version = "0.1.0"
 description = "Agente de dispositivo do James: voz e controle de tela"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["websockets>=13.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
