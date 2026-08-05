@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "modernc.org/sqlite"
 
@@ -45,7 +46,6 @@ func main() {
 
 func executar(ctx context.Context, caminhoSQLite string, pool *pgxpool.Pool) error {
 	sessoes := postgres.NovoSessaoRepositorio(pool)
-	mensagens := postgres.NovoMensagemRepositorio(pool)
 
 	existentes, err := sessoes.Listar(ctx)
 	if err != nil {
@@ -70,8 +70,22 @@ func executar(ctx context.Context, caminhoSQLite string, pool *pgxpool.Pool) err
 	}
 	defer linhas.Close()
 
-	sessao, err := sessoes.Criar(ctx, tituloSessaoHistorico)
+	// Sessão + todas as mensagens numa única transação: se um insert falhar
+	// no meio do laço, o rollback desfaz tudo — rodar de novo acha a
+	// checagem de idempotência acima livre (sessão não existe) e migra do
+	// zero, em vez de achar uma sessão parcial e pular tudo silenciosamente
+	// com exit 0 (achado do revisor de qualidade). Bypassa os repositórios
+	// (que só sabem falar com *pgxpool.Pool, não com pgx.Tx) só neste
+	// caminho de escrita — Listar acima continua usando o repositório
+	// normalmente, é leitura fora da transação.
+	tx, err := pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback(ctx) // no-op se Commit já tiver rodado
+
+	sessaoID := uuid.New()
+	if _, err := tx.Exec(ctx, `INSERT INTO sessoes (id, titulo) VALUES ($1, $2)`, sessaoID, tituloSessaoHistorico); err != nil {
 		return fmt.Errorf("erro ao criar sessão de histórico: %w", err)
 	}
 
@@ -85,7 +99,10 @@ func executar(ctx context.Context, caminhoSQLite string, pool *pgxpool.Pool) err
 		if role == "assistant" {
 			papel = "modelo"
 		}
-		if _, err := mensagens.Salvar(ctx, sessao.ID, papel, content, nil); err != nil {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO mensagens (sessao_id, papel, conteudo) VALUES ($1, $2, $3)`,
+			sessaoID, papel, content,
+		); err != nil {
 			return fmt.Errorf("erro ao salvar mensagem migrada: %w", err)
 		}
 		total++
@@ -94,6 +111,10 @@ func executar(ctx context.Context, caminhoSQLite string, pool *pgxpool.Pool) err
 		return fmt.Errorf("erro ao percorrer mensagens do sqlite: %w", err)
 	}
 
-	slog.Info("mensagens migradas", "total", total, "sessao_id", sessao.ID)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("erro ao commitar migração: %w", err)
+	}
+
+	slog.Info("mensagens migradas", "total", total, "sessao_id", sessaoID)
 	return nil
 }

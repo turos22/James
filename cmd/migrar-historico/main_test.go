@@ -118,3 +118,46 @@ func TestExecutarEIdempotente(t *testing.T) {
 		t.Fatalf("esperava 1 sessão de histórico mesmo após rodar 2x, vieram %d", total)
 	}
 }
+
+// TestExecutarFalhaNoMeioNaoDeixaSessaoParcial prova a transação: se um
+// insert falhar no meio do laço, o rollback tem que desfazer tudo (sessão
+// incluída) — senão rodar de novo acharia a sessão pela checagem de
+// idempotência e pularia pra sempre as mensagens que faltaram, sem sinal
+// nenhum de que a migração ficou incompleta (achado do revisor de
+// qualidade). O byte nulo na segunda mensagem força o INSERT a falhar de
+// propósito: Postgres rejeita \x00 em coluna de texto.
+func TestExecutarFalhaNoMeioNaoDeixaSessaoParcial(t *testing.T) {
+	pool := abrirPoolDeTeste(t)
+	limparSessaoHistorico(t, pool)
+
+	caminho := filepath.Join(t.TempDir(), "Athena.db")
+	db, err := sql.Open("sqlite", caminho)
+	if err != nil {
+		t.Fatalf("erro ao abrir sqlite de teste: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE mensagens (id INTEGER PRIMARY KEY, role TEXT, content TEXT, created_at TEXT)`); err != nil {
+		t.Fatalf("erro ao criar schema sqlite: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO mensagens (role, content) VALUES ('user','oi'), ('assistant', ?), ('user','depois')`,
+		"tem \x00 nulo no meio",
+	); err != nil {
+		t.Fatalf("erro ao inserir fixture: %v", err)
+	}
+	db.Close()
+
+	if err := executar(context.Background(), caminho, pool); err == nil {
+		t.Fatal("esperava erro por causa do byte nulo na segunda mensagem")
+	}
+
+	sessoes := postgres.NovoSessaoRepositorio(pool)
+	lista, err := sessoes.Listar(context.Background())
+	if err != nil {
+		t.Fatalf("erro ao listar sessões: %v", err)
+	}
+	for _, s := range lista {
+		if s.Titulo == tituloSessaoHistorico {
+			t.Fatalf("esperava rollback completo (nenhuma sessão de histórico), achei sessão %s", s.ID)
+		}
+	}
+}
