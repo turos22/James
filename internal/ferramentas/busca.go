@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -97,6 +98,15 @@ func (b *Busca) Executar(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("erro ao conectar na busca: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Sem esta checagem, um 401 (chave inválida) ou 429 (rate limit) com
+	// corpo de erro decodificaria como respostaTavily vazia — a ferramenta
+	// diria pro modelo "nenhuma fonte encontrada", mascarando uma falha real
+	// de autenticação ou limite como busca sem resultado.
+	if resp.StatusCode != http.StatusOK {
+		corpo, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return "", fmt.Errorf("busca devolveu status %d: %s", resp.StatusCode, corpo)
+	}
 
 	var dados respostaTavily
 	if err := json.NewDecoder(resp.Body).Decode(&dados); err != nil {

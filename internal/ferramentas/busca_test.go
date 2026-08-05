@@ -151,6 +151,31 @@ func TestBuscaRejeitaRespostaMalformada(t *testing.T) {
 	}
 }
 
+// TestBuscaRejeitaStatusDeErro trava um erro real encontrado no self-review
+// da Task 11: sem checar o status HTTP, um 401 (chave inválida) ou 429 (rate
+// limit) com corpo de erro decodificava como respostaTavily vazia, e a
+// ferramenta dizia pro modelo "nenhuma fonte encontrada" — mascarando uma
+// falha de autenticação ou limite como busca sem resultado.
+func TestBuscaRejeitaStatusDeErro(t *testing.T) {
+	servidor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"detail":"Invalid API key"}`))
+	}))
+	defer servidor.Close()
+
+	b := &Busca{APIKey: "k", Cliente: servidor.Client(), URL: servidor.URL, MaxResultados: 5}
+	saida, err := b.Executar(context.Background(), map[string]any{"query": "x"})
+	if err == nil {
+		t.Fatalf("status 401 deveria virar erro explícito, veio saída %q sem erro", saida)
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("erro deveria mencionar o status HTTP, veio %q", err.Error())
+	}
+	if strings.Contains(saida, "Nenhuma fonte encontrada") {
+		t.Error("erro de autenticação não pode virar 'nenhuma fonte encontrada' pro modelo")
+	}
+}
+
 func TestBuscaRejeitaArgumentoAusente(t *testing.T) {
 	b := NovaBusca("chave", 20*time.Second)
 	if _, err := b.Executar(context.Background(), map[string]any{}); err == nil {
