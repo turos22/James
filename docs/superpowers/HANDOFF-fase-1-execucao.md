@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 20 de 25 tasks fechadas
+## Estado exato: 21 de 25 tasks fechadas
 
-HEAD do worktree: `c119acd` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `bcd0742` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -42,8 +42,8 @@ HEAD do worktree: `c119acd` (branch `worktree-fase-1-nucleo`).
 | 18 | `internal/api` WS dispositivo | ✅ fechada (commits `c8d63af` implementação + `2e0b72f` fix pós-revisão) |
 | 19 | `prompts/sistema.md` + `cmd/jamesd` | ✅ fechada (commits `b2fd281` implementação + `d1ee120` fix pós-revisão) |
 | 20 | `cmd/migrar-historico` | ✅ fechada (commits `2355bde` implementação + `c119acd` fix pós-revisão) |
-| **21** | **`james_device/conexao.py`** | 🔶 **próxima — não começada** |
-| 22 | `james_device/tela.py` + `main.py` | pendente |
+| 21 | `james_device/conexao.py` | ✅ fechada (commits `c0619cc` implementação + `bcd0742` fix pós-revisão) |
+| **22** | **`james_device/tela.py` + `main.py`** | 🔶 **próxima — não começada** |
 | 23 | `web/` rewire + card de aprovação | pendente |
 | 24 | SPA embutida + `shell/` | pendente |
 | 25 | remoção de código morto e fechamento | pendente |
@@ -233,19 +233,55 @@ continua o mesmo, só troca a stack — adaptar as regras de ambiente Go
 `pip install -e ".[dev]"` dentro de `dispositivo/`, testes via `pytest`,
 sem regra de build binário).
 
+## Task 21 — resumo
+
+Achou 2 **Important**: (1) `json.loads`/`manipulador_acao` levantando
+exceção derrubava a sessão E o `except (OSError, ConnectionClosed)` de
+`executar()` não capturava — matava o loop de reconexão pra sempre,
+contradizendo a promessa central do módulo; (2) `parar()` só setava o
+`Event`, não desbloqueava um `recv()` ocioso — sessão conectada e sem
+tráfego nunca via o sinal de parada. Corrigidos: try/except por mensagem
+dentro de `_sessao` (uma mensagem ruim não derruba a sessão), `except
+Exception` genérico em `executar()` como rede de segurança final, e
+`_ws_atual`/`_lock_ws_atual` pra `parar()` conseguir fechar a conexão ativa
+de fora. 4 testes novos provam os dois fixes.
+
+**Débito técnico registrado pro backlog (não bloqueou o fechamento)**:
+existe uma race residual bem estreita — se `parar()` for chamado exatamente
+entre `executar()` sair do `while` e `_sessao` setar `_ws_atual`, a sessão
+que conecta em seguida não vê o sinal de parada e pode ficar bloqueada se
+não chegar nenhuma mensagem. Fix sugerido pelo revisor: checar
+`self._parar.is_set()` logo no início de `_sessao`. Também: o catch-all de
+`executar()` usa `logger.info` sem traceback — perde debugabilidade de bugs
+de programação reais que agora só reconectam silenciosamente; trocar por
+`logger.exception` quando for mexer nesse arquivo de novo.
+
+## Nota de ambiente Python — vale pra Task 22 também
+
+O pacote `james-device` é instalado em modo editable, e o "Editable project
+location" pode estar apontando pro checkout principal
+(`C:\Users\Arthur\SI\Projetos\Athena(Go)\meu-app-ts\dispositivo`) em vez do
+worktree, dependendo do que rodou por último no Python do sistema (sem
+venv). **Sempre conferir com `pip show james-device` antes de testar** — se
+não apontar pro worktree, rodar `pip install -e ".[dev]"` de dentro de
+`dispositivo/` do worktree pra reapontar. Sem isso, `pytest` pode
+silenciosamente testar código do checkout principal.
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 21: `dispositivo/james_device/conexao.py` — cliente WS com
-reconexão e heartbeat", copiar o texto completo, e dispatchar o subagente
-implementador seguindo o workflow acima. Essa task substitui o socket TCP
-cru do `processador_voz.py` antigo (bug #12 do Anexo A) por um cliente
-WebSocket de verdade: conecta de fora pra dentro (invariante I1 — nunca
-escuta porta, sempre disca pro `jamesd`), reconecta sozinho se o `jamesd`
-reiniciar, trata `acao_tela` chamando um manipulador injetado e devolve
-`resultado_acao`. Usa `websockets>=13.0` (adicionar em
-`dispositivo/pyproject.toml`) e testes com `pytest` usando um `FakeWS` que
-simula o client real de `websockets.sync.client.connect` (context manager +
-iterável de mensagens + `.send()`). Não depende de nada das Tasks Go — só
-do contrato de envelope WS (`{tipo, id, dados}`) já fixado pelas Tasks
-17/18 do lado Go.
+"## Task 22: `dispositivo/james_device/tela.py` + entrada de voz +
+entrypoint", copiar o texto completo, e dispatchar o subagente implementador
+seguindo o workflow acima. Essa task porta o `manipular_tela` (pyautogui) e
+o `ouvir_continuamente`/`falar_comando` de um `processador_voz.py` antigo,
+ligando tudo num processo só (`james_device/main.py`) que substitui o
+antigo. Adiciona `pyautogui`, `SpeechRecognition`, `playsound` ao
+`pyproject.toml`, e um método novo `enviar_entrada_voz` em `ConexaoJames`
+(já releia `conexao.py` como está agora, pós-fix — o novo método vai usar
+`self._ws_atual`, que já existe desde o fix da Task 21, então a Task 22
+não precisa reintroduzir esse campo). Como esta task vai plugar
+`manipulador_acao` de verdade com `pyautogui` (que pode lançar
+`pyautogui.FailSafeException` e afins), o try/except por mensagem que a
+Task 21 acabou de adicionar em `_sessao` é exatamente o que evita que um
+erro real do pyautogui derrube a sessão — deixar isso explícito pro
+subagente implementador.
