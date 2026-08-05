@@ -1,23 +1,66 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import { AlternarJanela, PerguntaAi } from "../wailsjs/go/main/App";
-// Importe a função de escuta de eventos do runtime do Wails
-import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import qfLogo from "./assets/images/QF.png";
+import { CardAprovacao } from "./components/CardAprovacao";
 import { separarSegmentos } from "./lib/markdown";
+import { ClienteWS } from "./lib/ws";
 
 interface Message {
-  role: "user" | "Athena";
+  role: "user" | "James";
   content: string;
+}
+
+interface PedidoAprovacao {
+  id: string;
+  ferramenta: string;
+  argumentos: Record<string, unknown>;
+}
+
+function urlWS(): string {
+  const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocolo}//${window.location.host}/ws`;
+}
+
+// window.runtime é injetado pelo Wails só quando a página roda dentro do
+// shell desktop — no navegador do celular ele não existe, e a chamada vira
+// no-op. Substitui os bindings gerados de wailsjs/runtime (spec 4.9).
+function alternarJanelaNativa(expandir: boolean) {
+  const runtime = (window as any).runtime;
+  if (runtime?.WindowSetSize) {
+    runtime.WindowSetSize(expandir ? 800 : 100, expandir ? 900 : 100);
+  }
 }
 
 function App() {
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [messages, setMessages] = useState<Message[]>([
-    { role: "Athena", content: "Sistemas online. Como posso ajudar, Arthur?" }
+    { role: "James", content: "Sistemas online. Como posso ajudar, Arthur?" },
   ]);
   const [isTyping, setIsTyping] = useState(false);
+  const [pedidoAprovacao, setPedidoAprovacao] = useState<PedidoAprovacao | null>(null);
+  const clienteRef = useRef<ClienteWS | null>(null);
+
+  useEffect(() => {
+    const cliente = new ClienteWS(urlWS());
+    clienteRef.current = cliente;
+
+    cliente.on("resposta_final", (dados: { texto: string }) => {
+      setMessages((prev) => [...prev, { role: "James", content: dados.texto }]);
+      setIsTyping(false);
+    });
+
+    cliente.on("aprovacao_requerida", (dados: any) => {
+      setPedidoAprovacao({ id: dados.id ?? "", ferramenta: dados.ferramenta, argumentos: dados.argumentos ?? {} });
+    });
+
+    cliente.on("erro", (dados: { mensagem: string }) => {
+      setMessages((prev) => [...prev, { role: "James", content: `Erro: ${dados.mensagem}` }]);
+      setIsTyping(false);
+    });
+
+    return () => cliente.fechar();
+  }, []);
 
   const renderMessageContent = (content: string) =>
     separarSegmentos(content).map((segmento, indice) =>
@@ -30,70 +73,66 @@ function App() {
       )
     );
 
-  const processarMensagem = async (texto: string) => {
-    if (texto.trim() === "") return;
-
-    setMessages(prev => [...prev, { role: "user", content: texto }]);
+  const processarMensagem = (texto: string) => {
+    if (texto.trim() === "" || !clienteRef.current) return;
+    setMessages((prev) => [...prev, { role: "user", content: texto }]);
     setIsTyping(true);
-
-    const precisaVerTela = texto.toLowerCase().includes("tela");
-
-    const resposta = await PerguntaAi(texto, precisaVerTela);
-
-    setMessages(prev => [...prev, { role: "Athena", content: resposta }]);
-    setIsTyping(false);
+    clienteRef.current.enviar("mensagem", crypto.randomUUID(), { texto });
   };
 
-  useEffect(() => {
-    EventsOn("voz_transcricao", (textoTranscrevido: string) => {
-      processarMensagem(textoTranscrevido);
-    });
-
-    return () => {
-      EventsOff("voz_transcricao");
-    };
-  }, []);
-
-  const handleSendMessage = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSendMessage = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && inputValue.trim() !== "") {
       const textoDigitado = inputValue;
       setInputValue("");
-      await processarMensagem(textoDigitado);
+      processarMensagem(textoDigitado);
     }
   };
 
-  const handleToggleChat = async () => {
+  const handleToggleChat = () => {
     const novoEstado = !isOpen;
     setIsOpen(novoEstado);
-    AlternarJanela(novoEstado);
+    alternarJanelaNativa(novoEstado);
+  };
+
+  const decidirAprovacao = (aprovado: boolean) => {
+    if (!pedidoAprovacao || !clienteRef.current) return;
+    clienteRef.current.enviar(aprovado ? "aprovar" : "negar", pedidoAprovacao.id, {});
+    setPedidoAprovacao(null);
   };
 
   return (
     <div className="container">
-      {/* Floating action button (logo) - always visible */}
       <div className="drag-handle" data-tauri-drag-region onClick={handleToggleChat}>
         <div className="sphere-visual">
-          <img src={qfLogo} className="img_qf" alt="Athena" />
+          <img src={qfLogo} className="img_qf" alt="James" />
         </div>
       </div>
 
-      {/* Chat window - only visible when open */}
       {isOpen && (
         <div className="chat-window">
+          {pedidoAprovacao && (
+            <CardAprovacao
+              ferramenta={pedidoAprovacao.ferramenta}
+              argumentos={pedidoAprovacao.argumentos}
+              onDecidir={decidirAprovacao}
+            />
+          )}
           <div className="messages-container">
             {messages.map((msg, i) => (
-              <div key={i} className={msg.role === 'user' ? 'msg-user' : 'msg-jarvis'}>
-                 <small style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>
-                  {msg.role === 'user' ? 'Arthur' : 'Athena'}
+              <div key={i} className={msg.role === "user" ? "msg-user" : "msg-jarvis"}>
+                <small style={{ fontSize: "10px", opacity: 0.5, marginBottom: "2px" }}>
+                  {msg.role === "user" ? "Arthur" : "James"}
                 </small>
                 {renderMessageContent(msg.content)}
               </div>
             ))}
             {isTyping && (
-                <div className="msg-jarvis typing-dots">
-                  <span></span><span></span><span></span>
-                </div>
-              )}
+              <div className="msg-jarvis typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            )}
           </div>
 
           <input
