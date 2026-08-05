@@ -66,6 +66,21 @@ class ConexaoJames:
             if not self._parar.is_set():
                 time.sleep(self.intervalo_reconexao)
 
+    def enviar_entrada_voz(self, texto: str) -> bool:
+        """Manda entrada_voz pela conexão ativa. Devolve False sem levantar
+        se não há conexão no momento — quem fala não trava esperando o
+        jamesd voltar."""
+        with self._lock_ws_atual:
+            if self._ws_atual is None:
+                logger.warning("sem conexão com jamesd, entrada de voz descartada: %r", texto)
+                return False
+            try:
+                self._ws_atual.send(json.dumps({"tipo": "entrada_voz", "id": "", "dados": {"texto": texto}}))
+                return True
+            except (OSError, ConnectionClosed):
+                logger.warning("falha ao enviar entrada de voz, conexão deve ter caído")
+                return False
+
     def _sessao(self, ws):
         with self._lock_ws_atual:
             self._ws_atual = ws

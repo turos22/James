@@ -188,6 +188,23 @@ def test_executar_nao_para_pra_sempre_se_sessao_levantar_erro_inesperado():
     assert chamadas["n"] >= 2, "erro inesperado na 1ª sessão deveria ter permitido reconectar, não matar o loop"
 
 
+def test_enviar_entrada_voz_manda_envelope_pela_conexao_ativa():
+    ws = FakeWS(mensagens=[])
+    conexao = ConexaoJames("ws://localhost/ws/dispositivo", lambda dados: {})
+    conexao._ws_atual = ws
+
+    enviado = conexao.enviar_entrada_voz("liga o spotify")
+
+    assert enviado is True
+    assert ws.enviados[-1]["tipo"] == "entrada_voz"
+    assert ws.enviados[-1]["dados"] == {"texto": "liga o spotify"}
+
+
+def test_enviar_entrada_voz_sem_conexao_devolve_false():
+    conexao = ConexaoJames("ws://localhost/ws/dispositivo", lambda dados: {})
+    assert conexao.enviar_entrada_voz("oi") is False
+
+
 def test_parar_fecha_a_conexao_ativa_e_libera_sessao_ociosa_bloqueada():
     ws = FakeWSBloqueante()
     conexao = ConexaoJames("ws://localhost/ws/dispositivo", lambda dados: {})
