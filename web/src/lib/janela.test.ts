@@ -6,14 +6,14 @@ afterEach(() => {
 });
 
 describe("redimensionarJanela", () => {
-  it("faz POST /tamanho com largura e altura na query", async () => {
+  it("faz POST /redimensionar com largura e altura na query", async () => {
     const fakeFetch = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fakeFetch);
 
     await redimensionarJanela(800, 900);
 
     const [url, opcoes] = fakeFetch.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:17313/tamanho?largura=800&altura=900");
+    expect(url).toBe("http://127.0.0.1:17313/redimensionar?largura=800&altura=900");
     expect(opcoes.method).toBe("POST");
   });
 

@@ -33,12 +33,17 @@ import (
 const enderecoControle = "127.0.0.1:17313"
 
 // chamadasJanela é o suficiente do pkg/runtime do Wails que este arquivo
-// precisa — interface pra poder testar o roteamento HTTP sem uma janela
-// nativa de verdade.
+// precisa — interface pra poder testar o roteamento HTTP e a matemática
+// de ancoragem sem uma janela nativa de verdade.
 type chamadasJanela interface {
 	DefinirTamanho(ctx context.Context, largura, altura int)
+	ObterTamanho(ctx context.Context) (largura, altura int)
 	ObterPosicao(ctx context.Context) (x, y int)
 	DefinirPosicao(ctx context.Context, x, y int)
+	// TamanhoTelaAtual devolve 0,0 (sem erro tratado à parte) se não
+	// conseguir descobrir a tela — o chamador trata isso como "sem
+	// clamp", não como falha (câmbio de tela é melhor-esforço).
+	TamanhoTelaAtual(ctx context.Context) (largura, altura int)
 }
 
 type chamadasJanelaWails struct{}
@@ -47,12 +52,29 @@ func (chamadasJanelaWails) DefinirTamanho(ctx context.Context, largura, altura i
 	wailsruntime.WindowSetSize(ctx, largura, altura)
 }
 
+func (chamadasJanelaWails) ObterTamanho(ctx context.Context) (int, int) {
+	return wailsruntime.WindowGetSize(ctx)
+}
+
 func (chamadasJanelaWails) ObterPosicao(ctx context.Context) (x, y int) {
 	return wailsruntime.WindowGetPosition(ctx)
 }
 
 func (chamadasJanelaWails) DefinirPosicao(ctx context.Context, x, y int) {
 	wailsruntime.WindowSetPosition(ctx, x, y)
+}
+
+func (chamadasJanelaWails) TamanhoTelaAtual(ctx context.Context) (int, int) {
+	telas, err := wailsruntime.ScreenGetAll(ctx)
+	if err != nil || len(telas) == 0 {
+		return 0, 0
+	}
+	for _, t := range telas {
+		if t.IsCurrent {
+			return t.Size.Width, t.Size.Height
+		}
+	}
+	return telas[0].Size.Width, telas[0].Size.Height
 }
 
 func iniciarServidorControle(ctx context.Context, chamadas chamadasJanela) {
@@ -64,13 +86,27 @@ func iniciarServidorControle(ctx context.Context, chamadas chamadasJanela) {
 
 func montarMuxControle(ctx context.Context, chamadas chamadasJanela) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /tamanho", func(w http.ResponseWriter, r *http.Request) {
-		largura, altura, err := lerDimensoes(r)
+	// /redimensionar (não /tamanho simples) porque um resize ingênuo
+	// sempre cresce a partir do canto superior-esquerdo atual — se a
+	// bolinha estiver perto da borda inferior da tela (ex.: perto da
+	// barra de tarefas), o chat abre pra baixo e sai da área visível.
+	// Ancora no canto onde a bolinha já está (ela fica fixa no canto
+	// inferior-direito da janela via CSS) e ainda limita contra o
+	// tamanho real da tela.
+	mux.HandleFunc("POST /redimensionar", func(w http.ResponseWriter, r *http.Request) {
+		novaLargura, novaAltura, err := lerDimensoes(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		chamadas.DefinirTamanho(ctx, largura, altura)
+		x, y := chamadas.ObterPosicao(ctx)
+		larguraAtual, alturaAtual := chamadas.ObterTamanho(ctx)
+		larguraTela, alturaTela := chamadas.TamanhoTelaAtual(ctx)
+		novoX, novoY := calcularRedimensionamentoAncorado(
+			x, y, larguraAtual, alturaAtual, novaLargura, novaAltura, larguraTela, alturaTela,
+		)
+		chamadas.DefinirPosicao(ctx, novoX, novoY)
+		chamadas.DefinirTamanho(ctx, novaLargura, novaAltura)
 	})
 	mux.HandleFunc("GET /posicao", func(w http.ResponseWriter, r *http.Request) {
 		x, y := chamadas.ObterPosicao(ctx)
@@ -100,6 +136,39 @@ func comCORS(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// calcularRedimensionamentoAncorado devolve a nova posição (canto
+// superior-esquerdo) pra que o redimensionamento pareça crescer/encolher
+// a partir do canto inferior-direito atual — onde a bolinha sempre está
+// — em vez do canto superior-esquerdo (comportamento padrão do Windows).
+// Se larguraTela/alturaTela vierem 0 (tela não descoberta), pula o
+// clamp e só faz a ancoragem.
+func calcularRedimensionamentoAncorado(
+	x, y, larguraAtual, alturaAtual, novaLargura, novaAltura, larguraTela, alturaTela int,
+) (novoX, novoY int) {
+	cantoX := x + larguraAtual
+	cantoY := y + alturaAtual
+	novoX = cantoX - novaLargura
+	novoY = cantoY - novaAltura
+
+	if larguraTela > 0 {
+		if novoX+novaLargura > larguraTela {
+			novoX = larguraTela - novaLargura
+		}
+		if novoX < 0 {
+			novoX = 0
+		}
+	}
+	if alturaTela > 0 {
+		if novoY+novaAltura > alturaTela {
+			novoY = alturaTela - novaAltura
+		}
+		if novoY < 0 {
+			novoY = 0
+		}
+	}
+	return novoX, novoY
 }
 
 func lerDimensoes(r *http.Request) (largura, altura int, err error) {

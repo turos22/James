@@ -6,9 +6,13 @@
 // falha e vira no-op silencioso — mesmo comportamento de antes.
 const ENDERECO_CONTROLE_SHELL = "http://127.0.0.1:17313";
 
+// Usa /redimensionar (não um /tamanho ingênuo): o shell ancora o resize
+// no canto onde a bolinha já está, em vez de crescer a partir do canto
+// superior-esquerdo — senão, com a bolinha perto da borda da tela (ex.:
+// perto da barra de tarefas), o chat abriria pra fora da área visível.
 export async function redimensionarJanela(largura: number, altura: number): Promise<void> {
   try {
-    await fetch(`${ENDERECO_CONTROLE_SHELL}/tamanho?largura=${largura}&altura=${altura}`, { method: "POST" });
+    await fetch(`${ENDERECO_CONTROLE_SHELL}/redimensionar?largura=${largura}&altura=${altura}`, { method: "POST" });
   } catch {
     // sem shell rodando — ignora
   }
