@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
 	"github.com/joho/godotenv"
 
@@ -151,5 +153,65 @@ func TestServirAudioInexistenteDevolve404(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, queria 404", resp.StatusCode)
+	}
+}
+
+// Não precisa de Postgres real — só exercita o roteamento HTTP puro do
+// catch-all da SPA (Task 24), não toca em Sessoes/Mensagens.
+
+func TestCatchAllServeConteudoDaSPAEmbutida(t *testing.T) {
+	spa := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html>spa embutida</html>")},
+	}
+	s := &Servidor{EmbutidosSPA: spa}
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/")
+	if err != nil {
+		t.Fatalf("GET / devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, queria 200", resp.StatusCode)
+	}
+	corpo, _ := io.ReadAll(resp.Body)
+	if string(corpo) != "<html>spa embutida</html>" {
+		t.Errorf("corpo = %q, queria o conteúdo embutido em EmbutidosSPA", corpo)
+	}
+}
+
+func TestCatchAllNaoRoubaRotasDeAPI(t *testing.T) {
+	spa := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<html>spa embutida</html>")},
+	}
+	s := &Servidor{EmbutidosSPA: spa}
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	// /api/saude não toca em Sessoes/Mensagens (nil aqui), então não precisa
+	// de Postgres — só prova que a rota de API vence o catch-all mesmo com
+	// EmbutidosSPA setado, o comportamento central que fecha o invariante I3.
+	resp, err := http.Get(servidor.URL + "/api/saude")
+	if err != nil {
+		t.Fatalf("GET /api/saude devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, queria 200 (rota de API deveria vencer o catch-all)", resp.StatusCode)
+	}
+	var corpo map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&corpo); err != nil {
+		t.Fatalf("erro ao decodificar corpo: %v", err)
+	}
+	if corpo["status"] != "ok" {
+		t.Errorf("corpo = %v, queria o handler de saude, não o catch-all da SPA", corpo)
+	}
+}
+
+func TestRotasNaoPanicaComEmbutidosSPANilOuAusente(t *testing.T) {
+	s := &Servidor{}
+	if s.Rotas() == nil {
+		t.Fatal("Rotas() devolveu nil")
 	}
 }

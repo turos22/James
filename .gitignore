@@ -5,6 +5,7 @@
 *.exe
 build/bin/
 shell/build/
+shell/frontend/wailsjs/
 frontend/dist/
 frontend/package.json.md5
 web/dist/
