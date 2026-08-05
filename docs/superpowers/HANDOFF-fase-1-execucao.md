@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 22 de 25 tasks fechadas
+## Estado exato: 23 de 25 tasks fechadas
 
-HEAD do worktree: `55a46b0` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `66d5c09` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -44,8 +44,8 @@ HEAD do worktree: `55a46b0` (branch `worktree-fase-1-nucleo`).
 | 20 | `cmd/migrar-historico` | ✅ fechada (commits `2355bde` implementação + `c119acd` fix pós-revisão) |
 | 21 | `james_device/conexao.py` | ✅ fechada (commits `c0619cc` implementação + `bcd0742` fix pós-revisão) |
 | 22 | `james_device/tela.py` + `main.py` | ✅ fechada (commits `e991cac` implementação + `55a46b0` fix pós-revisão) |
-| **23** | **`web/` rewire + card de aprovação** | 🔶 **próxima — não começada** |
-| 24 | SPA embutida + `shell/` | pendente |
+| 23 | `web/` rewire + card de aprovação | ✅ fechada (commits `7546fef` rename + `66d5c09` conteúdo, zero fix pós-revisão) |
+| **24** | **SPA embutida + `shell/`** | 🔶 **próxima — não começada** |
 | 25 | remoção de código morto e fechamento | pendente |
 
 **Rastreamento formal:** existe uma lista de tasks no harness (TaskList) com IDs
@@ -296,15 +296,59 @@ mesmo workflow de subagent-driven-development, adaptado pra `npm`/`vitest`
 em vez de `pip`/`pytest` ou `go test`. Verificar se `node`/`npm` estão
 disponíveis no ambiente antes de dispatchar o implementador.
 
+## Task 23 — resumo
+
+**Zero achado Critical/Important dos dois revisores** — primeira task da
+fase inteira que fechou sem precisar de ciclo de fix. `api.ts`, `ws.ts`,
+`CardAprovacao.tsx`, rewire de `App.tsx`, remoção de `web/wailsjs/` — tudo
+conferido linha a linha contra o texto do plano e contra o contrato real
+do lado Go (`internal/api/ws.go`), sem divergência. Único nit registrado
+(cosmético, não bloqueia): `web/package.json` ficou com `"name": "frontend"`
+depois do rename.
+
+**Dois desvios operacionais do implementador, ambos corretos e verificados**:
+1. `git mv frontend web` não coube num comando só (cwd travado numa sessão
+   anterior) — fez rename arquivo-por-arquivo. Confirmei depois que não
+   sobrou nada esquecido e removi o diretório `frontend/` vazio que ficou
+   no disco (não rastreado pelo git, só resíduo de filesystem).
+2. Commit foi dividido em dois (`7546fef` rename puro + `66d5c09`
+   conteúdo) porque um commit único (rename + reescrita radical de
+   `App.tsx` junto) fazia o git perder detecção de rename — `git log
+   --follow` não alcançava o histórico anterior. Confirmei que a divisão
+   resolveu isso pros três arquivos testados (`App.tsx`, `package.json`,
+   `vite.config.ts`).
+
+## Ambiente confirmado pra Task 24
+
+`wails` CLI v2.11.0 disponível (bate com `go.mod`). `web/` tem `npm run
+build` (`tsc && vite build`) funcional. Root `main.go` já está com
+`//go:embed all:frontend/dist` quebrado (a pasta `frontend/` nem existe
+mais desde a Task 23) — isso é esperado, é exatamente o arquivo que a
+Task 25 vai deletar; a Task 24 não mexe nele, cria `web/embed.go` e
+`shell/main.go` novos e independentes.
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 23: `web/` — renomeia `frontend/`, troca bindings Wails por
-HTTP/WS, card de aprovação (Decisão P4)", copiar o texto completo, e
-dispatchar o subagente implementador seguindo o workflow acima. É a task
-mais longa do lote restante — releia o plano inteiro da Task 23 antes de
-dispatchar (a leitura anterior nesta sessão só cobriu até o Step 4,
-`api.test.ts`; tem bastante coisa depois: `ws.ts`/`ws.test.ts`, o
-`CardAprovacao.tsx`/`.test.tsx`, rewire de `App.tsx`, e a remoção de
-`web/wailsjs/` morto). `git mv frontend web` é o primeiro passo — cuidado
-extra pra não perder histórico do git nesse rename.
+"## Task 24: `jamesd` serve a SPA embutida + `shell/` Wails mínimo", copiar
+o texto completo, e dispatchar o subagente implementador seguindo o
+workflow acima. Essa task: cria `web/embed.go` (embute `web/dist` via
+`go:embed`), adiciona `EmbutidosSPA fs.FS` ao `Servidor` (`internal/api/
+rest.go`) com rota catch-all `/` registrada DEPOIS das rotas `/api/*` e
+`/ws*` (prioridade), liga isso em `cmd/jamesd/main.go`, e cria um `shell/`
+novo — invólucro Wails mínimo sem UI própria (`shell/frontend/index.html`
+só redireciona pra `http://127.0.0.1:8080/`, `shell/main.go` sobe uma
+janela frameless/transparente/always-on-top apontando pro `jamesd`
+local), com `shell/wails.json` adaptado do `wails.json` da raiz (que
+depois é removido). Precisa de `npm run build --prefix web` rodando de
+verdade ANTES do `go build` (senão `web/embed.go` não tem `dist/` pra
+embutir). O smoke test de janela nativa (Step 9) é manual — não é
+responsabilidade do subagente implementador, fica pro fechamento da fase
+(Task 25 + verificação final). Atenção à nota do próprio plano: a API
+exata de `assetserver.Options`/`options.App` deve ser conferida contra a
+versão instalada do Wails (usar context7 se `go build` reclamar de campo
+inexistente).
+
+Depois da Task 24, só falta a Task 25 (remoção de código morto +
+fechamento formal da fase, com a checklist de 10 critérios de aceitação
+da spec seção 9) pra fase inteira fechar.
