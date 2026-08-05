@@ -1357,6 +1357,29 @@ func TestBuscaEnviaPayloadMelhorado(t *testing.T) {
 	if corpoRecebido["include_answer"] == nil {
 		t.Error("include_answer não foi enviado")
 	}
+	if corpoRecebido["api_key"] != nil {
+		t.Error("api_key não pode ir no corpo — a autenticação vigente é header Bearer")
+	}
+}
+
+// TestBuscaAutenticaPorHeaderBearer trava o achado do spike da Task 9: a
+// forma de mandar api_key no corpo, usada pelo código antigo, é legada e não
+// aparece mais na documentação vigente.
+func TestBuscaAutenticaPorHeaderBearer(t *testing.T) {
+	var autorizacao string
+	servidor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		autorizacao = r.Header.Get("Authorization")
+		w.Write([]byte(`{"answer":"a","results":[]}`))
+	}))
+	defer servidor.Close()
+
+	b := &Busca{APIKey: "tvly-chave-de-teste", Cliente: servidor.Client(), URL: servidor.URL, MaxResultados: 5}
+	if _, err := b.Executar(context.Background(), map[string]any{"query": "x"}); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if autorizacao != "Bearer tvly-chave-de-teste" {
+		t.Errorf("Authorization = %q, queria \"Bearer tvly-chave-de-teste\"", autorizacao)
+	}
 }
 
 func TestBuscaDevolveTextoFormatadoENaoJSON(t *testing.T) {
@@ -1531,10 +1554,10 @@ func (b *Busca) Executar(ctx context.Context, args map[string]any) (string, erro
 	}
 
 	payload := map[string]any{
-		"api_key":        b.APIKey,
 		"query":          query,
 		"search_depth":   "advanced",
 		"include_answer": true,
+		"max_results":    b.MaxResultados,
 	}
 	corpo, err := json.Marshal(payload)
 	if err != nil {
@@ -1546,6 +1569,9 @@ func (b *Busca) Executar(ctx context.Context, args map[string]any) (string, erro
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Header Bearer, não api_key no corpo: a forma do corpo é legada e não
+	// aparece mais na documentação vigente (spike da Task 9).
+	req.Header.Set("Authorization", "Bearer "+b.APIKey)
 
 	resp, err := b.Cliente.Do(req)
 	if err != nil {
