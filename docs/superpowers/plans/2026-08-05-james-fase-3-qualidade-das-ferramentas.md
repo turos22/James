@@ -1706,24 +1706,18 @@ No teste do Step 1, ajuste a chamada para `NovaBusca("chave", 20*time.Second)`, 
 
 - [ ] **Step 4: Injetar a configuração no `jamesd`**
 
-Em `cmd/jamesd/main.go`, substitua o registro da busca:
+A construção das ferramentas foi extraída de `executar()` para funções puras durante a Task 8, justamente para poder ser testada. **Não** mexa no corpo de `executar()`: preencha `construirBusca` em `cmd/jamesd/main.go`, que hoje é só o ponto de costura:
 
 ```go
-	if err := registro.Registrar(ferramentas.NovaBusca(cfg.TavilyAPIKey)); err != nil {
-		return fmt.Errorf("registrar pesquisar_internet: %w", err)
-	}
-```
-
-por:
-
-```go
-	busca := ferramentas.NovaBusca(cfg.TavilyAPIKey,
+func construirBusca(cfg *config.Config) *ferramentas.Busca {
+	b := ferramentas.NovaBusca(cfg.TavilyAPIKey,
 		time.Duration(cfg.BuscaTimeoutSegundos)*time.Second)
-	busca.MaxResultados = cfg.BuscaMaxResultados
-	if err := registro.Registrar(busca); err != nil {
-		return fmt.Errorf("registrar pesquisar_internet: %w", err)
-	}
+	b.MaxResultados = cfg.BuscaMaxResultados
+	return b
+}
 ```
+
+E complete o teste dela em `cmd/jamesd/`, que hoje só verifica que não devolve nil, para afirmar que `Cliente.Timeout` e `MaxResultados` chegaram com o valor do config e não zero — o mesmo tipo de falha silenciosa que motivou a extração.
 
 - [ ] **Step 5: Rodar a suíte e confirmar que passa**
 
@@ -2286,23 +2280,20 @@ git commit -m "feat: Claude Code headless devolve a resposta real, e rodar_claud
 
 - [ ] **Step 1: Alterar a construção da ferramenta**
 
-Em `cmd/jamesd/main.go`, substitua:
+A construção das ferramentas foi extraída de `executar()` para funções puras durante a Task 8. **Não** mexa no corpo de `executar()`: preencha `construirClaudeCode` em `cmd/jamesd/main.go`, que hoje é só o ponto de costura:
 
 ```go
-	if err := registro.Registrar(ferramentas.NovoClaudeCode()); err != nil {
-		return fmt.Errorf("registrar perguntar_ao_claude_code: %w", err)
-	}
+func construirClaudeCode(cfg *config.Config) *ferramentas.ClaudeCode {
+	c := ferramentas.NovoClaudeCode()
+	c.Diretorio = cfg.ClaudeCodeDiretorio
+	c.Timeout = time.Duration(cfg.ClaudeCodeTimeoutSegundos) * time.Second
+	return c
+}
 ```
 
-por:
+O aviso de diretório ausente fica em `executar()`, junto do registro, porque depende de `slog` e é efeito colateral — a função construtora continua pura e testável:
 
 ```go
-	claudeCode := ferramentas.NovoClaudeCode()
-	claudeCode.Diretorio = cfg.ClaudeCodeDiretorio
-	claudeCode.Timeout = time.Duration(cfg.ClaudeCodeTimeoutSegundos) * time.Second
-	if err := registro.Registrar(claudeCode); err != nil {
-		return fmt.Errorf("registrar perguntar_ao_claude_code: %w", err)
-	}
 	if cfg.ClaudeCodeDiretorio == "" {
 		slog.Warn("perguntar_ao_claude_code registrada sem diretório configurado; " +
 			"a ferramenta vai falhar se o modelo chamar ela " +
@@ -2311,6 +2302,8 @@ por:
 ```
 
 Confira que `log/slog` está importado no arquivo; se não estiver, acrescente.
+
+E complete o teste de `construirClaudeCode` em `cmd/jamesd/`, que hoje só verifica que não devolve nil, para afirmar que `Diretorio` e `Timeout` chegaram com o valor do config.
 
 - [ ] **Step 2: Verificar que compila e que a suíte passa**
 
