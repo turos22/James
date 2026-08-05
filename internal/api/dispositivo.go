@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -24,6 +25,12 @@ type conexaoDispositivo struct {
 func (c *conexaoDispositivo) Enviar(envelope []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Sem deadline, um socket travado prende WriteMessage indefinidamente —
+	// e como dispositivo.Hub.EnviarAcao chama Enviar antes do próprio select
+	// de timeout/cancelamento (hub.go), esse travamento também escaparia do
+	// timeout do turno que está esperando a ação. Mesmo bug que
+	// conexaoCliente.Enviar já teve corrigido na Task 17 (clientes.go).
+	_ = c.ws.SetWriteDeadline(time.Now().Add(tempoLimiteEscrita))
 	return c.ws.WriteMessage(websocket.TextMessage, envelope)
 }
 
