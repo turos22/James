@@ -33,6 +33,17 @@ const LIMIAR_ARRASTE_PX = 3;
 // rodando (navegador, celular), posicaoJanela() devolve null e o
 // arraste nunca começa — só o clique de abrir/fechar continua ativo.
 function useArrastarJanela() {
+  // mouseApertado é síncrono (true/false exatos entre mousedown e mouseup
+  // reais) — arrastando só passa a valer depois que a posição de origem
+  // chega (await), o que pode acontecer DEPOIS do mouseup num clique
+  // rápido. Sem mouseApertado como guarda, um clique rápido (mousedown +
+  // mouseup antes da resposta de posicaoJanela() chegar) deixava
+  // arrastando.current preso em true pra sempre — daí qualquer movimento
+  // de mouse seguinte (nem perto da bolinha, só indo até o campo de
+  // texto) movia a janela sem o usuário estar arrastando nada. Isso
+  // desalinhava a posição da janela em relação ao que o resize ancorado
+  // espera, e o sintoma era o chat não voltar pro mesmo lugar ao fechar.
+  const mouseApertado = useRef(false);
   const arrastando = useRef(false);
   const houveArraste = useRef(false);
   const origemJanela = useRef({ x: 0, y: 0 });
@@ -43,12 +54,15 @@ function useArrastarJanela() {
       if (!arrastando.current) return;
       const dx = e.screenX - origemMouse.current.x;
       const dy = e.screenY - origemMouse.current.y;
+      // Só move a janela de verdade depois de passar do limiar — um
+      // tremor de 1px no clique não pode deslocar a janela sozinho.
       if (Math.abs(dx) > LIMIAR_ARRASTE_PX || Math.abs(dy) > LIMIAR_ARRASTE_PX) {
         houveArraste.current = true;
+        moverJanela(origemJanela.current.x + dx, origemJanela.current.y + dy);
       }
-      moverJanela(origemJanela.current.x + dx, origemJanela.current.y + dy);
     };
     const aoSoltar = () => {
+      mouseApertado.current = false;
       arrastando.current = false;
     };
     window.addEventListener("mousemove", aoMover);
@@ -61,10 +75,17 @@ function useArrastarJanela() {
 
   const aoIniciarArraste = async (e: React.MouseEvent) => {
     houveArraste.current = false;
+    mouseApertado.current = true;
+    const mouseXInicial = e.screenX;
+    const mouseYInicial = e.screenY;
     const posicaoAtual = await posicaoJanela();
-    if (!posicaoAtual) return;
+    // O botão já pode ter sido solto enquanto esperava a resposta — sem
+    // essa checagem, arrastando.current ficaria true com o mouse já
+    // solto, e o próximo mousemove (de qualquer clique futuro) moveria
+    // a janela sem o usuário estar arrastando nada.
+    if (!posicaoAtual || !mouseApertado.current) return;
     origemJanela.current = posicaoAtual;
-    origemMouse.current = { x: e.screenX, y: e.screenY };
+    origemMouse.current = { x: mouseXInicial, y: mouseYInicial };
     arrastando.current = true;
   };
 

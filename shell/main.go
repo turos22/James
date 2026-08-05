@@ -28,12 +28,19 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		// BackgroundColour sozinho não basta pro WebView2 fazer
-		// transparência de verdade por pixel no Windows — sem isso, a
-		// janela mostrava um retângulo preto sólido em tudo que não é o
-		// painel do chat, em vez de deixar a área de trabalho aparecer.
+		// transparência de verdade por pixel — sem WebviewIsTransparent,
+		// a janela mostrava um retângulo preto sólido em tudo que não é
+		// o painel do chat, em vez de deixar a área de trabalho aparecer.
+		//
+		// WindowIsTranslucent NÃO é o que o nome sugere: liga blur-behind/
+		// Mica (efeito de vidro fosco do Windows 11), não transparência
+		// real — combinado com WS_EX_NOREDIRECTIONBITMAP (que essa opção
+		// também ativa) deixa a superfície da janela sem composição
+		// correta, e o resultado observado foi a janela inteira ficando
+		// rosa/magenta (cor de "erro" do compositor) em vez de
+		// transparente. Não usar aqui.
 		Windows: &windows.Options{
 			WebviewIsTransparent: true,
-			WindowIsTranslucent:  true,
 		},
 		// A SPA de verdade (servida pelo jamesd, ver controle.go) fala
 		// com este servidor de controle pra pedir resize/arraste — não
