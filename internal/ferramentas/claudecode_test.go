@@ -3,41 +3,162 @@ package ferramentas
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestClaudeCodeDisparaComInstrucao(t *testing.T) {
-	var instrucaoRecebida string
-	c := &ClaudeCode{Executor: func(instrucao string) error {
-		instrucaoRecebida = instrucao
-		return nil
-	}}
+func TestClaudeCodeDevolveOResultadoReal(t *testing.T) {
+	c := &ClaudeCode{
+		Diretorio: "C:\\projetos\\alvo",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			return []byte(`{"result":"refatorei o main.go e os testes passam","is_error":false}`), nil
+		},
+	}
 
 	saida, err := c.Executar(context.Background(), map[string]any{"instrucao": "refatora o main.go"})
 	if err != nil {
 		t.Fatalf("Executar devolveu erro: %v", err)
 	}
-	if instrucaoRecebida != "refatora o main.go" {
-		t.Errorf("instrucao repassada = %q", instrucaoRecebida)
+	if !strings.Contains(saida, "refatorei o main.go e os testes passam") {
+		t.Errorf("saida = %q, deveria trazer o resultado real do Claude Code", saida)
 	}
-	if saida == "" {
-		t.Error("esperava confirmação de disparo, veio vazio")
+	if strings.Contains(saida, "Tarefa enviada") {
+		t.Errorf("a confirmação fixa de disparo não pode mais existir: %q", saida)
+	}
+}
+
+func TestClaudeCodeRepassaInstrucaoEDiretorio(t *testing.T) {
+	var dirRecebido string
+	var argsRecebidos []string
+	c := &ClaudeCode{
+		Diretorio: "C:\\projetos\\alvo",
+		Executor: func(ctx context.Context, dir string, args []string) ([]byte, error) {
+			dirRecebido = dir
+			argsRecebidos = args
+			return []byte(`{"result":"ok","is_error":false}`), nil
+		},
+	}
+
+	if _, err := c.Executar(context.Background(), map[string]any{"instrucao": "faz X"}); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if dirRecebido != "C:\\projetos\\alvo" {
+		t.Errorf("diretório = %q, queria o configurado", dirRecebido)
+	}
+	if !slices.Contains(argsRecebidos, "faz X") {
+		t.Errorf("args = %v, deveriam conter a instrução", argsRecebidos)
+	}
+}
+
+// TestClaudeCodeFalhaSemDiretorioConfigurado trava a Decisão D6: o cwd nunca
+// é herdado do jamesd, porque isso significaria o James editando o próprio
+// código-fonte.
+func TestClaudeCodeFalhaSemDiretorioConfigurado(t *testing.T) {
+	c := &ClaudeCode{
+		Executor: func(context.Context, string, []string) ([]byte, error) {
+			t.Fatal("não deveria chegar a executar sem diretório configurado")
+			return nil, nil
+		},
+	}
+	_, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"})
+	if err == nil {
+		t.Fatal("esperava erro por diretório não configurado, veio nil")
+	}
+	if !strings.Contains(err.Error(), "diretório") {
+		t.Errorf("erro deveria explicar que falta configurar o diretório, veio %q", err.Error())
 	}
 }
 
 func TestClaudeCodeRejeitaArgumentoAusente(t *testing.T) {
-	c := &ClaudeCode{Executor: func(string) error { return nil }}
+	c := &ClaudeCode{Diretorio: "C:\\x", Executor: func(context.Context, string, []string) ([]byte, error) {
+		return nil, nil
+	}}
 	if _, err := c.Executar(context.Background(), map[string]any{}); err == nil {
 		t.Fatal("esperava erro por parâmetro instrucao ausente, veio nil")
 	}
 }
 
 func TestClaudeCodePropagaErroDoExecutor(t *testing.T) {
-	c := &ClaudeCode{Executor: func(string) error { return errors.New("falhou ao abrir") }}
-	if _, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"}); err == nil {
+	c := &ClaudeCode{Diretorio: "C:\\x", Executor: func(context.Context, string, []string) ([]byte, error) {
+		return nil, errors.New("claude não encontrado no PATH")
+	}}
+	_, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"})
+	if err == nil {
 		t.Fatal("esperava erro propagado, veio nil")
+	}
+	if !strings.Contains(err.Error(), "claude não encontrado") {
+		t.Errorf("erro deveria carregar a causa real, veio %q", err.Error())
+	}
+}
+
+func TestClaudeCodeTrataErroReportadoNoJSON(t *testing.T) {
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(context.Context, string, []string) ([]byte, error) {
+			return []byte(`{"result":"não consegui abrir o arquivo","is_error":true}`), nil
+		},
+	}
+	_, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"})
+	if err == nil {
+		t.Fatal("is_error true deveria virar erro, veio nil")
+	}
+	if !strings.Contains(err.Error(), "não consegui abrir o arquivo") {
+		t.Errorf("erro deveria carregar a mensagem do Claude Code, veio %q", err.Error())
+	}
+}
+
+func TestClaudeCodeRejeitaJSONInesperado(t *testing.T) {
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor: func(context.Context, string, []string) ([]byte, error) {
+			return []byte(`isto não é json`), nil
+		},
+	}
+	if _, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"}); err == nil {
+		t.Fatal("saída não-JSON deveria virar erro explícito, veio nil")
+	}
+}
+
+// TestClaudeCodeUsaOFixtureReal roda o parser contra a saída de verdade
+// capturada no spike da Task 13.
+func TestClaudeCodeUsaOFixtureReal(t *testing.T) {
+	bruto, err := os.ReadFile("testdata/claude_code_resposta.json")
+	if err != nil {
+		t.Skipf("fixture do spike ausente: %v", err)
+	}
+	c := &ClaudeCode{
+		Diretorio: "C:\\x",
+		Executor:  func(context.Context, string, []string) ([]byte, error) { return bruto, nil },
+	}
+	saida, err := c.Executar(context.Background(), map[string]any{"instrucao": "x"})
+	if err != nil {
+		t.Fatalf("parser falhou contra a saída real do Claude Code: %v", err)
+	}
+	if strings.TrimSpace(saida) == "" {
+		t.Error("parser devolveu texto vazio para a saída real")
+	}
+}
+
+// TestClaudeCodeSempreExigeConfirmacao trava a decisão D10. O spike da Task 13
+// provou que acceptEdits executa shell em modo headless; sem esta confirmação,
+// perguntar_ao_claude_code vira um caminho indireto pra shell arbitrário que
+// contorna o gate do executar_comando_sistema.
+func TestClaudeCodeSempreExigeConfirmacao(t *testing.T) {
+	var _ ExigeConfirmacao = NovoClaudeCode()
+
+	c := NovoClaudeCode()
+	casos := []map[string]any{
+		{"instrucao": "lista os arquivos"},
+		{"instrucao": "apaga tudo"},
+		{},
+		nil,
+	}
+	for _, args := range casos {
+		if !c.ConfirmacaoNecessaria(args) {
+			t.Errorf("ConfirmacaoNecessaria(%v) = false; o Claude Code deve confirmar SEMPRE", args)
+		}
 	}
 }
 
