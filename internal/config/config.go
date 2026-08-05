@@ -29,6 +29,19 @@ type Config struct {
 
 	TimeoutAprovacaoSegundos int
 
+	TerminalTimeoutSegundos int
+	TerminalMaxBytesSaida   int
+
+	// ClaudeCodeDiretorio é o único campo sem default. Sem ele o jamesd sobe
+	// normalmente e a ferramenta é que falha na chamada — o James funciona
+	// sem nunca invocar o Claude Code, então campo não preenchido não pode
+	// impedir o serviço de subir.
+	ClaudeCodeDiretorio       string
+	ClaudeCodeTimeoutSegundos int
+
+	BuscaTimeoutSegundos int
+	BuscaMaxResultados   int
+
 	VozTTS string
 }
 
@@ -50,6 +63,20 @@ type arquivoToml struct {
 	Permissao struct {
 		TimeoutAprovacaoSegundos int `toml:"timeout_aprovacao_segundos"`
 	} `toml:"permissao"`
+	Ferramentas struct {
+		Terminal struct {
+			TimeoutSegundos int `toml:"timeout_segundos"`
+			MaxBytesSaida   int `toml:"max_bytes_saida"`
+		} `toml:"terminal"`
+		ClaudeCode struct {
+			Diretorio       string `toml:"diretorio"`
+			TimeoutSegundos int    `toml:"timeout_segundos"`
+		} `toml:"claude_code"`
+		Busca struct {
+			TimeoutSegundos int `toml:"timeout_segundos"`
+			MaxResultados   int `toml:"max_resultados"`
+		} `toml:"busca"`
+	} `toml:"ferramentas"`
 	Voz struct {
 		VozTTS string `toml:"voz_tts"`
 	} `toml:"voz"`
@@ -89,6 +116,15 @@ func Carregar(caminhoToml string) (*Config, error) {
 		OrcamentoTokens: intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
 
 		TimeoutAprovacaoSegundos: intOuDefault(arq.Permissao.TimeoutAprovacaoSegundos, 300),
+
+		TerminalTimeoutSegundos: intOuDefault(arq.Ferramentas.Terminal.TimeoutSegundos, 60),
+		TerminalMaxBytesSaida:   intOuDefault(arq.Ferramentas.Terminal.MaxBytesSaida, 65536),
+
+		ClaudeCodeDiretorio:       arq.Ferramentas.ClaudeCode.Diretorio,
+		ClaudeCodeTimeoutSegundos: intOuDefault(arq.Ferramentas.ClaudeCode.TimeoutSegundos, 600),
+
+		BuscaTimeoutSegundos: intOuDefault(arq.Ferramentas.Busca.TimeoutSegundos, 20),
+		BuscaMaxResultados:   intOuDefault(arq.Ferramentas.Busca.MaxResultados, 5),
 
 		VozTTS: valorOuDefault(arq.Voz.VozTTS, "pt-BR-AntonioNeural"),
 	}

@@ -19,3 +19,19 @@ timeout_aprovacao_segundos = 300
 
 [voz]
 voz_tts = "pt-BR-AntonioNeural"
+
+[ferramentas.terminal]
+# Comando que passar disso é morto e reportado como timeout.
+timeout_segundos = 60
+# Teto por corrente (stdout e stderr). Truncagem sempre marcada no texto.
+max_bytes_saida = 65536
+
+[ferramentas.claude_code]
+# Obrigatório para usar perguntar_ao_claude_code. Sem default de propósito:
+# o cwd herdado do jamesd é a raiz do repo do próprio James.
+diretorio = "C:\\Users\\Arthur\\SI\\Projetos\\james-workspace"
+timeout_segundos = 600
+
+[ferramentas.busca]
+timeout_segundos = 20
+max_resultados = 5

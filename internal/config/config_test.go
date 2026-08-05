@@ -97,3 +97,86 @@ modelo = "gemini-2.5-flash-lite"
 		t.Fatal("gemini-2.5-flash-lite está descartado pela spec (D4/Anexo), esperava erro")
 	}
 }
+
+func TestCarregarAplicaDefaultsDeFerramentas(t *testing.T) {
+	dir := t.TempDir()
+	caminho := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(caminho, []byte(""), 0o600); err != nil {
+		t.Fatalf("erro ao escrever config: %v", err)
+	}
+	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("DATABASE_URL", "postgres://x")
+
+	cfg, err := Carregar(caminho)
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+
+	if cfg.TerminalTimeoutSegundos != 60 {
+		t.Errorf("TerminalTimeoutSegundos = %d, queria 60", cfg.TerminalTimeoutSegundos)
+	}
+	if cfg.TerminalMaxBytesSaida != 65536 {
+		t.Errorf("TerminalMaxBytesSaida = %d, queria 65536", cfg.TerminalMaxBytesSaida)
+	}
+	if cfg.ClaudeCodeTimeoutSegundos != 600 {
+		t.Errorf("ClaudeCodeTimeoutSegundos = %d, queria 600", cfg.ClaudeCodeTimeoutSegundos)
+	}
+	if cfg.BuscaTimeoutSegundos != 20 {
+		t.Errorf("BuscaTimeoutSegundos = %d, queria 20", cfg.BuscaTimeoutSegundos)
+	}
+	if cfg.BuscaMaxResultados != 5 {
+		t.Errorf("BuscaMaxResultados = %d, queria 5", cfg.BuscaMaxResultados)
+	}
+	// ClaudeCodeDiretorio é o único sem default: o James sobe sem ele, e a
+	// ferramenta é que falha na hora da chamada.
+	if cfg.ClaudeCodeDiretorio != "" {
+		t.Errorf("ClaudeCodeDiretorio = %q, queria vazio por não ter default", cfg.ClaudeCodeDiretorio)
+	}
+}
+
+func TestCarregarLeValoresDeFerramentasDoToml(t *testing.T) {
+	dir := t.TempDir()
+	caminho := filepath.Join(dir, "config.toml")
+	conteudo := `
+[ferramentas.terminal]
+timeout_segundos = 15
+max_bytes_saida = 2048
+
+[ferramentas.claude_code]
+diretorio = "C:\\projetos\\alvo"
+timeout_segundos = 120
+
+[ferramentas.busca]
+timeout_segundos = 7
+max_resultados = 3
+`
+	if err := os.WriteFile(caminho, []byte(conteudo), 0o600); err != nil {
+		t.Fatalf("erro ao escrever config: %v", err)
+	}
+	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("DATABASE_URL", "postgres://x")
+
+	cfg, err := Carregar(caminho)
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+
+	if cfg.TerminalTimeoutSegundos != 15 {
+		t.Errorf("TerminalTimeoutSegundos = %d, queria 15", cfg.TerminalTimeoutSegundos)
+	}
+	if cfg.TerminalMaxBytesSaida != 2048 {
+		t.Errorf("TerminalMaxBytesSaida = %d, queria 2048", cfg.TerminalMaxBytesSaida)
+	}
+	if cfg.ClaudeCodeDiretorio != `C:\projetos\alvo` {
+		t.Errorf("ClaudeCodeDiretorio = %q, queria C:\\projetos\\alvo", cfg.ClaudeCodeDiretorio)
+	}
+	if cfg.ClaudeCodeTimeoutSegundos != 120 {
+		t.Errorf("ClaudeCodeTimeoutSegundos = %d, queria 120", cfg.ClaudeCodeTimeoutSegundos)
+	}
+	if cfg.BuscaTimeoutSegundos != 7 {
+		t.Errorf("BuscaTimeoutSegundos = %d, queria 7", cfg.BuscaTimeoutSegundos)
+	}
+	if cfg.BuscaMaxResultados != 3 {
+		t.Errorf("BuscaMaxResultados = %d, queria 3", cfg.BuscaMaxResultados)
+	}
+}
