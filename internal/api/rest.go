@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -57,6 +58,7 @@ func (s *Servidor) Rotas() http.Handler {
 	mux.HandleFunc("POST /api/sessoes", s.criarSessao)
 	mux.HandleFunc("GET /api/sessoes/{id}/mensagens", s.listarMensagens)
 	mux.HandleFunc("GET /api/audio/{id}", s.servirAudio)
+	mux.HandleFunc("DELETE /api/audio/{id}", s.excluirAudio)
 	mux.HandleFunc("GET /ws", s.ws)
 	mux.HandleFunc("GET /ws/dispositivo", s.wsDispositivo)
 	// Catch-all por último: /api/* e /ws* têm prioridade sobre a SPA.
@@ -110,8 +112,32 @@ func (s *Servidor) listarMensagens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Servidor) servirAudio(w http.ResponseWriter, r *http.Request) {
-	caminho := filepath.Join(s.DiretorioAudio, r.PathValue("id")+".mp3")
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	caminho := filepath.Join(s.DiretorioAudio, id.String()+".mp3")
 	http.ServeFile(w, r, caminho)
+}
+
+// excluirAudio apaga o arquivo de áudio gerado depois que o cliente já
+// terminou de tocar (ou não conseguiu tocar) — o TTS é efêmero por design
+// (spec 4.7), não deveria acumular no disco pra sempre. Idempotente: id
+// que já foi apagado (ou nunca existiu) ainda devolve sucesso, não erro —
+// o cliente não tem como saber se já chamou antes (ex.: retry de rede).
+func (s *Servidor) excluirAudio(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id inválido", http.StatusBadRequest)
+		return
+	}
+	caminho := filepath.Join(s.DiretorioAudio, id.String()+".mp3")
+	if err := os.Remove(caminho); err != nil && !os.IsNotExist(err) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func responderJSON(w http.ResponseWriter, status int, corpo any) {

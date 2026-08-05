@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 
 	"github.com/wailsapp/wails/v2"
@@ -25,6 +26,14 @@ func main() {
 		AlwaysOnTop:      true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
 		AssetServer:      &assetserver.Options{Assets: assets},
+		// A SPA de verdade (servida pelo jamesd, ver controle.go) fala
+		// com este servidor de controle pra pedir resize/arraste — não
+		// dá pra usar window.runtime do Wails porque essa injeção só
+		// acontece em páginas servidas pelo próprio AssetServer do
+		// Wails, nunca na página que o jamesd serve.
+		OnStartup: func(ctx context.Context) {
+			iniciarServidorControle(ctx, chamadasJanelaWails{})
+		},
 	})
 	if err != nil {
 		println("erro ao subir o shell:", err.Error())

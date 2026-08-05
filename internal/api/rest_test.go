@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	"james/internal/armazenamento/postgres"
@@ -124,14 +125,15 @@ func TestListarMensagensDaSessao(t *testing.T) {
 
 func TestServirAudioDevolveArquivoExistente(t *testing.T) {
 	s := servidorDeTeste(t)
-	if err := os.WriteFile(filepath.Join(s.DiretorioAudio, "resp-1.mp3"), []byte("audio falso"), 0o600); err != nil {
+	id := uuid.New().String()
+	if err := os.WriteFile(filepath.Join(s.DiretorioAudio, id+".mp3"), []byte("audio falso"), 0o600); err != nil {
 		t.Fatalf("erro ao escrever fixture de áudio: %v", err)
 	}
 
 	servidor := httptest.NewServer(s.Rotas())
 	defer servidor.Close()
 
-	resp, err := http.Get(servidor.URL + "/api/audio/resp-1")
+	resp, err := http.Get(servidor.URL + "/api/audio/" + id)
 	if err != nil {
 		t.Fatalf("GET /api/audio devolveu erro: %v", err)
 	}
@@ -146,13 +148,85 @@ func TestServirAudioInexistenteDevolve404(t *testing.T) {
 	servidor := httptest.NewServer(s.Rotas())
 	defer servidor.Close()
 
-	resp, err := http.Get(servidor.URL + "/api/audio/não-existe")
+	resp, err := http.Get(servidor.URL + "/api/audio/" + uuid.New().String())
 	if err != nil {
 		t.Fatalf("GET /api/audio devolveu erro: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, queria 404", resp.StatusCode)
+	}
+}
+
+func TestServirAudioComIDInvalidoDevolve400(t *testing.T) {
+	s := servidorDeTeste(t)
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/api/audio/não-é-um-uuid")
+	if err != nil {
+		t.Fatalf("GET /api/audio devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, queria 400", resp.StatusCode)
+	}
+}
+
+func TestExcluirAudioRemoveArquivoDoDisco(t *testing.T) {
+	s := servidorDeTeste(t)
+	id := uuid.New().String()
+	caminho := filepath.Join(s.DiretorioAudio, id+".mp3")
+	if err := os.WriteFile(caminho, []byte("audio falso"), 0o600); err != nil {
+		t.Fatalf("erro ao escrever fixture de áudio: %v", err)
+	}
+
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, servidor.URL+"/api/audio/"+id, nil)
+	resp, err := servidor.Client().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/audio devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, queria 204", resp.StatusCode)
+	}
+	if _, err := os.Stat(caminho); !os.IsNotExist(err) {
+		t.Error("arquivo deveria ter sido removido do disco")
+	}
+}
+
+func TestExcluirAudioInexistenteAindaDevolve204(t *testing.T) {
+	s := servidorDeTeste(t)
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, servidor.URL+"/api/audio/"+uuid.New().String(), nil)
+	resp, err := servidor.Client().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/audio devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, queria 204 (idempotente — id que já não existe não é erro)", resp.StatusCode)
+	}
+}
+
+func TestExcluirAudioComIDInvalidoDevolve400(t *testing.T) {
+	s := servidorDeTeste(t)
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete, servidor.URL+"/api/audio/não-é-um-uuid", nil)
+	resp, err := servidor.Client().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/audio devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, queria 400", resp.StatusCode)
 	}
 }
 

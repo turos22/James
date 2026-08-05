@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import qfLogo from "./assets/images/QF.png";
 import { CardAprovacao } from "./components/CardAprovacao";
+import { moverJanela, posicaoJanela, redimensionarJanela } from "./lib/janela";
 import { separarSegmentos } from "./lib/markdown";
 import { ClienteWS } from "./lib/ws";
 
@@ -21,14 +22,53 @@ function urlWS(): string {
   return `${protocolo}//${window.location.host}/ws`;
 }
 
-// window.runtime é injetado pelo Wails só quando a página roda dentro do
-// shell desktop — no navegador do celular ele não existe, e a chamada vira
-// no-op. Substitui os bindings gerados de wailsjs/runtime (spec 4.9).
-function alternarJanelaNativa(expandir: boolean) {
-  const runtime = (window as any).runtime;
-  if (runtime?.WindowSetSize) {
-    runtime.WindowSetSize(expandir ? 800 : 100, expandir ? 900 : 100);
-  }
+// Distância mínima (em px de tela) pra um mousedown+mousemove contar como
+// arraste em vez de clique — sem isso, qualquer tremor de mão ao clicar
+// na bolinha abriria/fecharia o chat sem querer.
+const LIMIAR_ARRASTE_PX = 3;
+
+// Controla o arraste da bolinha flutuante (mover a janela nativa
+// inteira, já que a bolinha em si é fixa dentro da janela via CSS) e
+// distingue de um clique simples pra abrir/fechar o chat. Sem shell
+// rodando (navegador, celular), posicaoJanela() devolve null e o
+// arraste nunca começa — só o clique de abrir/fechar continua ativo.
+function useArrastarJanela() {
+  const arrastando = useRef(false);
+  const houveArraste = useRef(false);
+  const origemJanela = useRef({ x: 0, y: 0 });
+  const origemMouse = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const aoMover = (e: MouseEvent) => {
+      if (!arrastando.current) return;
+      const dx = e.screenX - origemMouse.current.x;
+      const dy = e.screenY - origemMouse.current.y;
+      if (Math.abs(dx) > LIMIAR_ARRASTE_PX || Math.abs(dy) > LIMIAR_ARRASTE_PX) {
+        houveArraste.current = true;
+      }
+      moverJanela(origemJanela.current.x + dx, origemJanela.current.y + dy);
+    };
+    const aoSoltar = () => {
+      arrastando.current = false;
+    };
+    window.addEventListener("mousemove", aoMover);
+    window.addEventListener("mouseup", aoSoltar);
+    return () => {
+      window.removeEventListener("mousemove", aoMover);
+      window.removeEventListener("mouseup", aoSoltar);
+    };
+  }, []);
+
+  const aoIniciarArraste = async (e: React.MouseEvent) => {
+    houveArraste.current = false;
+    const posicaoAtual = await posicaoJanela();
+    if (!posicaoAtual) return;
+    origemJanela.current = posicaoAtual;
+    origemMouse.current = { x: e.screenX, y: e.screenY };
+    arrastando.current = true;
+  };
+
+  return { aoIniciarArraste, houveArraste };
 }
 
 function App() {
@@ -40,6 +80,7 @@ function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [pedidoAprovacao, setPedidoAprovacao] = useState<PedidoAprovacao | null>(null);
   const clienteRef = useRef<ClienteWS | null>(null);
+  const { aoIniciarArraste, houveArraste } = useArrastarJanela();
 
   useEffect(() => {
     const cliente = new ClienteWS(urlWS());
@@ -57,6 +98,19 @@ function App() {
     cliente.on("erro", (dados: { mensagem: string }) => {
       setMessages((prev) => [...prev, { role: "James", content: `Erro: ${dados.mensagem}` }]);
       setIsTyping(false);
+    });
+
+    cliente.on("audio_pronto", (dados: { id: string }) => {
+      const excluirAudio = () => {
+        fetch(`/api/audio/${dados.id}`, { method: "DELETE" }).catch(() => {});
+      };
+      const audio = new Audio(`/api/audio/${dados.id}`);
+      audio.addEventListener("ended", excluirAudio);
+      // Autoplay pode ser bloqueado pelo navegador sem gesto do usuário
+      // recente — se falhar, o áudio só não toca (chat continua normal
+      // por texto), mas o arquivo ainda precisa ser limpo do disco, já
+      // que "ended" nunca vai disparar nesse caso.
+      audio.play().catch(excluirAudio);
     });
 
     return () => cliente.fechar();
@@ -89,9 +143,12 @@ function App() {
   };
 
   const handleToggleChat = () => {
+    // Se acabou de arrastar a janela, esse clique é o mouseup do arraste,
+    // não uma intenção de abrir/fechar o chat — ignora.
+    if (houveArraste.current) return;
     const novoEstado = !isOpen;
     setIsOpen(novoEstado);
-    alternarJanelaNativa(novoEstado);
+    redimensionarJanela(novoEstado ? 800 : 100, novoEstado ? 900 : 100);
   };
 
   const decidirAprovacao = (aprovado: boolean) => {
@@ -102,7 +159,7 @@ function App() {
 
   return (
     <div className="container">
-      <div className="drag-handle" data-tauri-drag-region onClick={handleToggleChat}>
+      <div className="drag-handle" onMouseDown={aoIniciarArraste} onClick={handleToggleChat}>
         <div className="sphere-visual">
           <img src={qfLogo} className="img_qf" alt="James" />
         </div>
