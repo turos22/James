@@ -16,9 +16,9 @@ reler o histórico da sessão anterior.
   releia a seção da task antes de dispatchar.
 - **Handoff da Fase 0** (contexto anterior, ainda válido): `docs/superpowers/HANDOFF.md`
 
-## Estado exato: 21 de 25 tasks fechadas
+## Estado exato: 22 de 25 tasks fechadas
 
-HEAD do worktree: `bcd0742` (branch `worktree-fase-1-nucleo`).
+HEAD do worktree: `55a46b0` (branch `worktree-fase-1-nucleo`).
 
 | Task | O que é | Status |
 |---|---|---|
@@ -43,8 +43,8 @@ HEAD do worktree: `bcd0742` (branch `worktree-fase-1-nucleo`).
 | 19 | `prompts/sistema.md` + `cmd/jamesd` | ✅ fechada (commits `b2fd281` implementação + `d1ee120` fix pós-revisão) |
 | 20 | `cmd/migrar-historico` | ✅ fechada (commits `2355bde` implementação + `c119acd` fix pós-revisão) |
 | 21 | `james_device/conexao.py` | ✅ fechada (commits `c0619cc` implementação + `bcd0742` fix pós-revisão) |
-| **22** | **`james_device/tela.py` + `main.py`** | 🔶 **próxima — não começada** |
-| 23 | `web/` rewire + card de aprovação | pendente |
+| 22 | `james_device/tela.py` + `main.py` | ✅ fechada (commits `e991cac` implementação + `55a46b0` fix pós-revisão) |
+| **23** | **`web/` rewire + card de aprovação** | 🔶 **próxima — não começada** |
 | 24 | SPA embutida + `shell/` | pendente |
 | 25 | remoção de código morto e fechamento | pendente |
 
@@ -267,21 +267,44 @@ não apontar pro worktree, rodar `pip install -e ".[dev]"` de dentro de
 `dispositivo/` do worktree pra reapontar. Sem isso, `pytest` pode
 silenciosamente testar código do checkout principal.
 
+## Task 22 — resumo
+
+Achou 1 **Critical** real: `main.py` referenciava `dispositivo/assets/
+faaah.wav` e `dispositivo/assets/entrada.mp3`, mas essa pasta nunca tinha
+sido criada em NENHUMA task anterior — o processo derrubava na primeira
+wake word detectada. A spec (`2026-08-04-james-fase-1-nucleo-design.md:126`)
+já dizia que esses assets deveriam ser versionados em `dispositivo/assets/`,
+separado de `audios/` (que fica só com saída efêmera de TTS), mas a
+migração nunca tinha sido feita. Corrigido copiando `entrada.mp3`,
+`faaah.wav`, `um_minuto.mp3` de `audios/` pra `dispositivo/assets/` (cópia,
+não move — `audios/` continua igual, usado pelo `app.go` do lado
+Wails/desktop). Também achou 1 **Important**: `sr.Microphone()` sem
+PyAudio/microfone crashava sem log tratado — corrigido com `logger.exception`
+antes do `raise` (comportamento de falha continua o mesmo, só ganhou log).
+
+**`playsound` pinado em `>=1.2.2,<1.3.0`** (não `>=1.3.0` como o plano
+original pedia) — bug confirmado no sdist 1.3.0 sob Python 3.13 (`setup.py`
+quebrado, `inspect.getsource` falha em build isolation). Registrado como
+dívida técnica pra fase futura: `playsound` tem manutenção fraca havia
+anos, vale trocar por alternativa mantida quando mexer nisso de novo.
+
+## Mudança de stack de novo: Task 23 é TypeScript/React
+
+Tasks 21-22 foram Python (`dispositivo/`). A partir da **Task 23** o
+trabalho é **TypeScript/React** (`web/`, renomeado de `frontend/`) — o
+mesmo workflow de subagent-driven-development, adaptado pra `npm`/`vitest`
+em vez de `pip`/`pytest` ou `go test`. Verificar se `node`/`npm` estão
+disponíveis no ambiente antes de dispatchar o implementador.
+
 ## Próxima ação concreta
 
 Abrir `docs/superpowers/plans/2026-08-04-james-fase-1-nucleo.md`, ir na seção
-"## Task 22: `dispositivo/james_device/tela.py` + entrada de voz +
-entrypoint", copiar o texto completo, e dispatchar o subagente implementador
-seguindo o workflow acima. Essa task porta o `manipular_tela` (pyautogui) e
-o `ouvir_continuamente`/`falar_comando` de um `processador_voz.py` antigo,
-ligando tudo num processo só (`james_device/main.py`) que substitui o
-antigo. Adiciona `pyautogui`, `SpeechRecognition`, `playsound` ao
-`pyproject.toml`, e um método novo `enviar_entrada_voz` em `ConexaoJames`
-(já releia `conexao.py` como está agora, pós-fix — o novo método vai usar
-`self._ws_atual`, que já existe desde o fix da Task 21, então a Task 22
-não precisa reintroduzir esse campo). Como esta task vai plugar
-`manipulador_acao` de verdade com `pyautogui` (que pode lançar
-`pyautogui.FailSafeException` e afins), o try/except por mensagem que a
-Task 21 acabou de adicionar em `_sessao` é exatamente o que evita que um
-erro real do pyautogui derrube a sessão — deixar isso explícito pro
-subagente implementador.
+"## Task 23: `web/` — renomeia `frontend/`, troca bindings Wails por
+HTTP/WS, card de aprovação (Decisão P4)", copiar o texto completo, e
+dispatchar o subagente implementador seguindo o workflow acima. É a task
+mais longa do lote restante — releia o plano inteiro da Task 23 antes de
+dispatchar (a leitura anterior nesta sessão só cobriu até o Step 4,
+`api.test.ts`; tem bastante coisa depois: `ws.ts`/`ws.test.ts`, o
+`CardAprovacao.tsx`/`.test.tsx`, rewire de `App.tsx`, e a remoção de
+`web/wailsjs/` morto). `git mv frontend web` é o primeiro passo — cuidado
+extra pra não perder histórico do git nesse rename.
