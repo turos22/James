@@ -57,3 +57,35 @@ func TestTruncarRecuaAteFronteiraDeRune(t *testing.T) {
 		t.Errorf("truncar(\"ção\", 3) = %q, queria %q — o corte deveria recuar do meio do ã", corpo, "ç")
 	}
 }
+
+func TestFormatarResultadoComandoMostraAsTresPartes(t *testing.T) {
+	got := formatarResultadoComando(ResultadoComando{
+		Stdout:   "linha de saída",
+		Stderr:   "aviso qualquer",
+		ExitCode: 0,
+	}, 1000)
+
+	for _, querido := range []string{"linha de saída", "aviso qualquer", "0"} {
+		if !strings.Contains(got, querido) {
+			t.Errorf("saída formatada não contém %q: %q", querido, got)
+		}
+	}
+}
+
+func TestFormatarResultadoComandoOmiteStderrVazio(t *testing.T) {
+	got := formatarResultadoComando(ResultadoComando{Stdout: "ok", ExitCode: 0}, 1000)
+	if strings.Contains(got, "stderr") {
+		t.Errorf("stderr vazio não deveria aparecer: %q", got)
+	}
+}
+
+func TestFormatarResultadoComandoTruncaCadaCorrente(t *testing.T) {
+	got := formatarResultadoComando(ResultadoComando{
+		Stdout:   strings.Repeat("a", 500),
+		Stderr:   strings.Repeat("b", 500),
+		ExitCode: 1,
+	}, 50)
+	if !strings.Contains(got, "truncada") {
+		t.Errorf("esperava marca de truncagem, veio %q", got)
+	}
+}

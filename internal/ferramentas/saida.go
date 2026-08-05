@@ -2,6 +2,7 @@ package ferramentas
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -21,4 +22,29 @@ func truncar(s string, maxBytes int) string {
 		corte--
 	}
 	return s[:corte] + fmt.Sprintf("\n[saída truncada: %d de %d bytes]", corte, len(s))
+}
+
+// ResultadoComando é o que um Executor de comando devolve. As duas correntes
+// vêm separadas de propósito: CombinedOutput misturava stdout com stderr e o
+// modelo não tinha como distinguir resultado de diagnóstico.
+type ResultadoComando struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// formatarResultadoComando monta o texto que vai pro modelo, truncando cada
+// corrente separadamente pra que uma stderr enorme não coma o orçamento da
+// stdout (e vice-versa).
+func formatarResultadoComando(res ResultadoComando, maxBytes int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "exit_code: %d\n", res.ExitCode)
+
+	if stdout := truncar(res.Stdout, maxBytes); stdout != "" {
+		fmt.Fprintf(&b, "--- stdout ---\n%s\n", stdout)
+	}
+	if stderr := truncar(res.Stderr, maxBytes); stderr != "" {
+		fmt.Fprintf(&b, "--- stderr ---\n%s\n", stderr)
+	}
+	return b.String()
 }

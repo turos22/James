@@ -3,22 +3,26 @@ package ferramentas
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
 func TestComandoSistemaExecutaViaExecutorInjetado(t *testing.T) {
 	var comandoRecebido string
-	c := &ComandoSistema{Executor: func(comando string) (string, error) {
-		comandoRecebido = comando
-		return "saída do comando", nil
-	}}
+	c := &ComandoSistema{
+		Executor: func(ctx context.Context, comando string) (ResultadoComando, error) {
+			comandoRecebido = comando
+			return ResultadoComando{Stdout: "saída do comando"}, nil
+		},
+		MaxBytesSaida: 1000,
+	}
 
 	saida, err := c.Executar(context.Background(), map[string]any{"comando": "Get-Process"})
 	if err != nil {
 		t.Fatalf("Executar devolveu erro: %v", err)
 	}
-	if saida != "saída do comando" {
-		t.Errorf("saida = %q, queria %q", saida, "saída do comando")
+	if !strings.Contains(saida, "saída do comando") {
+		t.Errorf("saida = %q, deveria conter a stdout do comando", saida)
 	}
 	if comandoRecebido != "Get-Process" {
 		t.Errorf("comando repassado = %q, queria Get-Process", comandoRecebido)
@@ -26,16 +30,36 @@ func TestComandoSistemaExecutaViaExecutorInjetado(t *testing.T) {
 }
 
 func TestComandoSistemaRejeitaArgumentoAusente(t *testing.T) {
-	c := &ComandoSistema{Executor: func(string) (string, error) { return "", nil }}
+	c := &ComandoSistema{Executor: func(context.Context, string) (ResultadoComando, error) {
+		return ResultadoComando{}, nil
+	}}
 	if _, err := c.Executar(context.Background(), map[string]any{}); err == nil {
 		t.Fatal("esperava erro por parâmetro comando ausente, veio nil")
 	}
 }
 
 func TestComandoSistemaPropagaErroDoExecutor(t *testing.T) {
-	c := &ComandoSistema{Executor: func(string) (string, error) { return "", errors.New("falhou") }}
+	c := &ComandoSistema{Executor: func(context.Context, string) (ResultadoComando, error) {
+		return ResultadoComando{}, errors.New("falhou")
+	}}
 	if _, err := c.Executar(context.Background(), map[string]any{"comando": "x"}); err == nil {
 		t.Fatal("esperava erro propagado do Executor, veio nil")
+	}
+}
+
+func TestComandoSistemaExitCodeDiferenteDeZeroViraErro(t *testing.T) {
+	c := &ComandoSistema{
+		Executor: func(context.Context, string) (ResultadoComando, error) {
+			return ResultadoComando{Stderr: "não encontrado", ExitCode: 1}, nil
+		},
+		MaxBytesSaida: 1000,
+	}
+	_, err := c.Executar(context.Background(), map[string]any{"comando": "Get-Foo"})
+	if err == nil {
+		t.Fatal("exit code 1 deveria virar erro, veio nil")
+	}
+	if !strings.Contains(err.Error(), "não encontrado") {
+		t.Errorf("erro deveria carregar o stderr, veio %q", err.Error())
 	}
 }
 
