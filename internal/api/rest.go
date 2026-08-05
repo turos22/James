@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -22,6 +23,11 @@ type Servidor struct {
 	Mensagens      *postgres.MensagemRepositorio
 	Aprovacoes     *postgres.AprovacaoRepositorio
 	DiretorioAudio string
+
+	// EmbutidosSPA serve o build da SPA (web/dist) via catch-all — é o que
+	// garante o invariante I3 (jamesd serve a UI pros dois invólucros).
+	// Nil (padrão nos testes) desativa a rota sem quebrar o resto.
+	EmbutidosSPA fs.FS
 
 	Loop                *agente.Loop
 	Memoria             memoria.Janela
@@ -53,6 +59,10 @@ func (s *Servidor) Rotas() http.Handler {
 	mux.HandleFunc("GET /api/audio/{id}", s.servirAudio)
 	mux.HandleFunc("GET /ws", s.ws)
 	mux.HandleFunc("GET /ws/dispositivo", s.wsDispositivo)
+	// Catch-all por último: /api/* e /ws* têm prioridade sobre a SPA.
+	if s.EmbutidosSPA != nil {
+		mux.Handle("/", http.FileServer(http.FS(s.EmbutidosSPA)))
+	}
 	return mux
 }
 

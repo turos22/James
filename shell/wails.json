@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "james-shell",
+  "outputfilename": "james",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dir": "frontend",
+  "author": {
+    "name": "Arthur Orosco"
+  }
+}

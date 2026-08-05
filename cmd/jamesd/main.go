@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"james/internal/ferramentas"
 	"james/internal/memoria"
 	"james/internal/voz"
+	"james/web"
 )
 
 func main() {
@@ -73,11 +75,17 @@ func executar() error {
 		return fmt.Errorf("registrar manipular_interface: %w", err)
 	}
 
+	raizSPA, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		return fmt.Errorf("assets da SPA: %w (rodou \"npm run build\" em web/ antes do go build?)", err)
+	}
+
 	servidor := &api.Servidor{
 		Sessoes:        postgres.NovoSessaoRepositorio(pool),
 		Mensagens:      postgres.NovoMensagemRepositorio(pool),
 		Aprovacoes:     postgres.NovoAprovacaoRepositorio(pool),
 		DiretorioAudio: "audios",
+		EmbutidosSPA:   raizSPA,
 		Loop: &agente.Loop{
 			Provider:     provider,
 			Ferramentas:  registro,

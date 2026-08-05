@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>html,body{margin:0;background:transparent;}</style>
+</head>
+<body>
+<script>
+  // Desktop sempre fala com o jamesd por loopback — é o que garante o
+  // perfil Privilegiado (spec 4.3/P5). O celular usa a VPN, mas o celular
+  // não roda este shell.
+  window.location.replace("http://127.0.0.1:8080/");
+</script>
+</body>
+</html>

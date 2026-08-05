@@ -4,8 +4,10 @@
 # Binários e artefatos de build
 *.exe
 build/bin/
+shell/build/
 frontend/dist/
 frontend/package.json.md5
+web/dist/
 
 # Dependências
 node_modules/
