@@ -21,6 +21,13 @@ func resolverIPTailscale() (string, error) {
 		if !strings.Contains(strings.ToLower(iface.Name), "tailscale") {
 			continue
 		}
+		if iface.Flags&net.FlagUp == 0 {
+			// Interface presente mas down (ex.: Tailscale deslogado) pode
+			// reter o IP de uma sessão anterior no Windows — sem essa
+			// checagem, resolverIPTailscale devolveria um IP não roteável
+			// em vez do erro claro que essa função existe pra dar.
+			continue
+		}
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue

@@ -94,7 +94,13 @@ func executar() error {
 		TimeoutTurno:        time.Duration(cfg.TimeoutSegundos) * time.Second,
 	}
 
-	errosServidor := make(chan error, 2)
+	// Só o loopback é fatal pro processo — é o serviço mínimo que o shell
+	// desktop depende. A VPN (Tailscale) é sempre melhor-esforço: sem
+	// interface, sem certificado válido, ou caindo depois de já ter subido,
+	// o celular fica sem alcance mas o loopback segue de pé. R1 é sobre
+	// segredo/config ausente, não sobre rede externa instável ou cert
+	// ainda não emitido (primeiro deploy, por exemplo).
+	errosServidor := make(chan error, 1)
 
 	go func() {
 		slog.Info("servindo em loopback", "endereco", cfg.BindLoopback)
@@ -103,15 +109,14 @@ func executar() error {
 
 	ipVPN, err := resolverIPTailscale()
 	if err != nil {
-		// Não é fatal: o shell desktop (loopback) continua funcionando.
-		// Só o celular fica sem alcance até a VPN voltar — R1 é sobre
-		// segredo/config ausente, não sobre uma rede externa instável.
 		slog.Error("interface do Tailscale não encontrada — servindo só em loopback; celular não vai alcançar o jamesd até isso ser corrigido", "erro", err)
 	} else {
 		enderecoVPN := fmt.Sprintf("%s:%d", ipVPN, cfg.BindVPNPorta)
 		go func() {
 			slog.Info("servindo na VPN com TLS", "endereco", enderecoVPN)
-			errosServidor <- http.ListenAndServeTLS(enderecoVPN, cfg.CertArquivo, cfg.ChaveArquivo, servidor.Rotas())
+			if err := http.ListenAndServeTLS(enderecoVPN, cfg.CertArquivo, cfg.ChaveArquivo, servidor.Rotas()); err != nil {
+				slog.Error("servidor da VPN caiu — celular sem alcance até corrigir; loopback continua de pé", "erro", err)
+			}
 		}()
 	}
 
