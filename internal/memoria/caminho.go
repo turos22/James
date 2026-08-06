@@ -1,6 +1,3 @@
-// Package memoria monta o contexto que vai pro Provider: a janela de
-// recência da conversa (janela.go) e a memória durável em markdown
-// (vault.go). São dois mecanismos independentes, com orçamentos separados.
 package memoria
 
 import (

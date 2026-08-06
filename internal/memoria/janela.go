@@ -1,6 +1,6 @@
-// Package memoria monta a janela de contexto que vai pro Provider: as
-// mensagens mais recentes que cabem num orçamento de tokens, nunca o
-// histórico inteiro (corrige o bug #4 do Anexo A).
+// Package memoria monta o contexto que vai pro Provider: a janela de
+// recência da conversa (janela.go) e a memória durável em markdown
+// (vault.go). São dois mecanismos independentes, com orçamentos separados.
 package memoria
 
 import "james/internal/agente"
