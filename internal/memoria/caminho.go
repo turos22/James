@@ -1,6 +1,8 @@
 package memoria
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -38,4 +40,32 @@ func SlugAssunto(assunto string) string {
 		pendenteHifen = true
 	}
 	return b.String()
+}
+
+// ResolverCaminho devolve o caminho absoluto do arquivo do assunto dentro de
+// raiz, ou erro se o assunto não produzir nome válido ou o resultado escapar
+// da raiz.
+//
+// A checagem de contenção é redundante com SlugAssunto de propósito:
+// SlugAssunto já elimina barra, ponto e dois-pontos, então em tese nada
+// escapa. Mas a barreira que vale é a que continua valendo se a outra for
+// afrouxada um dia — e o assunto vem do modelo, não do Arthur.
+func ResolverCaminho(raiz, assunto string) (string, error) {
+	slug := SlugAssunto(assunto)
+	if slug == "" {
+		return "", fmt.Errorf("assunto %q não produz nome de arquivo válido", assunto)
+	}
+
+	raizAbs, err := filepath.Abs(raiz)
+	if err != nil {
+		return "", fmt.Errorf("raiz da memória inválida: %w", err)
+	}
+
+	destino := filepath.Join(raizAbs, slug+".md")
+
+	rel, err := filepath.Rel(raizAbs, destino)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("assunto %q resolve fora do diretório de memória", assunto)
+	}
+	return destino, nil
 }
