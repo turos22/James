@@ -53,15 +53,26 @@ func TestConstruirBuscaAplicaConfig(t *testing.T) {
 	}
 }
 
-// TestConstruirClaudeCodeNaoDevolveNil é só o ponto de costura por enquanto —
-// a Task 15 injeta diretório/timeout de verdade em ferramentas.ClaudeCode e
-// ganha asserção completa aqui.
-func TestConstruirClaudeCodeNaoDevolveNil(t *testing.T) {
-	cfg := &config.Config{}
+// TestConstruirClaudeCodeAplicaConfig prova que Diretorio e Timeout chegam
+// com o valor do config — mesma falha silenciosa das duas ferramentas
+// anteriores: sem isso, a verificação ao vivo da Task 17 falhou com
+// "diretório de trabalho do Claude Code não configurado" porque
+// construirClaudeCode ainda era só o ponto de costura, sem aplicar nada.
+func TestConstruirClaudeCodeAplicaConfig(t *testing.T) {
+	cfg := &config.Config{
+		ClaudeCodeDiretorio:       "C:\\projetos\\alvo",
+		ClaudeCodeTimeoutSegundos: 120,
+	}
 
 	c := construirClaudeCode(cfg)
 
 	if c == nil {
 		t.Fatal("construirClaudeCode devolveu nil")
+	}
+	if c.Diretorio != "C:\\projetos\\alvo" {
+		t.Errorf("Diretorio = %q, queria C:\\\\projetos\\\\alvo", c.Diretorio)
+	}
+	if c.Timeout != 120*time.Second {
+		t.Errorf("Timeout = %s, queria %s", c.Timeout, 120*time.Second)
 	}
 }

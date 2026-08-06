@@ -31,9 +31,12 @@ func construirBusca(cfg *config.Config) *ferramentas.Busca {
 	return b
 }
 
-// construirClaudeCode ainda não aplica nenhuma configuração: cfg.ClaudeCodeDiretorio
-// e cfg.ClaudeCodeTimeoutSegundos existem desde a Task 7, mas ferramentas.ClaudeCode
-// ainda não tem campo pra eles. A Task 15 preenche esta função.
+// construirClaudeCode aplica diretório e timeout vindos do config.toml.
+// Diretorio nunca é herdado do cwd do jamesd — sem isso, o James poderia
+// mandar o Claude Code editar o próprio código-fonte do James (decisão D6).
 func construirClaudeCode(cfg *config.Config) *ferramentas.ClaudeCode {
-	return ferramentas.NovoClaudeCode()
+	c := ferramentas.NovoClaudeCode()
+	c.Diretorio = cfg.ClaudeCodeDiretorio
+	c.Timeout = time.Duration(cfg.ClaudeCodeTimeoutSegundos) * time.Second
+	return c
 }

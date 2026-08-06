@@ -68,6 +68,11 @@ func executar() error {
 	if err := registro.Registrar(construirClaudeCode(cfg)); err != nil {
 		return fmt.Errorf("registrar perguntar_ao_claude_code: %w", err)
 	}
+	if cfg.ClaudeCodeDiretorio == "" {
+		slog.Warn("perguntar_ao_claude_code registrada sem diretório configurado; " +
+			"a ferramenta vai falhar se o modelo chamar ela " +
+			"(preencha ferramentas.claude_code.diretorio no config.toml)")
+	}
 	if err := registro.Registrar(construirBusca(cfg)); err != nil {
 		return fmt.Errorf("registrar pesquisar_internet: %w", err)
 	}
