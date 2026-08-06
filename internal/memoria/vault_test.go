@@ -86,9 +86,15 @@ func TestAcrescentarConcorrenteNaoPerdeNota(t *testing.T) {
 		t.Fatalf("arquivo não foi criado: %v", err)
 	}
 
-	// Contagem de linha sozinha não pega corrida: neste ambiente, mesmo com o
-	// mutex removido de propósito, escrita O_APPEND ficou serializada pelo SO
-	// e a contagem batia — só o conteúdo expõe corrupção/perda real.
+	// Contagem de linha e conferência de conteúdo são melhorias reais sobre
+	// nenhuma asserção, mas nenhuma das duas prova que o mutex é necessário
+	// nesta máquina: escrita O_APPEND pequena é atômica no NTFS/Windows nesse
+	// padrão, e o arquivo sai correto mesmo com o mutex removido de propósito
+	// (verificado manualmente durante o review, 50/50 execuções sem falha).
+	// Este teste é guarda contra regressão grosseira de lógica (ex.: esquecer
+	// O_APPEND, truncar o arquivo), não prova de necessidade do mutex nesta
+	// plataforma — isso exigiria -race, que não roda neste ambiente (ver
+	// Task 4 do plano).
 	linhas := strings.Split(strings.TrimSpace(string(bruto)), "\n")
 	if len(linhas) != n {
 		t.Fatalf("esperava %d notas, o arquivo tem %d linhas — escrita concorrente perdeu nota", n, len(linhas))
