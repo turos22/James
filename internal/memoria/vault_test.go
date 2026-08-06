@@ -1,9 +1,11 @@
 package memoria
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -59,5 +61,32 @@ func TestAcrescentarRejeitaTextoVazio(t *testing.T) {
 	v := NovoVault(filepath.Join(t.TempDir(), "Memoria"), 2000)
 	if err := v.Acrescentar("teste", "   "); err == nil {
 		t.Error("esperava erro para texto vazio, veio nil")
+	}
+}
+
+func TestAcrescentarConcorrenteNaoPerdeNota(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "Memoria")
+	v := NovoVault(raiz, 2000)
+
+	const n = 50
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := v.Acrescentar("concorrencia", fmt.Sprintf("nota numero %d", i)); err != nil {
+				t.Errorf("Acrescentar(%d) devolveu erro: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	bruto, err := os.ReadFile(filepath.Join(raiz, "concorrencia.md"))
+	if err != nil {
+		t.Fatalf("arquivo não foi criado: %v", err)
+	}
+	linhas := strings.Count(strings.TrimSpace(string(bruto)), "\n") + 1
+	if linhas != n {
+		t.Fatalf("esperava %d notas, o arquivo tem %d linhas — escrita concorrente perdeu nota", n, linhas)
 	}
 }
