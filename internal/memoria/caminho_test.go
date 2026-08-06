@@ -73,3 +73,23 @@ func TestResolverCaminhoRejeitaTravessia(t *testing.T) {
 		}
 	}
 }
+
+func TestDentroDeRejeitaCaminhoConstruidoManualmenteForaDaRaiz(t *testing.T) {
+	raizAbs, _ := filepath.Abs(t.TempDir())
+
+	casos := []struct {
+		destino string
+		dentro  bool
+	}{
+		{filepath.Join(raizAbs, "nota.md"), true},
+		{filepath.Join(raizAbs, "sub", "nota.md"), true},
+		{filepath.Join(filepath.Dir(raizAbs), "fora.md"), false},
+		{filepath.Join(raizAbs, "..", "fora.md"), false},
+	}
+
+	for _, c := range casos {
+		if obtido := dentroDe(raizAbs, c.destino); obtido != c.dentro {
+			t.Errorf("dentroDe(%q, %q) = %v, queria %v", raizAbs, c.destino, obtido, c.dentro)
+		}
+	}
+}

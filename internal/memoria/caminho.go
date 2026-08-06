@@ -62,10 +62,19 @@ func ResolverCaminho(raiz, assunto string) (string, error) {
 	}
 
 	destino := filepath.Join(raizAbs, slug+".md")
-
-	rel, err := filepath.Rel(raizAbs, destino)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if !dentroDe(raizAbs, destino) {
 		return "", fmt.Errorf("assunto %q resolve fora do diretório de memória", assunto)
 	}
 	return destino, nil
+}
+
+// dentroDe reconstrói a checagem de contenção que ResolverCaminho aplica
+// depois de montar o destino — separada pra poder ser testada sem depender
+// do slug já ter eliminado todo caractere de travessia.
+func dentroDe(raizAbs, destino string) bool {
+	rel, err := filepath.Rel(raizAbs, destino)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
 }
