@@ -36,20 +36,43 @@ func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 	var sessaoID uuid.UUID
 	var historico []agente.Mensagem
 
-	for {
-		var envelope Envelope
-		if err := conn.ReadJSON(&envelope); err != nil {
-			return
+	// "mensagem" trata de forma síncrona (loop do agente inteiro, inclusive
+	// espera por aprovação humana) — pode levar minutos. "aprovar"/"negar"
+	// precisam ser lidos e resolvidos NA HORA, mesmo com uma "mensagem"
+	// ainda em voo na mesma conexão: desde que perguntar_ao_claude_code
+	// passou a exigir confirmação sempre (D10), o próprio Privilegiado que
+	// disparou a chamada pode ser quem precisa aprová-la, pela mesma
+	// conexão. Um único goroutine lendo e despachando tudo em série travaria
+	// nesse caso — o "aprovar" ficaria atrás do "mensagem" bloqueado na fila
+	// de leitura, e nunca seria lido até o timeout de aprovação estourar
+	// (confirmado ao vivo: exatos 5 minutos, batendo com o default de 300s).
+	//
+	// Por isso a leitura vira sua própria goroutine, resolvendo
+	// aprovar/negar no ato, e só repassa "mensagem" pro processamento
+	// sequencial abaixo — que continua de propósito rodando uma mensagem de
+	// cada vez, sem paralelismo, pra não introduzir corrida em historico/
+	// sessaoID.
+	mensagens := make(chan Envelope)
+	go func() {
+		defer close(mensagens)
+		for {
+			var envelope Envelope
+			if err := conn.ReadJSON(&envelope); err != nil {
+				return
+			}
+			switch envelope.Tipo {
+			case "aprovar":
+				s.AprovacoesPendentes.resolver(envelope.ID, true)
+			case "negar":
+				s.AprovacoesPendentes.resolver(envelope.ID, false)
+			case "mensagem":
+				mensagens <- envelope
+			}
 		}
+	}()
 
-		switch envelope.Tipo {
-		case "mensagem":
-			s.tratarMensagem(r.Context(), cliente, envelope, &sessaoID, &historico)
-		case "aprovar":
-			s.AprovacoesPendentes.resolver(envelope.ID, true)
-		case "negar":
-			s.AprovacoesPendentes.resolver(envelope.ID, false)
-		}
+	for envelope := range mensagens {
+		s.tratarMensagem(r.Context(), cliente, envelope, &sessaoID, &historico)
 	}
 }
 
