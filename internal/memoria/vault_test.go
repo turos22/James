@@ -85,8 +85,23 @@ func TestAcrescentarConcorrenteNaoPerdeNota(t *testing.T) {
 	if err != nil {
 		t.Fatalf("arquivo não foi criado: %v", err)
 	}
-	linhas := strings.Count(strings.TrimSpace(string(bruto)), "\n") + 1
-	if linhas != n {
-		t.Fatalf("esperava %d notas, o arquivo tem %d linhas — escrita concorrente perdeu nota", n, linhas)
+
+	// Contagem de linha sozinha não pega corrida: neste ambiente, mesmo com o
+	// mutex removido de propósito, escrita O_APPEND ficou serializada pelo SO
+	// e a contagem batia — só o conteúdo expõe corrupção/perda real.
+	linhas := strings.Split(strings.TrimSpace(string(bruto)), "\n")
+	if len(linhas) != n {
+		t.Fatalf("esperava %d notas, o arquivo tem %d linhas — escrita concorrente perdeu nota", n, len(linhas))
+	}
+
+	vistas := make(map[string]bool, n)
+	for _, l := range linhas {
+		vistas[l] = true
+	}
+	for i := 0; i < n; i++ {
+		esperada := fmt.Sprintf("- nota numero %d", i)
+		if !vistas[esperada] {
+			t.Errorf("nota %q ausente ou corrompida no arquivo final", esperada)
+		}
 	}
 }
