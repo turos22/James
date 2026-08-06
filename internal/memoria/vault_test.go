@@ -111,3 +111,44 @@ func TestAcrescentarConcorrenteNaoPerdeNota(t *testing.T) {
 		}
 	}
 }
+
+func TestAssuntosListaOrdenadoEIgnoraNaoMarkdown(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "Memoria")
+	v := NovoVault(raiz, 2000)
+
+	for _, a := range []string{"projeto-james", "arthur", "ferramentas"} {
+		if err := v.Acrescentar(a, "nota qualquer"); err != nil {
+			t.Fatalf("Acrescentar(%q) devolveu erro: %v", a, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(raiz, "lixo.txt"), []byte("ignorar"), 0o644); err != nil {
+		t.Fatalf("erro ao criar arquivo de apoio: %v", err)
+	}
+
+	assuntos, err := v.Assuntos()
+	if err != nil {
+		t.Fatalf("Assuntos devolveu erro: %v", err)
+	}
+
+	esperado := []string{"arthur", "ferramentas", "projeto-james"}
+	if len(assuntos) != len(esperado) {
+		t.Fatalf("Assuntos = %v, queria %v", assuntos, esperado)
+	}
+	for i := range esperado {
+		if assuntos[i] != esperado[i] {
+			t.Errorf("Assuntos[%d] = %q, queria %q", i, assuntos[i], esperado[i])
+		}
+	}
+}
+
+func TestAssuntosComVaultAusenteDevolveVazioSemErro(t *testing.T) {
+	v := NovoVault(filepath.Join(t.TempDir(), "nao-existe"), 2000)
+
+	assuntos, err := v.Assuntos()
+	if err != nil {
+		t.Fatalf("vault ausente não pode ser erro, veio: %v", err)
+	}
+	if len(assuntos) != 0 {
+		t.Errorf("esperava lista vazia, veio %v", assuntos)
+	}
+}

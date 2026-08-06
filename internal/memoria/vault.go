@@ -3,6 +3,7 @@ package memoria
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -62,4 +63,29 @@ func (v *Vault) Acrescentar(assunto, texto string) error {
 		return fmt.Errorf("erro ao gravar nota: %w", err)
 	}
 	return nil
+}
+
+// Assuntos lista os assuntos existentes, em ordem alfabética. Consumido pela
+// declaração de salvar_na_memoria: sem essa lista, o modelo inventa assunto
+// novo a cada chamada em vez de acrescentar num existente.
+//
+// Vault ausente não é erro: é o estado do primeiro boot.
+func (v *Vault) Assuntos() ([]string, error) {
+	entradas, err := os.ReadDir(v.Raiz)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("erro ao ler diretório de memória: %w", err)
+	}
+
+	var assuntos []string
+	for _, e := range entradas {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		assuntos = append(assuntos, strings.TrimSuffix(e.Name(), ".md"))
+	}
+	sort.Strings(assuntos)
+	return assuntos, nil
 }
