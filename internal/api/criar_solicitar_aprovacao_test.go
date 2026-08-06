@@ -27,6 +27,23 @@ func (c *clienteCapturaID) Enviar(tipo, id string, dados any) error {
 	return nil
 }
 
+// clienteCapturaIDEDados grava tanto o id do envelope quanto o dados (terceiro
+// argumento) de cada evento recebido — precisamos comparar os dois pra travar
+// o Bug 1 (dados.id sempre vazio no frontend, porque o backend nunca duplica
+// o id do envelope dentro do mapa dados).
+type clienteCapturaIDEDados struct {
+	perfil permissao.Perfil
+	ids    []string
+	dados  []any
+}
+
+func (c *clienteCapturaIDEDados) Perfil() permissao.Perfil { return c.perfil }
+func (c *clienteCapturaIDEDados) Enviar(tipo, id string, dados any) error {
+	c.ids = append(c.ids, id)
+	c.dados = append(c.dados, dados)
+	return nil
+}
+
 func servidorDeTesteParaAprovacao(t *testing.T) *Servidor {
 	t.Helper()
 	url := postgres.URLDoAmbiente()
@@ -156,5 +173,45 @@ func TestCriarSolicitarAprovacaoExpiraELimpaAoDesconectar(t *testing.T) {
 
 	if len(s.AprovacoesPendentes.canais) != 0 {
 		t.Errorf("esperava mapa de pendentes limpo após desconexão, restaram %d entradas", len(s.AprovacoesPendentes.canais))
+	}
+}
+
+// TestCriarSolicitarAprovacaoIncluiIDDentroDeDados trava o Bug 1 do spike de
+// 2026-08-06: o frontend (App.tsx) lê dados.id, mas o ClienteWS só repassa o
+// campo "dados" do envelope pros manipuladores — o id do envelope nunca
+// chegava até o handler. Sem o id duplicado dentro de "dados", o clique em
+// "Aprovar" no desktop manda id="" de volta, que nunca resolve a aprovação
+// pendente de verdade.
+func TestCriarSolicitarAprovacaoIncluiIDDentroDeDados(t *testing.T) {
+	s := servidorDeTesteParaAprovacao(t)
+	s.TimeoutAprovacao = 20 * time.Millisecond
+
+	sessao, err := s.Sessoes.Criar(context.Background(), "sessão de teste aprovação — id nos dados")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+
+	captura := &clienteCapturaIDEDados{perfil: permissao.Privilegiado}
+	s.Clientes.Registrar(captura)
+
+	solicitar := s.criarSolicitarAprovacao(sessao.ID)
+	if _, err := solicitar(context.Background(), agente.ChamadaFerramenta{Nome: "ferramenta-perigosa"}); err != nil {
+		t.Fatalf("solicitar não deveria devolver erro no caminho de timeout: %v", err)
+	}
+
+	if len(captura.ids) != 1 || len(captura.dados) != 1 {
+		t.Fatalf("esperava 1 broadcast de aprovacao_requerida, recebeu %d ids e %d dados", len(captura.ids), len(captura.dados))
+	}
+
+	mapa, ok := captura.dados[0].(map[string]any)
+	if !ok {
+		t.Fatalf("dados do evento não é map[string]any: %#v", captura.dados[0])
+	}
+	idNosDados, ok := mapa["id"].(string)
+	if !ok || idNosDados == "" {
+		t.Fatalf(`dados["id"] ausente ou vazio: %#v`, mapa)
+	}
+	if idNosDados != captura.ids[0] {
+		t.Errorf(`dados["id"] = %q, queria o mesmo id do envelope (%q)`, idNosDados, captura.ids[0])
 	}
 }

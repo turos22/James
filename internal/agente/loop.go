@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"james/internal/ferramentas"
 	"james/internal/permissao"
@@ -18,6 +19,12 @@ type Loop struct {
 	Provider     Provider
 	Ferramentas  ferramentas.Registro
 	MaxIteracoes int
+
+	// TimeoutProvider limita cada chamada ao Provider.Gerar. Zero desliga.
+	// Não embrulha o loop inteiro de propósito: a espera por aprovação
+	// humana acontece ENTRE chamadas ao Provider, e um teto de segundos
+	// mataria uma decisão que legitimamente leva minutos.
+	TimeoutProvider time.Duration
 
 	// AoIniciarFerramenta e AoConcluirFerramenta, quando não-nil, são
 	// chamados em volta de cada despacho — é o que a API (Task 17) usa pra
@@ -50,7 +57,7 @@ func (l *Loop) Executar(ctx context.Context, sistema string, historico []Mensage
 		}
 
 		req := Requisicao{Sistema: sistema, Mensagens: mensagens, Declaracoes: l.Ferramentas.Declaracoes()}
-		resp, err := l.Provider.Gerar(ctx, req)
+		resp, err := l.gerar(ctx, req)
 		if err != nil {
 			return Resposta{}, mensagens, fmt.Errorf("provider: %w", err)
 		}
@@ -69,6 +76,21 @@ func (l *Loop) Executar(ctx context.Context, sistema string, historico []Mensage
 	}
 
 	return Resposta{}, mensagens, ErroTetoIteracoes
+}
+
+// gerar embrulha a chamada ao Provider num timeout próprio, escopado só a
+// essa chamada — nunca ao loop inteiro. Método dedicado (em vez de um defer
+// solto dentro do for de Executar) de propósito: um defer dentro de um laço
+// só executaria no retorno da função inteira, não a cada iteração, e
+// acumularia um cancelador por volta até o fim do turno.
+func (l *Loop) gerar(ctx context.Context, req Requisicao) (Resposta, error) {
+	ctxProvider := ctx
+	if l.TimeoutProvider > 0 {
+		var cancelar context.CancelFunc
+		ctxProvider, cancelar = context.WithTimeout(ctx, l.TimeoutProvider)
+		defer cancelar()
+	}
+	return l.Provider.Gerar(ctxProvider, req)
 }
 
 func (l *Loop) despachar(ctx context.Context, chamada ChamadaFerramenta, perfil permissao.Perfil, solicitarAprovacao SolicitarAprovacao) ResultadoFerramenta {

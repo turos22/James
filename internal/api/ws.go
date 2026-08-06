@@ -106,19 +106,12 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	loop.AoIniciarFerramenta = aoIniciar
 	loop.AoConcluirFerramenta = aoConcluir
 
-	ctxTurno := ctx
-	if s.TimeoutTurno > 0 {
-		var cancelar context.CancelFunc
-		ctxTurno, cancelar = context.WithTimeout(ctx, s.TimeoutTurno)
-		defer cancelar()
-	}
-
 	// Ferramentas que mantêm estado por conversa (perguntar_ao_claude_code)
 	// leem o id da sessão daqui — é o único canal que atravessa api → agente
 	// → ferramentas.
-	ctxTurno = ferramentas.ComSessao(ctxTurno, sessaoID.String())
+	ctx = ferramentas.ComSessao(ctx, sessaoID.String())
 
-	resp, mensagens, err := loop.Executar(ctxTurno, s.SistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
+	resp, mensagens, err := loop.Executar(ctx, s.SistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
 	if err != nil {
 		return agente.Resposta{}, "", err
 	}
@@ -158,6 +151,14 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 
 		espera := s.AprovacoesPendentes.aguardar(aprovacao.ID.String())
 		s.Clientes.BroadcastAprovacaoRequerida(aprovacao.ID.String(), map[string]any{
+			// Duplicado de propósito: o ClienteWS do frontend só repassa o
+			// campo "dados" do envelope pros manipuladores registrados via
+			// .on() (contrato testado em ws.test.ts, não muda) — o id do
+			// envelope nunca chega até o handler sozinho. Sem essa
+			// duplicação, App.tsx lê dados.id sempre vazio (Bug 1 do spike
+			// de 2026-08-06) e o clique em "Aprovar" nunca resolve a
+			// aprovação pendente de verdade.
+			"id":         aprovacao.ID.String(),
 			"ferramenta": chamada.Nome,
 			"argumentos": chamada.Args,
 		})

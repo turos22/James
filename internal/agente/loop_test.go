@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"james/internal/ferramentas"
 	"james/internal/permissao"
@@ -444,5 +445,71 @@ func TestRestritoContinuaAprovandoMesmoSemExigencia(t *testing.T) {
 	}
 	if !pediuAprovacao {
 		t.Error("Restrito deve continuar pedindo aprovação para NivelPerigoso mesmo sem exigência extra")
+	}
+}
+
+// TestTimeoutDoProviderNaoMataEsperaPorAprovacao trava o bug real reproduzido
+// pelo Arthur em 2026-08-06: o timeout do turno embrulhava o loop inteiro,
+// incluindo a espera pela decisão humana (até 300s de orçamento). Aprovação
+// que demorasse mais que o teto de uma chamada ao Provider (30s por padrão)
+// morria antes de chegar — a ação era aprovada e nunca executava.
+//
+// O teto de tempo vale por chamada ao Provider. Espera humana acontece ENTRE
+// chamadas e não pode ter teto de segundos.
+func TestTimeoutDoProviderNaoMataEsperaPorAprovacao(t *testing.T) {
+	tool := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "executou"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "pronto"},
+	}}
+	loop := &Loop{
+		Provider:        provider,
+		Ferramentas:     novoRegistroCom(tool),
+		MaxIteracoes:    5,
+		TimeoutProvider: 50 * time.Millisecond,
+	}
+
+	// Humano lento: demora mais que o teto de uma chamada ao Provider.
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		select {
+		case <-time.After(300 * time.Millisecond):
+			return true, nil
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+
+	if _, _, err := loop.Executar(context.Background(), "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz"}, permissao.Restrito, solicitar); err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if !tool.executada {
+		t.Error("a espera pela aprovação foi morta pelo teto do Provider; a ação nunca executou")
+	}
+}
+
+// TestDesconexaoDoClienteAindaCancelaOLoop garante que a correção não jogue
+// fora a defesa que já existia: cliente que desconecta cancela o ctx, e o
+// loop não pode seguir despachando ferramenta perigosa.
+func TestDesconexaoDoClienteAindaCancelaOLoop(t *testing.T) {
+	tool := &ferramentaFalsa{nome: "perigosa", nivel: ferramentas.NivelPerigoso, saida: "executou"}
+	provider := &providerFalso{respostas: []Resposta{
+		{Chamadas: []ChamadaFerramenta{{ID: "1", Nome: "perigosa"}}},
+		{Texto: "pronto"},
+	}}
+	loop := &Loop{Provider: provider, Ferramentas: novoRegistroCom(tool), MaxIteracoes: 5}
+
+	ctx, cancelar := context.WithCancel(context.Background())
+	solicitar := func(ctx context.Context, c ChamadaFerramenta) (bool, error) {
+		cancelar() // o cliente cai enquanto a aprovação está pendente
+		return false, ctx.Err()
+	}
+
+	if _, _, err := loop.Executar(ctx, "sistema", nil,
+		Mensagem{Papel: PapelUsuario, Texto: "faz"}, permissao.Restrito, solicitar); err == nil {
+		t.Error("loop deveria parar quando o cliente desconecta, seguiu normal")
+	}
+	if tool.executada {
+		t.Error("ferramenta perigosa executou depois do cliente desconectar")
 	}
 }

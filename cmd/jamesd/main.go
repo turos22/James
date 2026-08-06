@@ -87,9 +87,10 @@ func executar() error {
 		DiretorioAudio: "audios",
 		EmbutidosSPA:   raizSPA,
 		Loop: &agente.Loop{
-			Provider:     provider,
-			Ferramentas:  registro,
-			MaxIteracoes: cfg.MaxIteracoes,
+			Provider:        provider,
+			Ferramentas:     registro,
+			MaxIteracoes:    cfg.MaxIteracoes,
+			TimeoutProvider: time.Duration(cfg.TimeoutSegundos) * time.Second,
 		},
 		Memoria:             memoria.Janela{OrcamentoTokens: cfg.OrcamentoTokens},
 		SistemaPrompt:       string(sistemaPrompt),
@@ -99,7 +100,6 @@ func executar() error {
 		DispositivoHub:      dispositivoHub,
 		Sintetizador:        voz.NovoSintetizador("audios"),
 		VozTTS:              cfg.VozTTS,
-		TimeoutTurno:        time.Duration(cfg.TimeoutSegundos) * time.Second,
 	}
 
 	// Só o loopback é fatal pro processo — é o serviço mínimo que o shell

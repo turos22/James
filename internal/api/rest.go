@@ -36,10 +36,6 @@ type Servidor struct {
 	Clientes            *ClientesHub
 	AprovacoesPendentes *registroAprovacoesPendentes
 	TimeoutAprovacao    time.Duration
-	// TimeoutTurno limita cada chamada ao Provider dentro do loop do
-	// agente (R4 — timeout em tudo). Zero desativa o limite (usado nos
-	// testes deste pacote, que não têm rede real pra travar).
-	TimeoutTurno time.Duration
 
 	// Sintetizador é opcional — nil (padrão nos testes) pula a geração de
 	// áudio sem quebrar o turno (spec 4.7, Task 15).
