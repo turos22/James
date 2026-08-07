@@ -20,11 +20,24 @@ import (
 var ErroDispositivoAusente = errors.New("máquina física indisponível: james-device não conectado")
 
 // AcaoTela é o pedido de ação de tela que vira mensagem WS pro james-device.
+// X e Y são LOCAIS à superfície (D15 da spec da Fase 5) — o device soma a
+// origem do monitor antes de agir.
 type AcaoTela struct {
-	Acao  string `json:"acao"`
-	X     int    `json:"x,omitempty"`
-	Y     int    `json:"y,omitempty"`
-	Texto string `json:"texto,omitempty"`
+	Acao       string `json:"acao"`
+	X          int    `json:"x,omitempty"`
+	Y          int    `json:"y,omitempty"`
+	Texto      string `json:"texto,omitempty"`
+	Superficie string `json:"superficie,omitempty"`
+	ElementoID string `json:"elemento_id,omitempty"`
+	Nome       string `json:"nome,omitempty"`
+	Tipo       string `json:"tipo,omitempty"`
+}
+
+// Resultado é o que o device devolve. A imagem só vem preenchida em
+// ver_tela; as outras ações devolvem só texto.
+type Resultado struct {
+	Saida  string
+	Imagem []byte
 }
 
 // Conexao é o suficiente do lado WS que o Hub precisa — internal/api
@@ -33,14 +46,16 @@ type Conexao interface {
 	Enviar(envelope []byte) error
 }
 
-// Ponte é o que ferramentas.ManipularInterface precisa — *Hub implementa.
+// Ponte é o que ferramentas.ManipularInterface e ferramentas.VerTela
+// precisam — *Hub implementa.
 type Ponte interface {
-	EnviarAcao(ctx context.Context, acao AcaoTela) (string, error)
+	EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error)
 }
 
 type resultadoAcao struct {
-	saida string
-	erro  string
+	saida  string
+	erro   string
+	imagem []byte
 }
 
 // Hub é a ponte com o james-device: mantém a conexão WS atual e casa cada
@@ -55,6 +70,12 @@ type Hub struct {
 	// concorrente — não é protegido por mutex e mutar em runtime, com
 	// EnviarAcao já em andamento em outra goroutine, é uma corrida de dados.
 	Timeout time.Duration
+
+	// TimeoutPorAcao permite teto maior pra ação cara: ver_tela varre a
+	// árvore UIA de um monitor inteiro, o que não cabe no mesmo limite de um
+	// clique. Ação sem entrada aqui usa Timeout. Mesma regra de Timeout:
+	// ajustar antes do Hub entrar em uso concorrente, não em runtime.
+	TimeoutPorAcao map[string]time.Duration
 }
 
 // NovoHub cria um Hub pronto pra uso, sem device conectado.
@@ -80,14 +101,23 @@ func (h *Hub) Desregistrar() {
 	h.conexao = nil
 }
 
+// timeoutDe devolve o timeout específico da ação, se houver um cadastrado em
+// TimeoutPorAcao, ou o Timeout global caso contrário.
+func (h *Hub) timeoutDe(acao string) time.Duration {
+	if t, ok := h.TimeoutPorAcao[acao]; ok && t > 0 {
+		return t
+	}
+	return h.Timeout
+}
+
 // EnviarAcao manda a ação pro device conectado e espera o resultado_acao
 // correspondente, com timeout (R4).
-func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (string, error) {
+func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) {
 	h.mu.Lock()
 	conexao := h.conexao
 	h.mu.Unlock()
 	if conexao == nil {
-		return "", ErroDispositivoAusente
+		return Resultado{}, ErroDispositivoAusente
 	}
 
 	id := uuid.NewString()
@@ -103,22 +133,22 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (string, error) {
 
 	envelope, err := json.Marshal(map[string]any{"tipo": "acao_tela", "id": id, "dados": acao})
 	if err != nil {
-		return "", err
+		return Resultado{}, err
 	}
 	if err := conexao.Enviar(envelope); err != nil {
-		return "", fmt.Errorf("erro ao enviar ação pro device: %w", err)
+		return Resultado{}, fmt.Errorf("erro ao enviar ação pro device: %w", err)
 	}
 
 	select {
 	case r := <-espera:
 		if r.erro != "" {
-			return "", fmt.Errorf("device: %s", r.erro)
+			return Resultado{}, fmt.Errorf("device: %s", r.erro)
 		}
-		return r.saida, nil
+		return Resultado{Saida: r.saida, Imagem: r.imagem}, nil
 	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-time.After(h.Timeout):
-		return "", fmt.Errorf("timeout esperando resultado_acao do device")
+		return Resultado{}, ctx.Err()
+	case <-time.After(h.timeoutDe(acao.Acao)):
+		return Resultado{}, fmt.Errorf("timeout esperando resultado_acao do device")
 	}
 }
 
@@ -132,7 +162,7 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (string, error) {
 // vira um no-op limpo — não um deadlock. Isso importa porque, no endpoint WS
 // real (Task 18), ResolverResultado roda dentro da única goroutine que lê a
 // conexão do device; travar aqui trava a leitura da conexão inteira.
-func (h *Hub) ResolverResultado(id, saida, erro string) {
+func (h *Hub) ResolverResultado(id, saida, erro string, imagem []byte) {
 	h.mu.Lock()
 	espera, ok := h.pendentes[id]
 	if ok {
@@ -143,7 +173,7 @@ func (h *Hub) ResolverResultado(id, saida, erro string) {
 		return
 	}
 	select {
-	case espera <- resultadoAcao{saida: saida, erro: erro}:
+	case espera <- resultadoAcao{saida: saida, erro: erro, imagem: imagem}:
 	default:
 		// Ninguém mais está esperando nesse channel (não deveria acontecer
 		// já que acabamos de tirá-lo de pendentes sob lock, mas o select

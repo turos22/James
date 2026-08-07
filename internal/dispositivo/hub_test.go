@@ -63,15 +63,15 @@ func TestEnviarAcaoComDispositivoConectadoDevolveResultado(t *testing.T) {
 		}
 		var envelope map[string]any
 		_ = json.Unmarshal(primeiro, &envelope)
-		h.ResolverResultado(envelope["id"].(string), "clique feito", "")
+		h.ResolverResultado(envelope["id"].(string), "clique feito", "", nil)
 	}()
 
-	saida, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click", X: 10, Y: 20})
+	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click", X: 10, Y: 20})
 	if err != nil {
 		t.Fatalf("EnviarAcao devolveu erro: %v", err)
 	}
-	if saida != "clique feito" {
-		t.Errorf("saida = %q, queria clique feito", saida)
+	if resultado.Saida != "clique feito" {
+		t.Errorf("saida = %q, queria clique feito", resultado.Saida)
 	}
 }
 
@@ -92,7 +92,7 @@ func TestEnviarAcaoPropagaErroDoDevice(t *testing.T) {
 		}
 		var envelope map[string]any
 		_ = json.Unmarshal(primeiro, &envelope)
-		h.ResolverResultado(envelope["id"].(string), "", "tecla inválida")
+		h.ResolverResultado(envelope["id"].(string), "", "tecla inválida", nil)
 	}()
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "tecla", Texto: "xyz"})
@@ -138,8 +138,8 @@ func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
 
 	feito := make(chan struct{})
 	go func() {
-		h.ResolverResultado(id, "primeiro", "")
-		h.ResolverResultado(id, "segundo", "") // pendente já devia ter sido removido — tem que ser no-op
+		h.ResolverResultado(id, "primeiro", "", nil)
+		h.ResolverResultado(id, "segundo", "", nil) // pendente já devia ter sido removido — tem que ser no-op
 		close(feito)
 	}()
 
@@ -167,5 +167,104 @@ func TestDesregistrarVoltaAErroDispositivoAusente(t *testing.T) {
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click"})
 	if !errors.Is(err, ErroDispositivoAusente) {
 		t.Fatalf("erro = %v, queria ErroDispositivoAusente após Desregistrar", err)
+	}
+}
+
+func TestEnviarAcaoDevolveImagemDoResultado(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	imagem := []byte{0x89, 'P', 'N', 'G'}
+	go func() {
+		for {
+			envelope, ok := conexao.primeiroEnviado()
+			if !ok {
+				time.Sleep(time.Millisecond)
+				continue
+			}
+			var recebido struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(envelope, &recebido); err != nil {
+				return
+			}
+			h.ResolverResultado(recebido.ID, "e1 Button \"Salvar\" (820,455)", "", imagem)
+			return
+		}
+	}()
+
+	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"})
+	if err != nil {
+		t.Fatalf("EnviarAcao devolveu erro: %v", err)
+	}
+	if resultado.Saida == "" {
+		t.Error("Saida veio vazia")
+	}
+	if string(resultado.Imagem) != string(imagem) {
+		t.Errorf("Imagem = %v, queria %v", resultado.Imagem, imagem)
+	}
+}
+
+func TestAcaoTelaSerializaCamposDeElementoESuperficie(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		envelope, ok := conexao.primeiroEnviado()
+		if !ok {
+			return
+		}
+		var recebido struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(envelope, &recebido); err != nil {
+			return
+		}
+		h.ResolverResultado(recebido.ID, "ok", "", nil)
+	}()
+
+	_, err := h.EnviarAcao(context.Background(), AcaoTela{
+		Acao: "clicar_elemento", Superficie: "DISPLAY7", ElementoID: "e7", Nome: "Salvar", Tipo: "Button",
+	})
+	if err != nil {
+		t.Fatalf("EnviarAcao devolveu erro: %v", err)
+	}
+
+	envelope, _ := conexao.primeiroEnviado()
+	var enviado struct {
+		Dados struct {
+			Acao       string `json:"acao"`
+			Superficie string `json:"superficie"`
+			ElementoID string `json:"elemento_id"`
+			Nome       string `json:"nome"`
+			Tipo       string `json:"tipo"`
+		} `json:"dados"`
+	}
+	if err := json.Unmarshal(envelope, &enviado); err != nil {
+		t.Fatalf("envelope não decodifica: %v", err)
+	}
+	if enviado.Dados.Superficie != "DISPLAY7" || enviado.Dados.ElementoID != "e7" {
+		t.Errorf("dados chegaram incompletos ao device: %+v", enviado.Dados)
+	}
+}
+
+func TestTimeoutPorAcaoSobrepoeOGlobal(t *testing.T) {
+	h := NovoHub()
+	h.Timeout = 10 * time.Millisecond
+	h.TimeoutPorAcao = map[string]time.Duration{"ver_tela": 300 * time.Millisecond}
+	h.Registrar(&conexaoFalsa{})
+
+	inicio := time.Now()
+	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"})
+	decorrido := time.Since(inicio)
+
+	if err == nil {
+		t.Fatal("esperava timeout, veio nil")
+	}
+	if decorrido < 250*time.Millisecond {
+		t.Errorf("desistiu em %v — usou o Timeout global em vez do da ação", decorrido)
 	}
 }

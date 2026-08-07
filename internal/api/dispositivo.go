@@ -67,7 +67,7 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
 				continue
 			}
-			s.DispositivoHub.ResolverResultado(envelope.ID, dados.Saida, dados.Erro)
+			s.DispositivoHub.ResolverResultado(envelope.ID, dados.Saida, dados.Erro, nil)
 
 		case "entrada_voz":
 			var dados struct {

@@ -22,12 +22,16 @@ func NovoManipularInterface(ponte dispositivo.Ponte) *ManipularInterface {
 func (m *ManipularInterface) Declaracao() Declaracao {
 	return Declaracao{
 		Nome:      "manipular_interface",
-		Descricao: "Interações com a interface gráfica: clicar em botões ou pressionar teclas.",
+		Descricao: "Interações com a interface gráfica. Prefira 'clicar_elemento' com o id ou nome vindo de ver_tela; clique por coordenada só quando o elemento não aparecer na lista.",
 		Parametros: map[string]Parametro{
-			"acao":  {Tipo: "string", Descricao: "'click' para mouse ou 'tecla' para pressionar teclas"},
-			"x":     {Tipo: "integer", Descricao: "coordenada X (para clique)"},
-			"y":     {Tipo: "integer", Descricao: "coordenada Y (para clique)"},
-			"texto": {Tipo: "string", Descricao: "tecla a pressionar (para acao 'tecla', ex: 'space', 'enter')"},
+			"acao":        {Tipo: "string", Descricao: "'clicar_elemento', 'click' para clique por coordenada, ou 'tecla'"},
+			"elemento_id": {Tipo: "string", Descricao: "id do elemento vindo de ver_tela (ex: e7), para acao 'clicar_elemento'"},
+			"nome":        {Tipo: "string", Descricao: "nome do elemento, alternativa ao elemento_id"},
+			"tipo":        {Tipo: "string", Descricao: "tipo do controle (ex: Button), usado junto com nome para desambiguar"},
+			"x":           {Tipo: "integer", Descricao: "coordenada X local à superfície (para acao 'click')"},
+			"y":           {Tipo: "integer", Descricao: "coordenada Y local à superfície (para acao 'click')"},
+			"texto":       {Tipo: "string", Descricao: "tecla a pressionar (para acao 'tecla', ex: 'space', 'enter')"},
+			"superficie":  {Tipo: "string", Descricao: "id do monitor. Omitir para usar o monitor da janela em foco"},
 		},
 		Obrigatorios: []string{"acao"},
 	}
@@ -43,10 +47,17 @@ func (m *ManipularInterface) Executar(ctx context.Context, args map[string]any) 
 	x, _ := args["x"].(float64)
 	y, _ := args["y"].(float64)
 	texto, _ := args["texto"].(string)
+	superficie, _ := args["superficie"].(string)
+	elementoID, _ := args["elemento_id"].(string)
+	nome, _ := args["nome"].(string)
+	tipo, _ := args["tipo"].(string)
 
-	saida, err := m.Ponte.EnviarAcao(ctx, dispositivo.AcaoTela{Acao: acao, X: int(x), Y: int(y), Texto: texto})
+	r, err := m.Ponte.EnviarAcao(ctx, dispositivo.AcaoTela{
+		Acao: acao, X: int(x), Y: int(y), Texto: texto,
+		Superficie: superficie, ElementoID: elementoID, Nome: nome, Tipo: tipo,
+	})
 	if err != nil {
 		return "", err
 	}
-	return saida, nil
+	return r.Saida, nil
 }

@@ -11,12 +11,13 @@ import (
 type ponteFalsa struct {
 	acaoRecebida dispositivo.AcaoTela
 	saida        string
+	imagem       []byte
 	erro         error
 }
 
-func (p *ponteFalsa) EnviarAcao(ctx context.Context, acao dispositivo.AcaoTela) (string, error) {
+func (p *ponteFalsa) EnviarAcao(ctx context.Context, acao dispositivo.AcaoTela) (dispositivo.Resultado, error) {
 	p.acaoRecebida = acao
-	return p.saida, p.erro
+	return dispositivo.Resultado{Saida: p.saida, Imagem: p.imagem}, p.erro
 }
 
 func TestManipularInterfaceRepassaAcaoParaPonte(t *testing.T) {
