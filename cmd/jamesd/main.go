@@ -60,6 +60,12 @@ func executar() error {
 	}
 
 	dispositivoHub := dispositivo.NovoHub()
+	// Varrer a árvore UIA de um monitor inteiro é ordens de grandeza mais
+	// caro que um clique (R1). O teto de 10s do hub é apertado pra isso.
+	dispositivoHub.TimeoutPorAcao = map[string]time.Duration{
+		"ver_tela":        30 * time.Second,
+		"clicar_elemento": 20 * time.Second,
+	}
 
 	registro := ferramentas.NovoRegistro()
 	if err := registro.Registrar(construirComandoSistema(cfg)); err != nil {
@@ -78,6 +84,9 @@ func executar() error {
 	}
 	if err := registro.Registrar(ferramentas.NovoManipularInterface(dispositivoHub)); err != nil {
 		return fmt.Errorf("registrar manipular_interface: %w", err)
+	}
+	if err := registro.Registrar(ferramentas.NovoVerTela(dispositivoHub)); err != nil {
+		return fmt.Errorf("registrar ver_tela: %w", err)
 	}
 
 	vaultMemoria := memoria.NovoVault(cfg.MemoriaDiretorio, cfg.OrcamentoNotas)
