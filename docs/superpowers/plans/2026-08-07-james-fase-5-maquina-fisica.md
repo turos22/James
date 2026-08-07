@@ -357,13 +357,13 @@ Esperado: 9 passed.
 
 - [ ] **Step 5: Confirmar que a enumeração real funciona nesta máquina**
 
-`listar()` não tem teste automatizado. Rodar uma vez à mão e conferir contra a geometria conhecida (`DISPLAY1` 1920x1080 em (0,0), `DISPLAY7` 1280x720 em (1920,255)):
+`listar()` não tem teste automatizado. Rodar uma vez à mão e conferir contra as origens conhecidas (`DISPLAY1` em `(0,0)`, `DISPLAY7` em `(1920,255)`):
 
 ```bash
 cd dispositivo && python -c "from james_device.superficies import listar; [print(s) for s in listar()]"
 ```
 
-Esperado: duas linhas, com ids, resoluções e origens batendo. Se os ids vierem diferentes (`\\.\DISPLAY1` em vez de `DISPLAY1`), ajustar o `replace` em `listar()` e rodar de novo.
+Esperado: duas linhas, com ids e origens batendo. A resolução em si **não é conhecida de antemão com confiança**: uma medição anterior via `.NET Screen.AllScreens`, sem DPI awareness, apontou `DISPLAY7` como `1280x720 @ 100%`, mas esta função ativa DPI awareness antes de enumerar (ver `ativar_dpi_awareness()`), então o valor certo é a resolução física real do painel, que pode divergir do que uma ferramenta não-DPI-aware relataria — se vier diferente do que outra medição sugeriu, **confie nesta**, e registre o valor real observado no relatório desta task. Se os ids vierem diferentes (`\\.\DISPLAY1` em vez de `DISPLAY1`), ajustar o `replace` em `listar()` e rodar de novo.
 
 - [ ] **Step 6: Commit**
 
@@ -2894,7 +2894,7 @@ Esperado: a resposta contém "nenhum elemento identificável nesse ponto", não 
 
 Mover uma janela para o `DISPLAY7`, deixá-la em foco, e pedir `ver_tela` seguido de um clique por elemento.
 
-Esperado: o cabeçalho declara `DISPLAY7 ... 1280x720`, e o clique acerta o alvo **no segundo monitor**. Se a soma de origem `(1920,255)` estiver errada, o mouse vai para o monitor primário — este é o teste que pega isso.
+Esperado: o cabeçalho declara `DISPLAY7 ...` com a resolução real que `superficies.listar()` reportar para essa máquina (confirmada na Task 1 como **1920x1080 @ escala 150%**, não os `1280x720 @ 100%` que uma medição sem DPI awareness mostraria — não travar a expectativa num número específico aqui; o que importa é que bata com o que a própria `listar()` já provou devolver). O clique acerta o alvo **no segundo monitor**. Se a soma de origem `(1920,255)` estiver errada, o mouse vai para o monitor primário — este é o teste que pega isso.
 
 - [ ] **Step 9: Rodar a suíte inteira uma última vez**
 
