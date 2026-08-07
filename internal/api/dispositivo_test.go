@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -73,6 +75,47 @@ func TestWSDispositivoResultadoAcaoResolveHub(t *testing.T) {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
+}
+
+func TestResultadoAcaoDecodificaImagemBase64(t *testing.T) {
+	imagem := []byte{0x89, 'P', 'N', 'G', 0x0D}
+	dados := map[string]string{
+		"saida":      "e1 Button \"Salvar\" (820,455)",
+		"imagem_b64": base64.StdEncoding.EncodeToString(imagem),
+	}
+	bruto, err := json.Marshal(dados)
+	if err != nil {
+		t.Fatalf("erro ao montar dados: %v", err)
+	}
+
+	saida, erro, decodificada := decodificarResultadoAcao(bruto)
+
+	if erro != "" {
+		t.Errorf("erro = %q, queria vazio", erro)
+	}
+	if saida == "" {
+		t.Error("saida veio vazia")
+	}
+	if string(decodificada) != string(imagem) {
+		t.Errorf("imagem = %v, queria %v", decodificada, imagem)
+	}
+}
+
+func TestResultadoAcaoComBase64InvalidaSegueSemImagem(t *testing.T) {
+	bruto := []byte(`{"saida":"ok","imagem_b64":"não é base64!!!"}`)
+
+	saida, erro, imagem := decodificarResultadoAcao(bruto)
+
+	// Imagem quebrada não pode derrubar o turno: o texto ainda serve.
+	if saida != "ok" {
+		t.Errorf("saida = %q, queria ok", saida)
+	}
+	if erro != "" {
+		t.Errorf("erro = %q, queria vazio", erro)
+	}
+	if imagem != nil {
+		t.Error("base64 inválida virou imagem")
+	}
 }
 
 func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {

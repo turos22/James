@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -34,6 +35,36 @@ func (c *conexaoDispositivo) Enviar(envelope []byte) error {
 	return c.ws.WriteMessage(websocket.TextMessage, envelope)
 }
 
+// tamanhoMaximoMensagemDevice é folgado de propósito: um PNG de 1920x1080 em
+// base64 fica na casa de centenas de KB, e o teto precisa caber vários com
+// sobra. O ponto não é apertar — é deixar de aceitar qualquer tamanho, que é
+// o comportamento padrão do gorilla quando SetReadLimit nunca é chamado.
+const tamanhoMaximoMensagemDevice = 32 << 20 // 32 MB
+
+// decodificarResultadoAcao lê o payload de resultado_acao. A imagem chega em
+// base64 porque o envelope é JSON. Base64 quebrada não vira erro do turno:
+// o texto do resultado ainda é útil sozinho, e derrubar tudo por causa de um
+// PNG mal formado seria pior que seguir sem ele.
+func decodificarResultadoAcao(bruto []byte) (saida, erro string, imagem []byte) {
+	var dados struct {
+		Saida     string `json:"saida"`
+		Erro      string `json:"erro"`
+		ImagemB64 string `json:"imagem_b64"`
+	}
+	if err := json.Unmarshal(bruto, &dados); err != nil {
+		return "", "", nil
+	}
+	if dados.ImagemB64 != "" {
+		decodificada, err := base64.StdEncoding.DecodeString(dados.ImagemB64)
+		if err != nil {
+			slog.Warn("imagem_b64 inválida no resultado_acao, seguindo sem imagem", "erro", err)
+		} else {
+			imagem = decodificada
+		}
+	}
+	return dados.Saida, dados.Erro, imagem
+}
+
 func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -41,6 +72,7 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(tamanhoMaximoMensagemDevice)
 
 	conexao := &conexaoDispositivo{ws: conn}
 	s.DispositivoHub.Registrar(conexao)
@@ -60,14 +92,8 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 
 		switch envelope.Tipo {
 		case "resultado_acao":
-			var dados struct {
-				Saida string `json:"saida"`
-				Erro  string `json:"erro"`
-			}
-			if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
-				continue
-			}
-			s.DispositivoHub.ResolverResultado(envelope.ID, dados.Saida, dados.Erro, nil) // imagem: decodificada de verdade na Task 7
+			saida, erroDoDevice, imagem := decodificarResultadoAcao(envelope.Dados)
+			s.DispositivoHub.ResolverResultado(envelope.ID, saida, erroDoDevice, imagem)
 
 		case "entrada_voz":
 			var dados struct {
