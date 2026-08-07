@@ -12,7 +12,7 @@ from playsound import playsound
 
 from james_device.conexao import ConexaoJames
 from james_device.tela import executar_acao
-from james_device.wake import contem_wake_word
+from james_device.wake import contem_wake_word, quase_acerto, registrar_quase_acerto
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,6 +72,10 @@ def escutar_e_enviar(conexao: ConexaoJames):
                 comando = _ouvir_comando(recognizer, source)
                 if comando:
                     conexao.enviar_entrada_voz(comando)
+            else:
+                candidato = quase_acerto(texto)
+                if candidato:
+                    registrar_quase_acerto(candidato)
 
 
 def main():
