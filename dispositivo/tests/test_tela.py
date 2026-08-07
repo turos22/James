@@ -96,3 +96,29 @@ def test_click_com_superficie_inexistente_devolve_erro(monkeypatch):
     resultado = tela.executar_acao({"acao": "click", "x": 10, "y": 20, "superficie": "DISPLAY99"})
     assert "erro" in resultado
     assert "DISPLAY99" in resultado["erro"]
+
+
+def test_click_sem_monitor_devolve_erro(monkeypatch):
+    _fixar_superficies(monkeypatch, [], DISPLAY1)
+    resultado = tela.executar_acao({"acao": "click", "x": 1, "y": 1})
+    assert "nenhum monitor" in resultado["erro"]
+
+
+def test_click_consulta_janela_em_foco_para_a_superficie_padrao(monkeypatch):
+    recebido = {}
+
+    def alvo_padrao_espiao(todas, retangulo):
+        recebido["todas"] = todas
+        recebido["retangulo"] = retangulo
+        return DISPLAY1
+
+    monkeypatch.setattr(tela.superficies, "listar", lambda: [DISPLAY1, DISPLAY7])
+    monkeypatch.setattr(tela.superficies, "retangulo_da_janela_em_foco", lambda: (10, 20, 30, 40))
+    monkeypatch.setattr(tela.superficies, "alvo_padrao", alvo_padrao_espiao)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: None)
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+
+    tela.executar_acao({"acao": "click", "x": 1, "y": 1})
+
+    assert recebido["todas"] == [DISPLAY1, DISPLAY7]
+    assert recebido["retangulo"] == (10, 20, 30, 40)

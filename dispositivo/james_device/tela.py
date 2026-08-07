@@ -1,4 +1,4 @@
-"""Executa ações de tela pedidas pelo jamesd: clique, tecla e visão.
+"""Executa ações de tela pedidas pelo jamesd: clique e tecla.
 
 Coordenadas no protocolo são LOCAIS à superfície (D15 da spec da Fase 5) —
 a conversão para o espaço global do desktop acontece aqui, uma vez, antes de
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 pyautogui.PAUSE = 0.01
 
 
-def _resolver_superficie(dados: dict):
+def _resolver_superficie(dados: dict) -> tuple[superficies.Superficie | None, str | None]:
     """Devolve (superficie, erro). A superfície pedida por id, ou a padrão
     de D14 — a que contém a janela em foco."""
     todas = superficies.listar()
@@ -48,6 +48,7 @@ def executar_acao(dados: dict) -> dict:
         if acao == "click":
             return _clicar(dados)
         if acao == "tecla":
+            # tecla não resolve superfície: teclado vai pra janela em foco, não pra um monitor.
             texto = dados.get("texto", "")
             pyautogui.press(texto)
             return {"saida": f"tecla {texto} pressionada"}
@@ -59,7 +60,7 @@ def executar_acao(dados: dict) -> dict:
 
 def _clicar(dados: dict) -> dict:
     superficie, erro = _resolver_superficie(dados)
-    if erro:
+    if erro is not None:
         return {"erro": erro}
 
     x = int(dados.get("x", 0))
@@ -74,7 +75,7 @@ def _clicar(dados: dict) -> dict:
             f"({superficie.largura}x{superficie.altura})"
         }
 
-    global_x, global_y = superficies.para_global(superficie, x, y)
-    pyautogui.moveTo(global_x, global_y, duration=1.0)
+    x_global, y_global = superficies.para_global(superficie, x, y)
+    pyautogui.moveTo(x_global, y_global, duration=1.0)
     pyautogui.click()
     return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}
