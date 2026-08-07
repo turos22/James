@@ -46,8 +46,8 @@ type ExigeConfirmacao interface {
 	ConfirmacaoNecessaria(args map[string]any) bool
 }
 
-// FerramentaComImagem é implementada pela ferramenta cujo resultado inclui
-// uma imagem — hoje só ver_tela.
+// FerramentaComImagem é implementada pela ferramenta que vê a tela (Fase 5,
+// Task 9) — hoje nenhuma implementa.
 //
 // Mesmo contrato aditivo de ExigeConfirmacao: ferramenta que não implementa
 // se comporta exatamente como antes, e o despacho só usa esta interface pra
@@ -56,7 +56,11 @@ type ExigeConfirmacao interface {
 // ferramentas que não têm imagem, sem ganho nenhum pra elas.
 //
 // Quem implementa esta interface precisa implementar Ferramenta também: o
-// Registro só aceita Ferramenta.
+// Registro só aceita Ferramenta. O loop nunca chama Executar quando
+// ExecutarComImagem existe — mas Executar ainda pode ser chamado por
+// código fora do loop (ex.: teste direto da ferramenta), então deve
+// delegar pra ExecutarComImagem e simplesmente descartar a imagem, em vez
+// de duplicar lógica ou virar stub morto.
 type FerramentaComImagem interface {
 	ExecutarComImagem(ctx context.Context, args map[string]any) (string, []byte, error)
 }

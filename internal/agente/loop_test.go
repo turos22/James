@@ -514,30 +514,31 @@ func TestDesconexaoDoClienteAindaCancelaOLoop(t *testing.T) {
 	}
 }
 
-// ferramentaComImagemFalsa implementa as duas interfaces, igual ver_tela
-// vai implementar: o Registro só aceita Ferramenta, mas o loop prefere
-// ExecutarComImagem quando ela existe.
+// ferramentaComImagemFalsa embute ferramentaFalsa (mesmo padrão de
+// ferramentaQueExigeConfirmacao) e implementa as duas interfaces, igual
+// ver_tela vai implementar: o Registro só aceita Ferramenta, mas o loop
+// prefere ExecutarComImagem quando ela existe. Embutir em vez de reimplementar
+// do zero dá acesso de graça a nome/nivel/saida/erro já prontos em
+// ferramentaFalsa — inclusive erro, essencial pro teste do caminho de falha.
 type ferramentaComImagemFalsa struct {
-	nome                 string
-	saida                string
+	*ferramentaFalsa
 	imagem               []byte
 	usouCaminhoComImagem bool
 }
 
-func (f *ferramentaComImagemFalsa) Declaracao() ferramentas.Declaracao {
-	return ferramentas.Declaracao{Nome: f.nome}
-}
-func (f *ferramentaComImagemFalsa) Nivel() ferramentas.Nivel { return ferramentas.NivelSeguro }
-func (f *ferramentaComImagemFalsa) Executar(ctx context.Context, args map[string]any) (string, error) {
-	return f.saida, nil
-}
 func (f *ferramentaComImagemFalsa) ExecutarComImagem(ctx context.Context, args map[string]any) (string, []byte, error) {
 	f.usouCaminhoComImagem = true
+	if f.erro != nil {
+		return "", nil, f.erro
+	}
 	return f.saida, f.imagem, nil
 }
 
 func TestDespachoPrefereExecutarComImagem(t *testing.T) {
-	tool := &ferramentaComImagemFalsa{nome: "ver_tela", saida: "lista", imagem: []byte{1, 2, 3}}
+	tool := &ferramentaComImagemFalsa{
+		ferramentaFalsa: &ferramentaFalsa{nome: "ver_tela", saida: "lista", nivel: ferramentas.NivelSeguro},
+		imagem:          []byte{1, 2, 3},
+	}
 	registro := ferramentas.NovoRegistro()
 	if err := registro.Registrar(tool); err != nil {
 		t.Fatalf("erro ao registrar: %v", err)
@@ -574,5 +575,34 @@ func TestDespachoDeFerramentaSemImagemSegueIgual(t *testing.T) {
 	}
 	if resultado.Imagem != nil {
 		t.Error("ferramenta sem imagem produziu imagem")
+	}
+}
+
+// TestDespachoDeErroDeFerramentaComImagemNaoVazaImagemParcial cobre o
+// caminho quente que TestDespachoPrefereExecutarComImagem não alcança: o
+// `if err != nil` dentro do branch de ExecutarComImagem em despacharSemHook.
+// ver_tela vai bater aqui em produção (device offline, timeout de captura) —
+// não é caminho frio.
+func TestDespachoDeErroDeFerramentaComImagemNaoVazaImagemParcial(t *testing.T) {
+	tool := &ferramentaComImagemFalsa{
+		ferramentaFalsa: &ferramentaFalsa{nome: "ver_tela", nivel: ferramentas.NivelSeguro, erro: errors.New("device offline")},
+	}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("erro ao registrar: %v", err)
+	}
+
+	loop := &Loop{Ferramentas: registro}
+	resultado := loop.despacharSemHook(context.Background(),
+		ChamadaFerramenta{ID: "1", Nome: "ver_tela"}, permissao.Privilegiado, nil)
+
+	if resultado.Erro != "device offline" {
+		t.Errorf("Erro = %q, queria device offline", resultado.Erro)
+	}
+	if resultado.Imagem != nil {
+		t.Error("erro de ExecutarComImagem não deveria deixar Imagem preenchida")
+	}
+	if !tool.usouCaminhoComImagem {
+		t.Error("deveria ter tentado o caminho com imagem")
 	}
 }

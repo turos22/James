@@ -130,6 +130,8 @@ func (l *Loop) despacharSemHook(ctx context.Context, chamada ChamadaFerramenta, 
 		}
 	}
 
+	// Roda depois do gate de permissão acima — ferramenta com imagem
+	// continua sujeita a Nivel() e ExigeConfirmacao como qualquer outra.
 	if comImagem, ok := tool.(ferramentas.FerramentaComImagem); ok {
 		saida, imagem, err := comImagem.ExecutarComImagem(ctx, chamada.Args)
 		if err != nil {
