@@ -28,6 +28,9 @@ type ResultadoFerramenta struct {
 	Nome  string
 	Saida string
 	Erro  string
+	// Imagem é preenchida só por ferramenta que implementa
+	// ferramentas.FerramentaComImagem — hoje só ver_tela.
+	Imagem []byte
 }
 
 type Mensagem struct {

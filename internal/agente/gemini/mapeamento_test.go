@@ -37,6 +37,56 @@ func TestParaGenaiContentsMapeiaPapeis(t *testing.T) {
 	}
 }
 
+func TestParaGenaiContentsLevaImagemDeResultadoDeFerramenta(t *testing.T) {
+	imagem := []byte{0x89, 'P', 'N', 'G', 1, 2, 3}
+	mensagens := []agente.Mensagem{
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{
+			{Nome: "ver_tela", Saida: "e1 Button \"Salvar\" (820,455)", Imagem: imagem},
+		}},
+	}
+
+	contents := paraGenaiContents(mensagens)
+	if len(contents) != 1 {
+		t.Fatalf("esperava 1 Content, vieram %d", len(contents))
+	}
+
+	var achouResposta, achouImagem bool
+	for _, part := range contents[0].Parts {
+		if part.FunctionResponse != nil && part.FunctionResponse.Name == "ver_tela" {
+			achouResposta = true
+		}
+		if part.InlineData != nil {
+			achouImagem = true
+			if part.InlineData.MIMEType != "image/png" {
+				t.Errorf("MIMEType = %q, queria image/png", part.InlineData.MIMEType)
+			}
+			if string(part.InlineData.Data) != string(imagem) {
+				t.Error("os bytes da imagem chegaram alterados")
+			}
+		}
+	}
+	if !achouResposta {
+		t.Error("o FunctionResponse sumiu — a imagem não pode substituir o texto, tem que somar")
+	}
+	if !achouImagem {
+		t.Error("a imagem foi descartada em silêncio, que é exatamente o bug desta task")
+	}
+}
+
+func TestParaGenaiContentsNaoInventaImagemQuandoNaoHa(t *testing.T) {
+	mensagens := []agente.Mensagem{
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{
+			{Nome: "eco", Saida: "resultado"},
+		}},
+	}
+
+	for _, part := range paraGenaiContents(mensagens)[0].Parts {
+		if part.InlineData != nil {
+			t.Error("resultado sem imagem gerou InlineData")
+		}
+	}
+}
+
 func TestParaGenaiToolMapeiaParametros(t *testing.T) {
 	decls := []ferramentas.Declaracao{
 		{

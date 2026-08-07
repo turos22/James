@@ -37,6 +37,13 @@ func paraGenaiContents(mensagens []agente.Mensagem) []*genai.Content {
 					Name:     r.Nome,
 					Response: map[string]any{"output": saida},
 				}})
+				// A imagem entra como Part separado no mesmo Content:
+				// FunctionResponse não tem campo pra binário. Sem isto, o
+				// resultado de ver_tela chegaria ao modelo como texto e a
+				// tela seria descartada sem erro nenhum.
+				if len(r.Imagem) > 0 {
+					parts = append(parts, &genai.Part{InlineData: &genai.Blob{MIMEType: "image/png", Data: r.Imagem}})
+				}
 			}
 			// "user" é o role correto pra resposta de tool na API Gemini —
 			// confirmado contra a documentação oficial do SDK
