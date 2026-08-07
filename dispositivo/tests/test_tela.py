@@ -205,18 +205,25 @@ def test_clicar_elemento_com_tela_mudada_devolve_erro_e_nao_clica(monkeypatch):
     # Núcleo do CA6: a janela em foco mudou desde o ver_tela, então o mapa
     # não vale mais. Clicar aqui seria clicar no lugar errado com certeza
     # absoluta, que é o bug que esta fase inteira existe pra matar.
+    #
+    # _revalidar é forçada a aprovar de propósito: isola o que está sendo
+    # testado (o valido_para) do resto da cadeia de checagens. Sem isso, se
+    # _revalidar real recusasse por outro motivo, o teste passaria mesmo com
+    # o valido_para quebrado — foi exatamente esse buraco que a revisão de
+    # qualidade achou por mutação, testando isso.
     chamadas = []
     salvar = Elemento(id="e7", nome="Salvar", tipo="Button", retangulo=(800, 440, 840, 470))
     _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
     _preparar_mapa(monkeypatch, DISPLAY1, [salvar], handle=123)
     monkeypatch.setattr(tela, "_handle_janela_em_foco", lambda: 999)
+    monkeypatch.setattr(tela, "_revalidar", lambda e: None)
     monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
     monkeypatch.setattr(tela.pyautogui, "click", lambda: chamadas.append("click"))
 
     resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
 
     assert "erro" in resultado
-    assert "mudou" in resultado["erro"]
+    assert "chame ver_tela de novo" in resultado["erro"]
     assert chamadas == []
 
 
