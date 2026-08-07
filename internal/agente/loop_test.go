@@ -513,3 +513,66 @@ func TestDesconexaoDoClienteAindaCancelaOLoop(t *testing.T) {
 		t.Error("ferramenta perigosa executou depois do cliente desconectar")
 	}
 }
+
+// ferramentaComImagemFalsa implementa as duas interfaces, igual ver_tela
+// vai implementar: o Registro só aceita Ferramenta, mas o loop prefere
+// ExecutarComImagem quando ela existe.
+type ferramentaComImagemFalsa struct {
+	nome                 string
+	saida                string
+	imagem               []byte
+	usouCaminhoComImagem bool
+}
+
+func (f *ferramentaComImagemFalsa) Declaracao() ferramentas.Declaracao {
+	return ferramentas.Declaracao{Nome: f.nome}
+}
+func (f *ferramentaComImagemFalsa) Nivel() ferramentas.Nivel { return ferramentas.NivelSeguro }
+func (f *ferramentaComImagemFalsa) Executar(ctx context.Context, args map[string]any) (string, error) {
+	return f.saida, nil
+}
+func (f *ferramentaComImagemFalsa) ExecutarComImagem(ctx context.Context, args map[string]any) (string, []byte, error) {
+	f.usouCaminhoComImagem = true
+	return f.saida, f.imagem, nil
+}
+
+func TestDespachoPrefereExecutarComImagem(t *testing.T) {
+	tool := &ferramentaComImagemFalsa{nome: "ver_tela", saida: "lista", imagem: []byte{1, 2, 3}}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("erro ao registrar: %v", err)
+	}
+
+	loop := &Loop{Ferramentas: registro, MaxIteracoes: 3}
+	resultado := loop.despacharSemHook(context.Background(),
+		ChamadaFerramenta{ID: "1", Nome: "ver_tela"}, permissao.Privilegiado, nil)
+
+	if !tool.usouCaminhoComImagem {
+		t.Error("o loop chamou Executar em vez de ExecutarComImagem")
+	}
+	if resultado.Saida != "lista" {
+		t.Errorf("Saida = %q, queria lista", resultado.Saida)
+	}
+	if len(resultado.Imagem) != 3 {
+		t.Errorf("Imagem tem %d bytes, queria 3", len(resultado.Imagem))
+	}
+}
+
+func TestDespachoDeFerramentaSemImagemSegueIgual(t *testing.T) {
+	tool := &ferramentaFalsa{nome: "eco", saida: "oi", nivel: ferramentas.NivelSeguro}
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("erro ao registrar: %v", err)
+	}
+
+	loop := &Loop{Ferramentas: registro, MaxIteracoes: 3}
+	resultado := loop.despacharSemHook(context.Background(),
+		ChamadaFerramenta{ID: "1", Nome: "eco"}, permissao.Privilegiado, nil)
+
+	if resultado.Saida != "oi" {
+		t.Errorf("Saida = %q, queria oi", resultado.Saida)
+	}
+	if resultado.Imagem != nil {
+		t.Error("ferramenta sem imagem produziu imagem")
+	}
+}

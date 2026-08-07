@@ -130,6 +130,14 @@ func (l *Loop) despacharSemHook(ctx context.Context, chamada ChamadaFerramenta, 
 		}
 	}
 
+	if comImagem, ok := tool.(ferramentas.FerramentaComImagem); ok {
+		saida, imagem, err := comImagem.ExecutarComImagem(ctx, chamada.Args)
+		if err != nil {
+			return ResultadoFerramenta{ID: chamada.ID, Nome: chamada.Nome, Erro: err.Error()}
+		}
+		return ResultadoFerramenta{ID: chamada.ID, Nome: chamada.Nome, Saida: saida, Imagem: imagem}
+	}
+
 	saida, err := tool.Executar(ctx, chamada.Args)
 	if err != nil {
 		return ResultadoFerramenta{ID: chamada.ID, Nome: chamada.Nome, Erro: err.Error()}

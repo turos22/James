@@ -45,3 +45,18 @@ type Ferramenta interface {
 type ExigeConfirmacao interface {
 	ConfirmacaoNecessaria(args map[string]any) bool
 }
+
+// FerramentaComImagem é implementada pela ferramenta cujo resultado inclui
+// uma imagem — hoje só ver_tela.
+//
+// Mesmo contrato aditivo de ExigeConfirmacao: ferramenta que não implementa
+// se comporta exatamente como antes, e o despacho só usa esta interface pra
+// ENRIQUECER o resultado, nunca pra mudar o gate de permissão. A alternativa
+// (trocar a assinatura de Ferramenta.Executar) forçaria mudança nas cinco
+// ferramentas que não têm imagem, sem ganho nenhum pra elas.
+//
+// Quem implementa esta interface precisa implementar Ferramenta também: o
+// Registro só aceita Ferramenta.
+type FerramentaComImagem interface {
+	ExecutarComImagem(ctx context.Context, args map[string]any) (string, []byte, error)
+}
