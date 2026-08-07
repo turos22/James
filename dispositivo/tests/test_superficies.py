@@ -5,15 +5,21 @@ verificação ao vivo."""
 
 from james_device.superficies import (
     Superficie,
+    alvo_padrao,
     contendo,
     da_janela,
     para_global,
     para_local,
+    por_id,
 )
 
-# Geometria real da máquina do Arthur, medida em 2026-08-07. O segundo
-# monitor está desalinhado verticalmente em 255px, e é exatamente isso que
-# faz a conversão errada passar despercebida numa tela e não na outra.
+# Fixture sintética, escolhida para preservar a propriedade de área morta
+# entre monitores desalinhados verticalmente — não é a geometria real desta
+# máquina. A medição real (com DPI awareness ativa) é DISPLAY7 em
+# 1920x1080 @ escala 1.5, na mesma origem (1920,255). Usar 1280x720 aqui
+# não muda o que está sendo testado: é aritmética pura sobre origem e
+# tamanho, e a área morta em (2000,100) continua fora dos dois monitores
+# com qualquer um dos dois tamanhos.
 DISPLAY1 = Superficie(id="DISPLAY1", largura=1920, altura=1080, origem_x=0, origem_y=0, escala=1.0, primaria=True)
 DISPLAY7 = Superficie(id="DISPLAY7", largura=1280, altura=720, origem_x=1920, origem_y=255, escala=1.0, primaria=False)
 TODAS = [DISPLAY1, DISPLAY7]
@@ -62,3 +68,19 @@ def test_da_janela_sem_superficie_no_centro_cai_no_primario():
     # Centro na área morta: precisa devolver algo utilizável, não None —
     # quem chama vai capturar uma tela de qualquer jeito.
     assert da_janela(TODAS, (1900, 50, 2100, 150)) is DISPLAY1
+
+
+def test_por_id_acha_pelo_identificador():
+    assert por_id(TODAS, "DISPLAY7") is DISPLAY7
+
+
+def test_por_id_nao_acha_devolve_none():
+    assert por_id(TODAS, "DISPLAY99") is None
+
+
+def test_alvo_padrao_sem_janela_em_foco_cai_na_primaria():
+    assert alvo_padrao(TODAS, None) is DISPLAY1
+
+
+def test_alvo_padrao_com_janela_em_foco_usa_da_janela():
+    assert alvo_padrao(TODAS, (1950, 300, 3100, 900)) is DISPLAY7

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _MONITORINFOF_PRIMARY = 1
 _MDT_EFFECTIVE_DPI = 0
 _DPI_PADRAO = 96.0
+_PROCESS_PER_MONITOR_DPI_AWARE = 2
 
 
 @dataclass(frozen=True)
@@ -40,15 +41,34 @@ def ativar_dpi_awareness() -> None:
     """Declara o processo como per-monitor DPI aware. Precisa rodar antes de
     qualquer uso do pyautogui: sem isso, numa tela a 150% o Windows mente a
     resolução (reporta 1280x720 numa tela de 1920x1080) e todo clique cai
-    deslocado. Idempotente na prática — a segunda chamada devolve erro, que
-    é ignorado de propósito."""
+    deslocado.
+
+    SetProcessDpiAwareness DEVOLVE um HRESULT, não levanta — chamar depois
+    que outra biblioteca (ex: pyautogui) já setou um awareness diferente
+    falha em silêncio (E_ACCESSDENIED) sem nenhuma exceção pra pegar. Por
+    isso a confirmação é feita relendo o estado real com
+    GetProcessDpiAwareness, não confiando em ausência de exceção."""
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        ctypes.windll.shcore.SetProcessDpiAwareness(_PROCESS_PER_MONITOR_DPI_AWARE)
     except Exception:
         try:
             ctypes.windll.user32.SetProcessDPIAware()
         except Exception:
             logger.warning("não consegui ativar DPI awareness — coordenadas podem sair deslocadas em tela escalada")
+            return
+
+    atual = ctypes.c_int()
+    try:
+        ctypes.windll.shcore.GetProcessDpiAwareness(None, ctypes.byref(atual))
+    except Exception:
+        return
+    if atual.value != _PROCESS_PER_MONITOR_DPI_AWARE:
+        logger.error(
+            "DPI awareness ficou em %s, não per-monitor (%s) — provavelmente outra biblioteca "
+            "(ex: pyautogui) já tinha setado um awareness diferente antes deste import. "
+            "Coordenadas em monitor escalado vão sair erradas.",
+            atual.value, _PROCESS_PER_MONITOR_DPI_AWARE,
+        )
 
 
 # Efeito colateral de import, deliberado: DPI awareness precisa valer antes
@@ -83,6 +103,12 @@ _MONITORENUMPROC = ctypes.WINFUNCTYPE(
     ctypes.POINTER(_RECT),
     wintypes.LPARAM,
 )
+
+# Sem argtypes/restype explícitos, ctypes assume o default c_long (32 bits)
+# pro retorno — um handle de janela de 64 bits pode truncar silenciosamente.
+ctypes.windll.user32.GetForegroundWindow.restype = wintypes.HWND
+ctypes.windll.user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(_RECT)]
+ctypes.windll.user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MONITORINFOEXW)]
 
 
 def _escala_de(handle_monitor) -> float:
@@ -126,7 +152,9 @@ def listar() -> list[Superficie]:
         )
         return 1
 
-    ctypes.windll.user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(callback), 0)
+    resultado = ctypes.windll.user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(callback), 0)
+    if not resultado:
+        logger.error("EnumDisplayMonitors falhou — nenhum monitor será reportado")
     return encontradas
 
 
@@ -177,8 +205,11 @@ def por_id(superficies: list[Superficie], identificador: str) -> Superficie | No
 
 def primaria(superficies: list[Superficie]) -> Superficie:
     """A superfície primária, ou a primeira da lista se nenhuma se declarar.
-    Nunca devolve None: quem chama vai capturar alguma tela de qualquer
-    jeito, e não ter resposta aqui só empurra o problema."""
+    Levanta se a lista vier vazia — não devolve None, porque quem chama vai
+    capturar alguma tela de qualquer jeito, e não ter resposta aqui só
+    empurra o problema pra mais longe da causa real."""
+    if not superficies:
+        raise RuntimeError("nenhuma superfície disponível — listar() não encontrou monitor nenhum")
     for superficie in superficies:
         if superficie.primaria:
             return superficie
