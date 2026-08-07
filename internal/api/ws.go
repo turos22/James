@@ -125,6 +125,21 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	janela := s.Memoria.Montar(*historico)
 	entrada := agente.Mensagem{Papel: agente.PapelUsuario, Texto: texto}
 
+	// A memória durável entra pelo system prompt, não pela janela: nota não é
+	// conversa e não pode competir com recência por orçamento. Ler a cada
+	// turno (e não no boot) é o que faz a nota recém-escrita valer já no turno
+	// seguinte.
+	sistemaPrompt := s.SistemaPrompt
+	if s.Notas != nil {
+		if bloco, err := s.Notas.Renderizar(); err != nil {
+			// Memória é melhor-esforço na leitura, igual ao áudio: vault
+			// quebrado não pode derrubar a conversa.
+			slog.Warn("erro ao ler memória durável, seguindo sem ela", "erro", err)
+		} else if bloco != "" {
+			sistemaPrompt = sistemaPrompt + "\n\n" + bloco
+		}
+	}
+
 	loop := *s.Loop
 	loop.AoIniciarFerramenta = aoIniciar
 	loop.AoConcluirFerramenta = aoConcluir
@@ -134,7 +149,7 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	// → ferramentas.
 	ctx = ferramentas.ComSessao(ctx, sessaoID.String())
 
-	resp, mensagens, err := loop.Executar(ctx, s.SistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
+	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
 	if err != nil {
 		return agente.Resposta{}, "", err
 	}

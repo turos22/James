@@ -30,8 +30,12 @@ type Servidor struct {
 	// Nil (padrão nos testes) desativa a rota sem quebrar o resto.
 	EmbutidosSPA fs.FS
 
-	Loop                *agente.Loop
-	Memoria             memoria.Janela
+	Loop    *agente.Loop
+	Memoria memoria.Janela
+	// Notas é a memória durável (Fase 4). Ponteiro e opcional de propósito:
+	// nil significa "sem memória", e é o que mantém todo teste anterior
+	// funcionando sem alteração.
+	Notas               *memoria.Vault
 	SistemaPrompt       string
 	Clientes            *ClientesHub
 	AprovacoesPendentes *registroAprovacoesPendentes

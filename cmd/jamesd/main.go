@@ -80,6 +80,11 @@ func executar() error {
 		return fmt.Errorf("registrar manipular_interface: %w", err)
 	}
 
+	vaultMemoria := memoria.NovoVault(cfg.MemoriaDiretorio, cfg.OrcamentoNotas)
+	if err := registro.Registrar(ferramentas.NovoSalvarNaMemoria(vaultMemoria)); err != nil {
+		return fmt.Errorf("registrar salvar_na_memoria: %w", err)
+	}
+
 	raizSPA, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return fmt.Errorf("assets da SPA: %w (rodou \"npm run build\" em web/ antes do go build?)", err)
@@ -98,6 +103,7 @@ func executar() error {
 			TimeoutProvider: time.Duration(cfg.TimeoutSegundos) * time.Second,
 		},
 		Memoria:             memoria.Janela{OrcamentoTokens: cfg.OrcamentoTokens},
+		Notas:               vaultMemoria,
 		SistemaPrompt:       string(sistemaPrompt),
 		Clientes:            api.NovoClientesHub(),
 		AprovacoesPendentes: api.NovoRegistroAprovacoesPendentes(),
