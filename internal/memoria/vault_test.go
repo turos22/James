@@ -263,3 +263,25 @@ func TestRenderizarSempreMantemPeloMenosUmAssunto(t *testing.T) {
 		t.Error("bloco vazio nunca é o resultado certo, igual à regra de Janela.Montar")
 	}
 }
+
+func TestRenderizarIgnoraArquivoIlegivelSemPerderOResto(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "Memoria")
+	v := NovoVault(raiz, 2000)
+
+	if err := v.Acrescentar("bom", "Esta nota tem que sobreviver."); err != nil {
+		t.Fatalf("Acrescentar devolveu erro: %v", err)
+	}
+	// Um subdiretório com sufixo .md: ReadFile falha nele, e o resto do vault
+	// não pode ir junto.
+	if err := os.MkdirAll(filepath.Join(raiz, "quebrado.md"), 0o755); err != nil {
+		t.Fatalf("erro ao criar diretório de apoio: %v", err)
+	}
+
+	bloco, err := v.Renderizar()
+	if err != nil {
+		t.Fatalf("um arquivo ruim não pode derrubar a leitura inteira: %v", err)
+	}
+	if !strings.Contains(bloco, "Esta nota tem que sobreviver.") {
+		t.Errorf("a nota boa sumiu junto com a ruim; bloco = %q", bloco)
+	}
+}
