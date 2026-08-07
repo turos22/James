@@ -180,3 +180,19 @@ max_resultados = 3
 		t.Errorf("BuscaMaxResultados = %d, queria 3", cfg.BuscaMaxResultados)
 	}
 }
+
+func TestCarregarAplicaDefaultsDaMemoriaDuravel(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
+
+	cfg, err := Carregar(filepath.Join(t.TempDir(), "nao-existe.toml"))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.OrcamentoNotas != 2000 {
+		t.Errorf("OrcamentoNotas = %d, queria 2000", cfg.OrcamentoNotas)
+	}
+	if cfg.DiretorioMemoria != "Vault/Memoria" {
+		t.Errorf("DiretorioMemoria = %q, queria %q", cfg.DiretorioMemoria, "Vault/Memoria")
+	}
+}

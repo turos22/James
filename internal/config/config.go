@@ -25,7 +25,9 @@ type Config struct {
 	MaxIteracoes    int
 	TimeoutSegundos int
 
-	OrcamentoTokens int
+	OrcamentoTokens  int
+	OrcamentoNotas   int
+	DiretorioMemoria string
 
 	TimeoutAprovacaoSegundos int
 
@@ -58,7 +60,9 @@ type arquivoToml struct {
 		TimeoutSegundos int    `toml:"timeout_segundos"`
 	} `toml:"agente"`
 	Memoria struct {
-		OrcamentoTokens int `toml:"orcamento_tokens"`
+		OrcamentoTokens  int    `toml:"orcamento_tokens"`
+		OrcamentoNotas   int    `toml:"orcamento_notas"`
+		DiretorioMemoria string `toml:"diretorio_memoria"`
 	} `toml:"memoria"`
 	Permissao struct {
 		TimeoutAprovacaoSegundos int `toml:"timeout_aprovacao_segundos"`
@@ -113,7 +117,9 @@ func Carregar(caminhoToml string) (*Config, error) {
 		MaxIteracoes:    intOuDefault(arq.Agente.MaxIteracoes, 5),
 		TimeoutSegundos: intOuDefault(arq.Agente.TimeoutSegundos, 30),
 
-		OrcamentoTokens: intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
+		OrcamentoTokens:  intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
+		OrcamentoNotas:   intOuDefault(arq.Memoria.OrcamentoNotas, 2000),
+		DiretorioMemoria: valorOuDefault(arq.Memoria.DiretorioMemoria, "Vault/Memoria"),
 
 		TimeoutAprovacaoSegundos: intOuDefault(arq.Permissao.TimeoutAprovacaoSegundos, 300),
 

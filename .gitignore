@@ -36,6 +36,7 @@ Athena.db-wal
 # Histórico diário de conversa (mesma razão do Athena.db acima:
 # dado pessoal, não pertence ao repositório)
 Vault/Logs_Diarios/
+Vault/Memoria/
 
 # Áudio gerado pelo TTS. Os assets do agente de dispositivo
 # (entrada.mp3, faaah.wav, um_minuto.mp3) continuam versionados.

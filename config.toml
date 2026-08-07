@@ -13,6 +13,11 @@ timeout_segundos = 30
 
 [memoria]
 orcamento_tokens = 8000
+# Orçamento separado do da conversa: nota nenhuma deve sumir porque o
+# histórico ficou grande, e conversa nenhuma deve encolher porque a memória
+# cresceu.
+orcamento_notas = 2000
+diretorio_memoria = "Vault/Memoria"
 
 [permissao]
 timeout_aprovacao_segundos = 300
