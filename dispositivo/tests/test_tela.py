@@ -1,3 +1,5 @@
+import base64
+
 import james_device.tela as tela
 from james_device.superficies import Superficie
 
@@ -122,3 +124,44 @@ def test_click_consulta_janela_em_foco_para_a_superficie_padrao(monkeypatch):
 
     assert recebido["todas"] == [DISPLAY1, DISPLAY7]
     assert recebido["retangulo"] == (10, 20, 30, 40)
+
+
+def test_ver_tela_devolve_imagem_em_base64(monkeypatch):
+    _fixar_superficies(monkeypatch, [DISPLAY1, DISPLAY7], DISPLAY1)
+    monkeypatch.setattr(tela.captura, "capturar", lambda s: b"\x89PNG-falso")
+    monkeypatch.setattr(tela, "_listar_elementos", lambda s: "e1  Button  \"Salvar\"  (820,455)")
+
+    resultado = tela.executar_acao({"acao": "ver_tela"})
+
+    assert "erro" not in resultado
+    assert resultado["imagem_b64"] == base64.b64encode(b"\x89PNG-falso").decode()
+
+
+def test_ver_tela_declara_a_superficie_no_cabecalho(monkeypatch):
+    _fixar_superficies(monkeypatch, [DISPLAY1, DISPLAY7], DISPLAY7)
+    monkeypatch.setattr(tela.captura, "capturar", lambda s: b"png")
+    monkeypatch.setattr(tela, "_listar_elementos", lambda s: "")
+
+    resultado = tela.executar_acao({"acao": "ver_tela"})
+
+    primeira_linha = resultado["saida"].splitlines()[0]
+    assert "DISPLAY7" in primeira_linha
+    assert "1280x720" in primeira_linha
+
+
+def test_ver_tela_sobrevive_a_falha_da_varredura(monkeypatch):
+    # Captura e varredura falham por motivos diferentes: uma tela sem árvore
+    # de acessibilidade ainda produz imagem útil, e o modelo precisa receber
+    # a imagem mesmo assim.
+    def explode(_s):
+        raise RuntimeError("sem arvore UIA")
+
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    monkeypatch.setattr(tela.captura, "capturar", lambda s: b"png")
+    monkeypatch.setattr(tela, "_listar_elementos", explode)
+
+    resultado = tela.executar_acao({"acao": "ver_tela"})
+
+    assert "erro" not in resultado
+    assert resultado["imagem_b64"] != ""
+    assert "sem arvore UIA" in resultado["saida"]

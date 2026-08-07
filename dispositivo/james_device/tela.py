@@ -8,6 +8,7 @@ Nunca levanta: erro vira valor de retorno e o jamesd decide o que fazer
 (filosofia R2 do lado Go).
 """
 
+import base64
 import logging
 
 # Import de superficies ANTES de pyautogui é proposital: superficies ativa
@@ -17,6 +18,8 @@ import logging
 # deslocada em tela escalada que a Task 1 existe para prevenir.
 from james_device import superficies
 import pyautogui
+
+from james_device import captura
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,8 @@ def executar_acao(dados: dict) -> dict:
             texto = dados.get("texto", "")
             pyautogui.press(texto)
             return {"saida": f"tecla {texto} pressionada"}
+        if acao == "ver_tela":
+            return _ver_tela(dados)
         return {"erro": f"ação desconhecida: {acao}"}
     except Exception as erro:
         logger.exception("erro ao executar ação de tela")
@@ -79,3 +84,37 @@ def _clicar(dados: dict) -> dict:
     pyautogui.moveTo(x_global, y_global, duration=1.0)
     pyautogui.click()
     return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}
+
+
+def _listar_elementos(superficie) -> str:
+    """Lista de elementos da superfície. Vira a varredura de verdade na Task
+    10; até lá devolve vazio, o que já deixa ver_tela útil só com a imagem."""
+    return ""
+
+
+def _ver_tela(dados: dict) -> dict:
+    superficie, erro = _resolver_superficie(dados)
+    if erro:
+        return {"erro": erro}
+
+    imagem = captura.capturar(superficie)
+
+    cabecalho = (
+        f"superficie: {superficie.id}"
+        f"{' (primaria)' if superficie.primaria else ''} "
+        f"{superficie.largura}x{superficie.altura} "
+        f"escala {int(superficie.escala * 100)}%"
+    )
+
+    # A varredura falhando não pode custar a imagem: são falhas
+    # independentes, e a imagem sozinha já serve pro modelo se orientar.
+    try:
+        lista = _listar_elementos(superficie)
+    except Exception as erro_varredura:
+        logger.exception("falha ao varrer elementos, devolvendo só a imagem")
+        lista = f"(não consegui ler os elementos desta tela: {erro_varredura})"
+
+    return {
+        "saida": cabecalho + ("\n" + lista if lista else ""),
+        "imagem_b64": base64.b64encode(imagem).decode(),
+    }
