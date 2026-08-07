@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestAcrescentarCriaArquivoDoAssunto(t *testing.T) {
@@ -210,5 +211,55 @@ func TestRenderizarNeutralizaDelimitadorNaNota(t *testing.T) {
 	if strings.Count(bloco, fechamentoMemoria) != 1 {
 		t.Errorf("o fechamento aparece %d vezes, queria 1 — a nota fechou o bloco por conta própria; bloco = %q",
 			strings.Count(bloco, fechamentoMemoria), bloco)
+	}
+}
+
+func TestRenderizarCortaAssuntoInteiroQuandoEstouraOrcamento(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "Memoria")
+	textoGrande := strings.Repeat("palavra ", 100) // ~800 caracteres, ~200 tokens
+
+	v := NovoVault(raiz, 250) // cabe pouco mais de um assunto desse tamanho
+
+	if err := v.Acrescentar("antigo", textoGrande); err != nil {
+		t.Fatalf("Acrescentar devolveu erro: %v", err)
+	}
+	// mtime distinto: o corte tira o assunto mais parado, não um qualquer.
+	if err := os.Chtimes(filepath.Join(raiz, "antigo.md"), time.Now().Add(-time.Hour), time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("erro ao ajustar mtime: %v", err)
+	}
+	if err := v.Acrescentar("recente", textoGrande); err != nil {
+		t.Fatalf("Acrescentar devolveu erro: %v", err)
+	}
+
+	bloco, err := v.Renderizar()
+	if err != nil {
+		t.Fatalf("Renderizar devolveu erro: %v", err)
+	}
+
+	if strings.Contains(bloco, "## antigo") {
+		t.Error("o assunto mais parado deveria ter sido cortado, mas está no bloco")
+	}
+	if !strings.Contains(bloco, "## recente") {
+		t.Error("o assunto mais recente foi cortado; o corte inverteu a prioridade")
+	}
+	if !strings.Contains(bloco, "omitida por limite de orçamento") {
+		t.Error("houve corte mas o bloco não avisa; o Arthur não teria como perceber")
+	}
+}
+
+func TestRenderizarSempreMantemPeloMenosUmAssunto(t *testing.T) {
+	raiz := filepath.Join(t.TempDir(), "Memoria")
+	v := NovoVault(raiz, 10) // orçamento menor que qualquer nota real
+
+	if err := v.Acrescentar("unico", strings.Repeat("x", 4000)); err != nil {
+		t.Fatalf("Acrescentar devolveu erro: %v", err)
+	}
+
+	bloco, err := v.Renderizar()
+	if err != nil {
+		t.Fatalf("Renderizar devolveu erro: %v", err)
+	}
+	if !strings.Contains(bloco, "## unico") {
+		t.Error("bloco vazio nunca é o resultado certo, igual à regra de Janela.Montar")
 	}
 }

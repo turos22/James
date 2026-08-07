@@ -199,6 +199,30 @@ func neutralizarDelimitador(s string) string {
 	return strings.ReplaceAll(s, aberturaMemoria, "[tag removida]")
 }
 
+// aplicarOrcamento mantém o máximo de assuntos que cabem em OrcamentoTokens,
+// descartando do mais parado para o mais recente. Corta assunto inteiro:
+// meia nota no prompt é pior que nota nenhuma, porque o modelo não tem como
+// saber que faltou pedaço.
+//
+// O primeiro assunto sempre entra, mesmo que sozinho estoure o orçamento —
+// mesma regra de Janela.Montar, pelo mesmo motivo: bloco vazio nunca é o
+// resultado certo.
 func (v *Vault) aplicarOrcamento(notas []notaArquivo) ([]notaArquivo, bool) {
-	return notas, false
+	sort.Slice(notas, func(i, j int) bool {
+		return notas[i].modificado.After(notas[j].modificado)
+	})
+
+	var mantidas []notaArquivo
+	var total int
+	cortou := false
+
+	for _, n := range notas {
+		if total+n.custo > v.OrcamentoTokens && len(mantidas) > 0 {
+			cortou = true
+			continue
+		}
+		total += n.custo
+		mantidas = append(mantidas, n)
+	}
+	return mantidas, cortou
 }
