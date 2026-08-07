@@ -10,8 +10,11 @@ import (
 // superfície mais a lista de elementos clicáveis dela, e é o que faz o item
 // "VISÃO PROATIVA" do system prompt deixar de apontar pro vazio.
 //
-// NivelSeguro por D5: não altera estado. A ferramenta lê dado sensível e o
-// envia à nuvem, e essa consequência foi aceita explicitamente (R7).
+// NivelSeguro por decisão D5 da spec: sem aprovação, em qualquer perfil —
+// inclusive celular vendo a tela do desktop. Não é um descuido: a
+// ferramenta não altera estado (o que justificaria NivelSeguro pela régua
+// normal), mas ela lê a tela inteira e manda pra nuvem sem gate nenhum.
+// Consequência aceita explicitamente pelo Arthur (ver R7 da spec da Fase 5).
 type VerTela struct {
 	Ponte dispositivo.Ponte
 }

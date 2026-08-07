@@ -62,6 +62,9 @@ func executar() error {
 	dispositivoHub := dispositivo.NovoHub()
 	// Varrer a árvore UIA de um monitor inteiro é ordens de grandeza mais
 	// caro que um clique (R1). O teto de 10s do hub é apertado pra isso.
+	// clicar_elemento (Task 11) também paga custo de árvore UIA — revalida
+	// contra a árvore viva antes de clicar — só que mais raso que a
+	// varredura completa de ver_tela, daí o teto menor.
 	dispositivoHub.TimeoutPorAcao = map[string]time.Duration{
 		"ver_tela":        30 * time.Second,
 		"clicar_elemento": 20 * time.Second,
