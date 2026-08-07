@@ -101,27 +101,44 @@ def _clicar(dados: dict) -> dict:
     return {"saida": f"cliquei em ({x},{y}) de {superficie.id}{onde}"}
 
 
-def _descrever_ponto(x: int, y: int) -> str | None:
-    """O que existe na coordenada GLOBAL (x,y), ou None. Fala com o SO —
-    sem teste automatizado, coberto por CA7.
-
-    Vale mesmo no caminho de pixel cru, que é onde não há lista de elementos
-    pra consultar: em canvas e jogo, saber que não há nada identificável ali
-    já é informação honesta, e é infinitamente melhor que o sucesso
-    incondicional de antes."""
-    try:
-        import uiautomation
-
-        controle = uiautomation.ControlFromPoint(x, y)
-    except Exception:
-        return None
-    if controle is None:
-        return None
-    nome = controle.Name or ""
-    tipo = controle.ControlTypeName or "elemento"
+def _formatar_controle(nome: str, tipo: str) -> str:
+    """Descrição de um controle já lido — separado de _descrever_ponto pela
+    mesma fronteira que elementos.py estabelece: uiautomation só é tocado
+    fora daqui, isto é lógica pura testável sem tela."""
     if not nome:
         return f"um {tipo} sem nome"
     return f'o {tipo} "{nome}"'
+
+
+def _descrever_ponto(x: int, y: int) -> str | None:
+    """O que existe na coordenada GLOBAL (x,y), ou None. É o escape honesto
+    pro caminho de pixel cru: em canvas e jogo não há lista de elementos pra
+    consultar, mas saber que não há nada identificável ali já é informação
+    honesta, e é melhor que o sucesso incondicional de antes.
+
+    Fala com o SO — sem teste automatizado, coberto por CA7."""
+    try:
+        import uiautomation
+    except ImportError:
+        logger.warning("uiautomation indisponível, não consigo descrever o ponto clicado")
+        return None
+
+    try:
+        controle = uiautomation.ControlFromPoint(x, y)
+        if controle is None:
+            return None
+        nome = controle.Name
+        tipo = controle.ControlTypeName
+    except Exception:
+        # O clique JÁ aconteceu antes desta função ser chamada — se o
+        # controle sumir entre o ControlFromPoint e a leitura das
+        # propriedades (menu colapsando, app fechando), isso não pode virar
+        # {"erro": ...} pro chamador: seria reportar falha num clique que
+        # foi executado de verdade, e o modelo clicaria de novo.
+        logger.debug("não consegui ler o controle no ponto clicado", exc_info=True)
+        return None
+
+    return _formatar_controle(nome, tipo)
 
 
 def _handle_janela_em_foco() -> int:

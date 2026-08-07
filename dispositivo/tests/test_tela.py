@@ -42,7 +42,7 @@ def test_click_reporta_o_elemento_atingido(monkeypatch):
 
 
 def test_click_em_area_vazia_diz_que_nao_achou_nada(monkeypatch):
-    # CA7: o retorno de hoje é sucesso incondicional. Isso é o que faz o
+    # CA7: o retorno costumava ser sucesso incondicional — é o que fazia o
     # modelo nunca perceber que errou.
     _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
     monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: None)
@@ -52,6 +52,14 @@ def test_click_em_area_vazia_diz_que_nao_achou_nada(monkeypatch):
     resultado = tela.executar_acao({"acao": "click", "x": 5, "y": 5})
 
     assert "nenhum elemento" in resultado["saida"]
+
+
+def test_formatar_controle_com_nome():
+    assert tela._formatar_controle("Salvar", "Button") == 'o Button "Salvar"'
+
+
+def test_formatar_controle_sem_nome():
+    assert tela._formatar_controle("", "Button") == "um Button sem nome"
 
 
 def test_executar_acao_tecla_chama_pyautogui(monkeypatch):
