@@ -67,7 +67,7 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
 				continue
 			}
-			s.DispositivoHub.ResolverResultado(envelope.ID, dados.Saida, dados.Erro, nil)
+			s.DispositivoHub.ResolverResultado(envelope.ID, dados.Saida, dados.Erro, nil) // imagem: decodificada de verdade na Task 7
 
 		case "entrada_voz":
 			var dados struct {

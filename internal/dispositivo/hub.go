@@ -80,7 +80,11 @@ type Hub struct {
 
 // NovoHub cria um Hub pronto pra uso, sem device conectado.
 func NovoHub() *Hub {
-	return &Hub{pendentes: make(map[string]chan resultadoAcao), Timeout: 10 * time.Second}
+	return &Hub{
+		pendentes:      make(map[string]chan resultadoAcao),
+		Timeout:        10 * time.Second,
+		TimeoutPorAcao: make(map[string]time.Duration),
+	}
 }
 
 // Registrar associa a conexão WS do device conectado. Substitui
@@ -162,6 +166,10 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 // vira um no-op limpo — não um deadlock. Isso importa porque, no endpoint WS
 // real (Task 18), ResolverResultado roda dentro da única goroutine que lê a
 // conexão do device; travar aqui trava a leitura da conexão inteira.
+//
+// imagem passa a pertencer ao Hub a partir desta chamada — quem chama não
+// deve reutilizar o buffer depois (a slice é entregue direto pro consumidor
+// de EnviarAcao, sem cópia).
 func (h *Hub) ResolverResultado(id, saida, erro string, imagem []byte) {
 	h.mu.Lock()
 	espera, ok := h.pendentes[id]

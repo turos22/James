@@ -1,6 +1,7 @@
 package dispositivo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,6 +38,29 @@ func (c *conexaoFalsa) primeiroEnviado() ([]byte, bool) {
 	return c.enviados[0], true
 }
 
+// esperarEnvelopeID espera o primeiro envelope enviado pela conexao falsa e
+// devolve o id dele. Poll em vez de sleep fixo — sleep fixo é exatamente o
+// que faz um teste flakar sob máquina carregada, e some silenciosamente em
+// vez de falhar alto (quem chama trava no Timeout inteiro).
+func esperarEnvelopeID(t *testing.T, conexao *conexaoFalsa) string {
+	t.Helper()
+	for i := 0; i < 1000; i++ {
+		envelope, ok := conexao.primeiroEnviado()
+		if ok {
+			var recebido struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(envelope, &recebido); err != nil {
+				t.Fatalf("envelope não decodifica: %v", err)
+			}
+			return recebido.ID
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("nenhum envelope chegou depois de 1s de polling")
+	return ""
+}
+
 func TestEnviarAcaoSemDispositivoDevolveErroDedicado(t *testing.T) {
 	h := NovoHub()
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click", X: 10, Y: 20})
@@ -52,18 +76,8 @@ func TestEnviarAcaoComDispositivoConectadoDevolveResultado(t *testing.T) {
 
 	go func() {
 		// Simula o endpoint WS do device recebendo o envelope e respondendo.
-		var primeiro []byte
-		for {
-			var ok bool
-			primeiro, ok = conexao.primeiroEnviado()
-			if ok {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
-		var envelope map[string]any
-		_ = json.Unmarshal(primeiro, &envelope)
-		h.ResolverResultado(envelope["id"].(string), "clique feito", "", nil)
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, "clique feito", "", nil)
 	}()
 
 	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click", X: 10, Y: 20})
@@ -81,18 +95,8 @@ func TestEnviarAcaoPropagaErroDoDevice(t *testing.T) {
 	h.Registrar(conexao)
 
 	go func() {
-		var primeiro []byte
-		for {
-			var ok bool
-			primeiro, ok = conexao.primeiroEnviado()
-			if ok {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
-		var envelope map[string]any
-		_ = json.Unmarshal(primeiro, &envelope)
-		h.ResolverResultado(envelope["id"].(string), "", "tecla inválida", nil)
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, "", "tecla inválida", nil)
 	}()
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "tecla", Texto: "xyz"})
@@ -177,21 +181,8 @@ func TestEnviarAcaoDevolveImagemDoResultado(t *testing.T) {
 
 	imagem := []byte{0x89, 'P', 'N', 'G'}
 	go func() {
-		for {
-			envelope, ok := conexao.primeiroEnviado()
-			if !ok {
-				time.Sleep(time.Millisecond)
-				continue
-			}
-			var recebido struct {
-				ID string `json:"id"`
-			}
-			if err := json.Unmarshal(envelope, &recebido); err != nil {
-				return
-			}
-			h.ResolverResultado(recebido.ID, "e1 Button \"Salvar\" (820,455)", "", imagem)
-			return
-		}
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, "e1 Button \"Salvar\" (820,455)", "", imagem)
 	}()
 
 	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"})
@@ -201,7 +192,7 @@ func TestEnviarAcaoDevolveImagemDoResultado(t *testing.T) {
 	if resultado.Saida == "" {
 		t.Error("Saida veio vazia")
 	}
-	if string(resultado.Imagem) != string(imagem) {
+	if !bytes.Equal(resultado.Imagem, imagem) {
 		t.Errorf("Imagem = %v, queria %v", resultado.Imagem, imagem)
 	}
 }
@@ -212,18 +203,8 @@ func TestAcaoTelaSerializaCamposDeElementoESuperficie(t *testing.T) {
 	h.Registrar(conexao)
 
 	go func() {
-		time.Sleep(20 * time.Millisecond)
-		envelope, ok := conexao.primeiroEnviado()
-		if !ok {
-			return
-		}
-		var recebido struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(envelope, &recebido); err != nil {
-			return
-		}
-		h.ResolverResultado(recebido.ID, "ok", "", nil)
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, "ok", "", nil)
 	}()
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{

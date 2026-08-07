@@ -38,6 +38,31 @@ func TestManipularInterfaceRepassaAcaoParaPonte(t *testing.T) {
 	}
 }
 
+func TestManipularInterfaceRepassaCamposDeElementoESuperficie(t *testing.T) {
+	ponte := &ponteFalsa{saida: "cliquei"}
+	m := NovoManipularInterface(ponte)
+
+	_, err := m.Executar(context.Background(), map[string]any{
+		"acao": "clicar_elemento", "superficie": "DISPLAY7",
+		"elemento_id": "e7", "nome": "Salvar", "tipo": "Button",
+	})
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if ponte.acaoRecebida.Superficie != "DISPLAY7" {
+		t.Errorf("Superficie = %q, queria DISPLAY7", ponte.acaoRecebida.Superficie)
+	}
+	if ponte.acaoRecebida.ElementoID != "e7" {
+		t.Errorf("ElementoID = %q, queria e7", ponte.acaoRecebida.ElementoID)
+	}
+	if ponte.acaoRecebida.Nome != "Salvar" {
+		t.Errorf("Nome = %q, queria Salvar", ponte.acaoRecebida.Nome)
+	}
+	if ponte.acaoRecebida.Tipo != "Button" {
+		t.Errorf("Tipo = %q, queria Button", ponte.acaoRecebida.Tipo)
+	}
+}
+
 func TestManipularInterfaceRejeitaAcaoAusente(t *testing.T) {
 	m := NovoManipularInterface(&ponteFalsa{})
 	if _, err := m.Executar(context.Background(), map[string]any{}); err == nil {

@@ -9,8 +9,9 @@ import (
 
 // ManipularInterface porta app.go:194 (ManipularInterface) atrás da
 // interface Ferramenta, trocando o socket TCP cru por internal/dispositivo.
-// Coordenadas ainda vêm adivinhadas pelo modelo (Anexo A #20) — consertar é
-// Fase 5.
+// Coordenadas de clicar_elemento vêm resolvidas por id/nome via ver_tela
+// (Anexo A #20, consertado nesta fase); o clique por pixel cru ('click')
+// continua existindo como escape para canvas/jogo, sem árvore de elementos.
 type ManipularInterface struct {
 	Ponte dispositivo.Ponte
 }
@@ -59,5 +60,5 @@ func (m *ManipularInterface) Executar(ctx context.Context, args map[string]any) 
 	if err != nil {
 		return "", err
 	}
-	return r.Saida, nil
+	return r.Saida, nil // clique/tecla não devolvem imagem
 }
