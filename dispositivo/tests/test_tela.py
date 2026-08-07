@@ -135,6 +135,8 @@ def test_ver_tela_devolve_imagem_em_base64(monkeypatch):
 
     assert "erro" not in resultado
     assert resultado["imagem_b64"] == base64.b64encode(b"\x89PNG-falso").decode()
+    assert "Salvar" in resultado["saida"]
+    assert "(primaria)" in resultado["saida"]
 
 
 def test_ver_tela_declara_a_superficie_no_cabecalho(monkeypatch):
@@ -147,6 +149,7 @@ def test_ver_tela_declara_a_superficie_no_cabecalho(monkeypatch):
     primeira_linha = resultado["saida"].splitlines()[0]
     assert "DISPLAY7" in primeira_linha
     assert "1280x720" in primeira_linha
+    assert "(primaria)" not in primeira_linha
 
 
 def test_ver_tela_sobrevive_a_falha_da_varredura(monkeypatch):

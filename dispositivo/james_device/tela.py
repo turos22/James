@@ -86,15 +86,16 @@ def _clicar(dados: dict) -> dict:
     return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}
 
 
-def _listar_elementos(superficie) -> str:
-    """Lista de elementos da superfície. Vira a varredura de verdade na Task
-    10; até lá devolve vazio, o que já deixa ver_tela útil só com a imagem."""
+def _listar_elementos(superficie: superficies.Superficie) -> str:
+    """TODO(Task 10): lista de elementos da superfície. Vira a varredura de
+    verdade na Task 10; até lá devolve vazio, o que já deixa ver_tela útil
+    só com a imagem."""
     return ""
 
 
 def _ver_tela(dados: dict) -> dict:
     superficie, erro = _resolver_superficie(dados)
-    if erro:
+    if erro is not None:
         return {"erro": erro}
 
     imagem = captura.capturar(superficie)
