@@ -95,7 +95,33 @@ def _clicar(dados: dict) -> dict:
     x_global, y_global = superficies.para_global(superficie, x, y)
     pyautogui.moveTo(x_global, y_global, duration=1.0)
     pyautogui.click()
-    return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}
+
+    atingido = _descrever_ponto(x_global, y_global)
+    onde = f", que é {atingido}" if atingido else ", nenhum elemento identificável nesse ponto"
+    return {"saida": f"cliquei em ({x},{y}) de {superficie.id}{onde}"}
+
+
+def _descrever_ponto(x: int, y: int) -> str | None:
+    """O que existe na coordenada GLOBAL (x,y), ou None. Fala com o SO —
+    sem teste automatizado, coberto por CA7.
+
+    Vale mesmo no caminho de pixel cru, que é onde não há lista de elementos
+    pra consultar: em canvas e jogo, saber que não há nada identificável ali
+    já é informação honesta, e é infinitamente melhor que o sucesso
+    incondicional de antes."""
+    try:
+        import uiautomation
+
+        controle = uiautomation.ControlFromPoint(x, y)
+    except Exception:
+        return None
+    if controle is None:
+        return None
+    nome = controle.Name or ""
+    tipo = controle.ControlTypeName or "elemento"
+    if not nome:
+        return f"um {tipo} sem nome"
+    return f'o {tipo} "{nome}"'
 
 
 def _handle_janela_em_foco() -> int:

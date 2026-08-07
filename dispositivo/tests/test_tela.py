@@ -19,6 +19,7 @@ def _fixar_superficies(monkeypatch, superficies, alvo):
 def test_executar_acao_click_chama_pyautogui(monkeypatch):
     chamadas = []
     _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    monkeypatch.setattr(tela, "_descrever_ponto", lambda x, y: None)
     monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append(("moveTo", x, y)))
     monkeypatch.setattr(tela.pyautogui, "click", lambda: chamadas.append(("click",)))
 
@@ -27,6 +28,30 @@ def test_executar_acao_click_chama_pyautogui(monkeypatch):
     assert resultado["saida"].startswith("cliquei em (100,200)")
     assert ("moveTo", 100, 200) in chamadas
     assert ("click",) in chamadas
+
+
+def test_click_reporta_o_elemento_atingido(monkeypatch):
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: None)
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+    monkeypatch.setattr(tela, "_descrever_ponto", lambda x, y: 'o Button "Salvar"')
+
+    resultado = tela.executar_acao({"acao": "click", "x": 820, "y": 455})
+
+    assert 'Button "Salvar"' in resultado["saida"]
+
+
+def test_click_em_area_vazia_diz_que_nao_achou_nada(monkeypatch):
+    # CA7: o retorno de hoje é sucesso incondicional. Isso é o que faz o
+    # modelo nunca perceber que errou.
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: None)
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+    monkeypatch.setattr(tela, "_descrever_ponto", lambda x, y: None)
+
+    resultado = tela.executar_acao({"acao": "click", "x": 5, "y": 5})
+
+    assert "nenhum elemento" in resultado["saida"]
 
 
 def test_executar_acao_tecla_chama_pyautogui(monkeypatch):
