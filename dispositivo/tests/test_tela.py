@@ -223,7 +223,10 @@ def test_clicar_elemento_com_tela_mudada_devolve_erro_e_nao_clica(monkeypatch):
     resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
 
     assert "erro" in resultado
-    assert "chame ver_tela de novo" in resultado["erro"]
+    # startswith, não "in": depois do fix que anexa "chame ver_tela de novo"
+    # ao remédio de toda recusa de _revalidar, essa substring deixou de ser
+    # exclusiva do ramo valido_para. O prefixo "a tela mudou" continua sendo.
+    assert resultado["erro"].startswith("a tela mudou")
     assert chamadas == []
 
 
@@ -234,10 +237,13 @@ def test_clicar_elemento_que_sumiu_da_arvore_devolve_erro(monkeypatch):
     _preparar_mapa(monkeypatch, DISPLAY1, [salvar])
     monkeypatch.setattr(tela, "_revalidar", lambda e: "o elemento não está mais na tela")
     monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: chamadas.append("click"))
 
     resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
 
-    assert "erro" in resultado
+    # Mensagem exata: prova que o erro veio de _revalidar (com o remédio
+    # anexado por _clicar_elemento), não de por_id falhando por outro motivo.
+    assert resultado["erro"] == "o elemento não está mais na tela — chame ver_tela de novo"
     assert chamadas == []
 
 
@@ -250,7 +256,39 @@ def test_clicar_elemento_por_nome_ambiguo_devolve_erro_util(monkeypatch):
     resultado = tela.executar_acao({"acao": "clicar_elemento", "nome": "OK"})
 
     assert "erro" in resultado
-    assert "OK" in resultado["erro"]
+    assert "2 elementos" in resultado["erro"]
+    assert "elemento_id" in resultado["erro"]
+
+
+def test_clicar_elemento_por_nome_e_tipo_ambiguo_nao_conta_tipo_errado(monkeypatch):
+    # Important 1 da revisão: dois botões "OK" e nenhum Edit "OK". Pedir
+    # nome="OK", tipo="Edit" não pode contar os dois Button como candidatos
+    # ambíguos — tem zero elementos "OK" do tipo Edit, não dois.
+    a = Elemento(id="e1", nome="OK", tipo="Button", retangulo=(0, 0, 10, 10))
+    b = Elemento(id="e2", nome="OK", tipo="Button", retangulo=(20, 20, 30, 30))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [a, b])
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "nome": "OK", "tipo": "Edit"})
+
+    assert "erro" in resultado
+    assert "não achei" in resultado["erro"]
+    assert "2 elementos" not in resultado["erro"]
+
+
+def test_clicar_elemento_por_nome_acerta_o_elemento(monkeypatch):
+    chamadas = []
+    salvar = Elemento(id="e1", nome="Salvar", tipo="Button", retangulo=(800, 440, 840, 470))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [salvar])
+    monkeypatch.setattr(tela, "_revalidar", lambda e: None)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "nome": "Salvar", "tipo": "Button"})
+
+    assert chamadas == [(820, 455)]
+    assert "Salvar" in resultado["saida"]
 
 
 def test_clicar_elemento_no_segundo_monitor_converte_coordenada(monkeypatch):
@@ -264,7 +302,10 @@ def test_clicar_elemento_no_segundo_monitor_converte_coordenada(monkeypatch):
     monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
     monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
 
-    tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e1"})
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e1"})
 
     # O retângulo já é global, então o centro global é direto (2020,415).
     assert chamadas == [(2020, 415)]
+    # A mensagem de sucesso, porém, tem que reportar coordenada LOCAL (D15):
+    # (2020,415) global no DISPLAY7 é (100,160) local.
+    assert "(100,160)" in resultado["saida"]

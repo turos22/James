@@ -170,23 +170,25 @@ def _revalidar(elemento: elementos.Elemento) -> str | None:
 
     if vivo is None:
         return "o elemento não está mais na tela"
+
+    r = vivo.BoundingRectangle
+    if (r.left, r.top, r.right, r.bottom) != elemento.retangulo:
+        return "outro controle está nesse ponto agora — a tela mudou desde o ver_tela"
+
     if vivo.IsOffscreen:
         return "o elemento está fora da área visível"
     try:
         if not vivo.IsEnabled:
             return "o elemento está desabilitado"
     except Exception:
-        pass
+        logger.debug("não consegui ler IsEnabled do elemento revalidado", exc_info=True)
 
-    r = vivo.BoundingRectangle
-    if (r.left, r.top, r.right, r.bottom) != elemento.retangulo:
-        return "o elemento mudou de posição ou de tamanho desde o ver_tela"
     return None
 
 
 def _clicar_elemento(dados: dict) -> dict:
     superficie, erro = _resolver_superficie(dados)
-    if erro:
+    if erro is not None:
         return {"erro": erro}
 
     if _mapa_atual is None:
@@ -207,7 +209,9 @@ def _clicar_elemento(dados: dict) -> dict:
     elif nome:
         elemento = _mapa_atual.por_nome(nome, tipo)
         if elemento is None:
-            quantos = sum(1 for e in _mapa_atual.elementos if e.nome == nome)
+            quantos = sum(
+                1 for e in _mapa_atual.elementos if e.nome == nome and (not tipo or e.tipo == tipo)
+            )
             if quantos > 1:
                 return {"erro": f'achei {quantos} elementos chamados "{nome}" — use o elemento_id da lista'}
             return {"erro": f'não achei nenhum elemento chamado "{nome}" na última varredura'}
@@ -216,7 +220,7 @@ def _clicar_elemento(dados: dict) -> dict:
 
     recusa = _revalidar(elemento)
     if recusa:
-        return {"erro": recusa}
+        return {"erro": f"{recusa} — chame ver_tela de novo"}
 
     x, y = elemento.centro_global()
     pyautogui.moveTo(x, y, duration=1.0)
