@@ -192,7 +192,7 @@ func TestCarregarAplicaDefaultsDaMemoriaDuravel(t *testing.T) {
 	if cfg.OrcamentoNotas != 2000 {
 		t.Errorf("OrcamentoNotas = %d, queria 2000", cfg.OrcamentoNotas)
 	}
-	if cfg.DiretorioMemoria != "Vault/Memoria" {
-		t.Errorf("DiretorioMemoria = %q, queria %q", cfg.DiretorioMemoria, "Vault/Memoria")
+	if cfg.MemoriaDiretorio != "Vault/Memoria" {
+		t.Errorf("MemoriaDiretorio = %q, queria %q", cfg.MemoriaDiretorio, "Vault/Memoria")
 	}
 }

@@ -27,7 +27,7 @@ type Config struct {
 
 	OrcamentoTokens  int
 	OrcamentoNotas   int
-	DiretorioMemoria string
+	MemoriaDiretorio string
 
 	TimeoutAprovacaoSegundos int
 
@@ -119,7 +119,7 @@ func Carregar(caminhoToml string) (*Config, error) {
 
 		OrcamentoTokens:  intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
 		OrcamentoNotas:   intOuDefault(arq.Memoria.OrcamentoNotas, 2000),
-		DiretorioMemoria: valorOuDefault(arq.Memoria.DiretorioMemoria, "Vault/Memoria"),
+		MemoriaDiretorio: valorOuDefault(arq.Memoria.DiretorioMemoria, "Vault/Memoria"),
 
 		TimeoutAprovacaoSegundos: intOuDefault(arq.Permissao.TimeoutAprovacaoSegundos, 300),
 
