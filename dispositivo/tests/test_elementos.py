@@ -36,6 +36,14 @@ def test_formatar_mantem_elemento_sem_nome():
     assert '""' in linhas[0]
 
 
+def test_formatar_com_superficie_usa_coordenada_local():
+    # Produção sempre passa a superfície (tela.py); este teste garante que
+    # esse caminho — não só o default sem superfície — está coberto.
+    display7 = Superficie(id="DISPLAY7", largura=1280, altura=720, origem_x=1920, origem_y=255, escala=1.0, primaria=False)
+    linhas = formatar([elemento("e1", "Salvar", "Button", 2000, 400, 2040, 430)], display7).splitlines()
+    assert "(100,160)" in linhas[0]
+
+
 def test_mapa_resolve_por_id():
     e = elemento("e7", "Salvar", "Button", 800, 440, 840, 470)
     mapa = Mapa(superficie_id="DISPLAY1", janela_em_foco=123, elementos=[e])

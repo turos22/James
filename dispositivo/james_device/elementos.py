@@ -35,6 +35,9 @@ TIPOS_INTERESSANTES = frozenset(
     }
 )
 
+# Profundidade 0 é a raiz (uiautomation.GetRootControl()); a guarda
+# "profundidade > MAXIMA" deixa passar até o nível 13 de filhos, não 12 —
+# o nome descreve a constante, não o último nível processado.
 PROFUNDIDADE_MAXIMA = 12
 
 
@@ -52,7 +55,7 @@ class Elemento:
         esquerda, topo, direita, base = self.retangulo
         return ((esquerda + direita) // 2, (topo + base) // 2)
 
-    def centro_local(self, superficie) -> tuple[int, int]:
+    def centro_local(self, superficie: superficies.Superficie) -> tuple[int, int]:
         x, y = self.centro_global()
         return superficies.para_local(superficie, x, y)
 
@@ -91,7 +94,7 @@ class Mapa:
         return None
 
 
-def formatar(elementos: list[Elemento], superficie=None) -> str:
+def formatar(elementos: list[Elemento], superficie: superficies.Superficie | None = None) -> str:
     """Uma linha por elemento. Só o centro vai pro modelo — o retângulo
     inteiro custaria quatro vezes mais token e quem precisa dele é o device."""
     linhas = []
@@ -101,31 +104,40 @@ def formatar(elementos: list[Elemento], superficie=None) -> str:
     return "\n".join(linhas)
 
 
-def _dentro(retangulo: tuple[int, int, int, int], superficie) -> bool:
+def _dentro(retangulo: tuple[int, int, int, int], superficie: superficies.Superficie) -> bool:
+    """Delega em superficies.contendo em vez de reimplementar a regra de
+    intervalo semiaberto — evitar duas cópias que podem divergir com o
+    tempo."""
     esquerda, topo, direita, base = retangulo
     centro_x = (esquerda + direita) // 2
     centro_y = (topo + base) // 2
-    return (
-        superficie.origem_x <= centro_x < superficie.origem_x + superficie.largura
-        and superficie.origem_y <= centro_y < superficie.origem_y + superficie.altura
-    )
+    return superficies.contendo([superficie], centro_x, centro_y) is not None
 
 
-def varrer(superficie, janela_em_foco: int) -> Mapa:
+def varrer(superficie: superficies.Superficie, janela_em_foco: int) -> Mapa:
     """Percorre a árvore UIA e devolve o mapa da superfície. Fala com o SO —
     sem teste automatizado, coberto por CA4."""
     import uiautomation
 
     encontrados: list[Elemento] = []
     contador = 0
+    ignorados = 0
 
     def descer(no, profundidade: int) -> None:
-        nonlocal contador
+        nonlocal contador, ignorados
         if profundidade > PROFUNDIDADE_MAXIMA:
             return
         for filho in no.GetChildren():
             try:
-                if not filho.IsOffscreen and filho.ControlTypeName in TIPOS_INTERESSANTES:
+                # Offscreen (janela minimizada, em background, noutro
+                # monitor) poda a subárvore inteira aqui, não só o nó: um nó
+                # offscreen não tem filho onscreen na prática, e sem esse
+                # `continue` a recursão descia a árvore completa de toda
+                # janela fora de vista — um roundtrip COM por nó, custo real
+                # num desktop com vários apps abertos.
+                if filho.IsOffscreen:
+                    continue
+                if filho.ControlTypeName in TIPOS_INTERESSANTES:
                     r = filho.BoundingRectangle
                     retangulo = (r.left, r.top, r.right, r.bottom)
                     if r.right > r.left and r.bottom > r.top and _dentro(retangulo, superficie):
@@ -142,7 +154,16 @@ def varrer(superficie, janela_em_foco: int) -> Mapa:
             except Exception:
                 # Um controle que some no meio da varredura (app fechando,
                 # menu colapsando) não pode matar a varredura inteira.
+                ignorados += 1
                 logger.debug("elemento ilegível durante a varredura, pulando", exc_info=True)
 
     descer(uiautomation.GetRootControl(), 0)
+    if ignorados > 0:
+        # Sinal agregado: sem isso, uma falha sistemática (API do
+        # uiautomation mudou, atributo faltando) se disfarça de "tela vazia"
+        # — Mapa sai vazio e o usuário só vê a mensagem benigna de
+        # tela.py, sem nenhum indício de que algo quebrou de verdade.
+        logger.warning(
+            "varredura pulou %d nós ilegíveis (%d elementos encontrados)", ignorados, len(encontrados)
+        )
     return Mapa(superficie_id=superficie.id, janela_em_foco=janela_em_foco, elementos=encontrados)

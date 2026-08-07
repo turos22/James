@@ -28,6 +28,11 @@ pyautogui.PAUSE = 0.01
 # Retrato da última varredura. Task 10 só o preenche; Task 11 (clicar_elemento)
 # é quem vai lê-lo de volta pra resolver clique por id/nome, revalidando
 # contra a árvore viva antes de agir (D9).
+#
+# Nunca invalidado explicitamente depois de um clique: valido_para cobre
+# troca de superfície/janela, e o resto da defesa contra tela mudada é a
+# revalidação contra a árvore viva (Task 11). Zerar aqui daria falsa
+# sensação de frescor sem checar o que importa de verdade.
 _mapa_atual: elementos.Mapa | None = None
 
 
