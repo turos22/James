@@ -1,6 +1,9 @@
 package memoria
 
 import (
+	"bytes"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 
@@ -71,9 +74,75 @@ func TestMontarSempreIncluiPeloMenosAUltimaMensagem(t *testing.T) {
 	}
 }
 
+// pngDeTeste gera um PNG real do tamanho pedido. Bytes zerados não servem
+// mais: depois que o custo passou a sair da dimensão da imagem, o header
+// virou o que importa.
+func pngDeTeste(t *testing.T, largura, altura int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, largura, altura))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("erro ao gerar PNG de teste: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestEstimarTokensImagemSegueTabelaDoGemini(t *testing.T) {
+	casos := []struct {
+		nome     string
+		largura  int
+		altura   int
+		esperado int
+	}{
+		{"ambos os lados até 384 custam um tile", 300, 200, 258},
+		{"exatamente 384 ainda é um tile", 384, 384, 258},
+		{"exemplo da doc oficial: 960x540 dá 6 tiles", 960, 540, 1548},
+		{"1920x1080 tem a mesma proporção, mesmos 6 tiles", 1920, 1080, 1548},
+		{"dimensão inválida cai no custo de um tile", 0, 0, 258},
+	}
+
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			if got := EstimarTokensImagem(c.largura, c.altura); got != c.esperado {
+				t.Errorf("EstimarTokensImagem(%d, %d) = %d, queria %d", c.largura, c.altura, got, c.esperado)
+			}
+		})
+	}
+}
+
+func TestCustoDeImagemNaoUsaMaisTamanhoEmBytes(t *testing.T) {
+	// Um PNG 960x540 de área uniforme comprime pra menos de 4KB (a janela do
+	// DEFLATE é 32KB, então em 1920x1080 a mesma imagem já não comprime bem
+	// o bastante pra provar o ponto — por isso a resolução menor aqui). Pela
+	// régua antiga (len/4) isso custaria quase nada; pela tabela do Gemini
+	// custa 1548 tokens (mesmo exemplo da doc oficial), porque o que pesa é
+	// a área, não o arquivo.
+	imagem := pngDeTeste(t, 960, 540)
+	if len(imagem)/4 >= 1548 {
+		t.Fatalf("o PNG de teste ficou grande demais (%d bytes) para provar a diferença entre as duas réguas", len(imagem))
+	}
+
+	custo := custoMensagem(agente.Mensagem{Papel: agente.PapelUsuario, Imagem: imagem})
+	if custo < 1548 {
+		t.Errorf("custo = %d, queria pelo menos 1548 (a régua antiga por bytes daria ~%d)", custo, len(imagem)/4)
+	}
+}
+
+func TestCustoDeImagemQuebradaCaiNoFallbackConservador(t *testing.T) {
+	// Header ilegível: cobrar caro continua sendo o lado seguro pra um
+	// orçamento, que é o argumento original deste arquivo.
+	lixo := make([]byte, 10000)
+	custo := custoMensagem(agente.Mensagem{Papel: agente.PapelUsuario, Imagem: lixo})
+	if custo != 2500 {
+		t.Errorf("custo = %d, queria 2500 (fallback len/4)", custo)
+	}
+}
+
 func TestMontarContaImagemComoCusto(t *testing.T) {
-	imagemGrande := make([]byte, 10000) // screenshot de mentira — só o tamanho importa aqui
 	j := Janela{OrcamentoTokens: 120}
+	// 800x600: menor lado 600, crop 400, 2x2 = 4 tiles = 1032 tokens.
+	// Sozinha já estoura o orçamento de 120, que é o ponto.
+	imagemGrande := pngDeTeste(t, 800, 600)
 	mensagens := []agente.Mensagem{
 		{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
 		{Papel: agente.PapelUsuario, Texto: "com screenshot", Imagem: imagemGrande},
@@ -81,13 +150,9 @@ func TestMontarContaImagemComoCusto(t *testing.T) {
 	}
 
 	resultado := j.Montar(mensagens)
-
 	for _, m := range resultado {
 		if len(m.Imagem) > 0 {
 			t.Errorf("mensagem com screenshot de %d bytes deveria ter sido cortada (custo zero pra imagem reabriria o bug #4), mas sobreviveu: %+v", len(m.Imagem), m)
 		}
-	}
-	if resultado[len(resultado)-1].Texto != "última, curta" {
-		t.Error("a mensagem mais recente deveria sempre sobreviver ao corte")
 	}
 }
