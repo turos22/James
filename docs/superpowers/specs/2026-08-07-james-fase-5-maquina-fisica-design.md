@@ -74,7 +74,8 @@ O bug da aprovação remota (celular pede ação perigosa, desktop aprova) foi c
 ### 2.1 Entra
 
 1. Captura de tela no device e o caminho completo da imagem até o Gemini.
-2. Ferramenta `ver_tela`, sexta do registro, devolvendo imagem **e** lista de elementos clicáveis.
+2. Ferramenta `ver_tela`, sexta do registro, devolvendo imagem **e** lista de elementos clicáveis de uma superfície.
+3. Enumeração de monitores como superfícies, com conversão local↔global de coordenada (D14, D15).
 3. Clique por elemento via UI Automation, com revalidação antes de agir.
 4. DPI awareness no device, e validação de limites no caminho de pixel cru.
 5. Retorno honesto do device: erro real quando o clique não pôde ser feito, e identificação do elemento atingido quando foi.
@@ -100,16 +101,18 @@ O bug da aprovação remota (celular pede ação perigosa, desktop aprova) foi c
 | D1 | Gatilho da visão | Ferramenta `ver_tela`, chamada quando o modelo decide | Reusa o registro de ferramentas endurecido na Fase 3 e paga o custo da imagem só quando ela serve. Mata o #19 na raiz: o gate deixa de ser uma regex sobre o texto do usuário e passa a ser decisão do modelo. As alternativas avaliadas foram print automático a cada turno (paga imagem em 100% das falas, inclusive "que horas são", e manda a tela para a nuvem do Google continuamente) e captura acoplada ao clique (inútil por construção: quando `manipular_interface` foi emitida, a coordenada **já** foi adivinhada) |
 | D2 | Mecânica do clique | Clique por elemento via UI Automation; pixel cru mantido como escape, agora com DPI correto e limites validados | É a direção que a spec original já apontou em D5 ("bibliotecas de UI Automation em Python são muito superiores às de Go; é o caminho para consertar o clique na Fase 5"). A coordenada passa a vir do sistema operacional, nunca do palpite do modelo. Cobre app nativo e navegador, que é onde o Arthur declarou que usa. Pixel cru sobrevive porque canvas e jogo não expõem árvore de acessibilidade |
 | D3 | Como o modelo referencia um elemento | Aceita **id curto** (`e7`) ou **nome**, e o device revalida antes de clicar | Só id quebra quando a varredura envelhece; só nome quebra em dois casos comuns — elemento sem nome (botão de ícone) e três botões "OK" na mesma tela. O argumento decisivo não é completude: a revalidação é o **mesmo mecanismo** que produz o erro real exigido por 1.2. Escolher A ou B deixaria o buraco do retorno mentiroso aberto |
-| D4 | Biblioteca de UI Automation | [`uiautomation`](https://github.com/yinkaisheng/Python-UIAutomation-for-Windows) | Wrapper fino da API COM de UIAutomation, com suporte declarado a MFC, WinForms, WPF, Qt, Firefox, Chrome e Electron. `pywinauto` também tem backend `uia`, mas traz camada de localizar-janela-por-título que não é usada aqui, já que o alvo é sempre a janela em foco. **Escolha por encaixe, não por medição: não foi encontrado benchmark comparativo entre as duas.** O device esconde a biblioteca atrás de uma função, então a troca é localizada se ela falhar em app real |
-| D5 | Nível de permissão do `ver_tela` | `NivelSeguro`, sem aprovação, disponível a qualquer perfil | Decisão do Arthur, tomada depois de a consequência ser apresentada. **Consequência registrada: o celular enxerga a tela do desktop sem que nada seja aprovado.** A ferramenta não altera estado, o que justifica `NivelSeguro` pela régua de [`tipos.go:12`](../../../internal/ferramentas/tipos.go); o que ela faz é ler dado sensível e enviá-lo à nuvem. Ver R6 |
-| D6 | Transporte da imagem | Base64 dentro do envelope JSON que já existe | O protocolo device↔Go já é `{tipo, id, dados}` com `dados` livre ([`conexao.py:115`](../../../dispositivo/james_device/conexao.py)), e `resultado_acao` já é o canal de volta. Não é preciso inventar transporte. Verificado que o limite não bloqueia: `conn.go:924` do `gorilla/websocket` v1.5.3, no cache de módulos, só aplica corte `if c.readLimit > 0`, e o James nunca chama `SetReadLimit` — logo o valor é zero e não há limite. Ver R7 |
+| D4 | Biblioteca de UI Automation | [`uiautomation`](https://github.com/yinkaisheng/Python-UIAutomation-for-Windows) | Wrapper fino da API COM de UIAutomation, com suporte declarado a MFC, WinForms, WPF, Qt, Firefox, Chrome e Electron. `pywinauto` também tem backend `uia`, mas traz camada de localizar-janela-por-título que não é usada aqui: depois de D14 o alvo é uma superfície inteira, e a enumeração parte da raiz descendo pelas janelas visíveis, não de uma busca por título. **Escolha por encaixe, não por medição: não foi encontrado benchmark comparativo entre as duas.** O device esconde a biblioteca atrás de uma função, então a troca é localizada se ela falhar em app real |
+| D5 | Nível de permissão do `ver_tela` | `NivelSeguro`, sem aprovação, disponível a qualquer perfil | Decisão do Arthur, tomada depois de a consequência ser apresentada. **Consequência registrada: o celular enxerga a tela do desktop sem que nada seja aprovado.** A ferramenta não altera estado, o que justifica `NivelSeguro` pela régua de [`tipos.go:12`](../../../internal/ferramentas/tipos.go); o que ela faz é ler dado sensível e enviá-lo à nuvem. Ver R7 |
+| D6 | Transporte da imagem | Base64 dentro do envelope JSON que já existe | O protocolo device↔Go já é `{tipo, id, dados}` com `dados` livre ([`conexao.py:115`](../../../dispositivo/james_device/conexao.py)), e `resultado_acao` já é o canal de volta. Não é preciso inventar transporte. Verificado que o limite não bloqueia: `conn.go:924` do `gorilla/websocket` v1.5.3, no cache de módulos, só aplica corte `if c.readLimit > 0`, e o James nunca chama `SetReadLimit` — logo o valor é zero e não há limite. Ver R8 |
 | D7 | Caminho da imagem até o Gemini | Interface opcional `FerramentaComImagem` no pacote `ferramentas`, mais `InlineData` no ramo `PapelFerramenta` do mapeamento | O contrato aditivo já é padrão estabelecido no projeto: `ExigeConfirmacao` ([`tipos.go:45`](../../../internal/ferramentas/tipos.go)) existe exatamente para isso, e seu comentário registra a filosofia — "ferramenta que não implementa se comporta exatamente como antes". As outras cinco ferramentas não mudam uma linha. A alternativa (trocar a assinatura de `Ferramenta.Executar` para devolver struct) forçaria mudança em todas elas sem ganho |
 | D8 | Estimativa de token de imagem | Por tiles, conforme 1.4, com `len/4` preservado como fallback | A fórmula atual erra por ~80x e cria um teto fantasma que tornaria a visão inviável. O fallback não é preguiça: o comentário original em [`janela.go:26`](../../../internal/memoria/janela.go) argumenta que superestimar é o lado seguro para um orçamento, e isso continua correto para imagem cujo header não decodifica. A intenção do autor sobrevive onde ainda faz sentido, deixando de ser o caminho principal |
-| D9 | Invalidação do mapa de elementos | Por mudança da janela em foco, não por relógio | O handle da janela é determinístico; um timer produziria janela de erro arbitrária, grande demais ou pequena demais conforme o app |
+| D9 | Invalidação do mapa de elementos | Por mudança da janela em foco, da superfície alvo, ou da configuração de monitores — nunca por relógio | Os três são eventos determinísticos; um timer produziria janela de erro arbitrária, grande demais ou pequena demais conforme o app. A janela em foco entra mesmo com a varredura sendo por monitor (D14), porque trocar de janela reordena o que está visível naquele monitor |
 | D10 | Wake word | Log passivo dos quase-acertos, em arquivo próprio do device | A sessão de calibração guiada, que é a leitura direta do que a spec original prometeu, tem um furo lógico: o Arthur falando de propósito no microfone é exatamente a condição em que a detecção **já** funciona. Os erros acontecem longe do microfone, com ruído, na fala rápida — e só o log passivo os coleta. Custo baixo, cabe na fase sem competir com o trabalho de tela. A troca por detector local (1.3) fica para uma fase própria, com o dado deste log em mãos |
 | D11 | Local de execução | Direto em `main`, commit por task | Escolha do Arthur, mesmo padrão das Fases 3 e 4 |
 | D12 | Tensão com a nuvem | Registrada, não resolvida | O Arthur declarou o objetivo de rodar o `jamesd` em nuvem, com desktop e celular no mesmo serviço. `ver_tela` empurra na direção oposta: o print da tela local passa a viajar pela internet até a nuvem e de lá até o Google. UI Automation não sofre (roda no device; só o resultado trafega). Efeito no desenho desta fase: **compressão vira requisito de rede, não só de orçamento de token**. Ver seção 9 |
 | D13 | Formato e resolução da imagem | **PNG, na resolução nativa da tela** | Três razões convergem. Primeira: o custo de token é por área e não por byte (1.4), então comprimir mais **não economiza token nenhum** — economiza rede, que hoje é loopback. Segunda: JPEG borra texto pequeno, que é exatamente o que precisa ficar legível numa interface; PNG mantém nítido e comprime bem em UI, que é feita de áreas de cor sólida. Terceira, e é a que evita bug: [`mapeamento.go:17`](../../../internal/agente/gemini/mapeamento.go) já **fixa** `MIMEType: "image/png"`. Um device que mandasse JPEG sob um MIME que diz PNG seria erro silencioso. Redimensionar fica reservado para quando a nuvem de D12 sair do papel, e aí o MIME deixa de poder ser constante. Registrado o piso: derrubar ambos os lados abaixo de 384 px levaria o custo aos 258 tokens fixos, mas a essa altura a interface está ilegível e a ferramenta perde o propósito |
+| D14 | Unidade de captura | **Superfície = um monitor.** `ver_tela` sem argumento captura a superfície que contém a janela em foco; com `superficie`, captura a pedida. Os elementos vêm de **todas as janelas visíveis daquela superfície**, não só da janela em foco | Levantado pelo Arthur depois da primeira versão desta spec, e ele estava certo: a versão anterior dizia "janela em foco", o que é mais restrito que uma tela e deixaria o James cego para metade do que o Arthur enxerga. Medição da máquina: dois monitores, `DISPLAY1` 1920x1080 em `(0,0)` e `DISPLAY7` 1280x720 em `(1920,255)`. Uma imagem por monitor, e não uma do desktop virtual, porque o desalinhamento vertical de 255 px faria o retângulo `(0,0)–(3200,975)` conter áreas pretas que não pertencem a monitor nenhum. Custo pela fórmula de D8, a confirmar em CA3: 1920x1080 dá 6 tiles (~1.548 tokens), os dois juntos dariam 10 (~2.580) — nenhum dos dois é proibitivo contra o orçamento de 8000. A abstração vale além do desktop: o `jamesd` na nuvem e o app de celular são superfícies também |
+| D15 | Espaço de coordenadas | **Local à superfície** na lista e no protocolo; o device converte para global antes de agir | O modelo enxerga uma imagem de um monitor; pedir que ele raciocine no espaço do desktop virtual, onde a segunda tela começa em x=1920, é convite a erro. A conversão fica no device, que é quem conhece a origem de cada monitor. Consequência registrada em 5.3: esquecer a soma da origem faz o clique cair no monitor errado com feedback plausível |
 
 ---
 
@@ -121,14 +124,16 @@ Seis camadas são tocadas. As três primeiras concentram o trabalho novo; as tr�
 
 **`tela.py`** (existente, alterado). Passa a chamar DPI awareness na carga do módulo. Sem isso o resto é enfeite: numa tela a 150%, `pyautogui` reporta 1280x720 para uma tela que é 1920x1080, e todo clique cai deslocado. Ganha as ações `ver_tela` e `clicar_elemento`. As ações `click` e `tecla` continuam existindo, agora com validação de limites contra a resolução real e com retorno honesto.
 
+**`superficies.py`** (novo). Enumera os monitores e devolve, para cada um, id, resolução, escala DPI e origem no espaço global. Resolve também qual superfície contém a janela em foco, que é o padrão de D14, e faz a conversão local↔global de D15. É o único lugar do device que conhece geometria de monitor — `captura.py` e `elementos.py` perguntam a ele em vez de calcular por conta.
+
 **`elementos.py`** (novo). Esconde `uiautomation` atrás de duas funções:
 
-- `varrer()` — devolve os elementos clicáveis da janela em foco, cada um com id curto, nome, tipo de controle e retângulo;
+- `varrer(superficie)` — devolve os elementos clicáveis de todas as janelas visíveis daquela superfície, cada um com id curto, nome, tipo de controle e retângulo já em coordenada local;
 - `resolver(elemento_id | nome, tipo)` — reencontra o elemento e o revalida, devolvendo motivo nomeado quando falha.
 
-Guarda o mapa da última varredura, com o handle da janela que a originou (D9).
+Guarda o mapa da última varredura, com a superfície e o handle da janela em foco que a originaram (D9).
 
-**`captura.py`** (novo). Tira o print e devolve bytes PNG na resolução nativa (D13). Isolado de `elementos.py` porque as duas coisas falham por motivos diferentes e uma deve poder funcionar sem a outra: uma tela sem árvore de acessibilidade ainda produz imagem útil.
+**`captura.py`** (novo). Tira o print de uma superfície e devolve bytes PNG na resolução nativa (D13). Isolado de `elementos.py` porque as duas coisas falham por motivos diferentes e uma deve poder funcionar sem a outra: uma tela sem árvore de acessibilidade ainda produz imagem útil.
 
 **`wake.py`** (existente, alterado). Ganha a medição de distância e a escrita do log de quase-acertos (D10).
 
@@ -175,19 +180,24 @@ Envelope inalterado: `{tipo, id, dados}`. Nenhum tipo de mensagem novo é introd
 
 ### 5.1 `ver_tela`
 
-Pedido: `{"acao": "ver_tela"}`.
+Pedido: `{"acao": "ver_tela"}` ou `{"acao": "ver_tela", "superficie": "DISPLAY7"}`. Sem o parâmetro, vale o padrão de D14: a superfície que contém a janela em foco.
 
 Resposta em `dados`: `saida` (texto, que vira o `output` do `FunctionResponse`) e `imagem_b64`.
 
-A `saida` é a lista de elementos, uma linha por elemento:
+A `saida` abre declarando a superfície capturada e segue com a lista de elementos, uma linha por elemento:
 
 ```
+superficie: DISPLAY1 (primaria) 1920x1080 escala 100%
 e1  Button  "Salvar"           (820,455)
 e2  Edit    "Nome do arquivo"  (640,410)
 e3  Button  ""                 (1180,60)
 ```
 
+O cabeçalho não é enfeite: sem ele o modelo não tem como saber se `(820,455)` é grande ou pequeno em relação à tela, nem qual das duas telas está olhando. Com a resolução declarada, ele deriva proporção sozinho quando precisar — que é o motivo de não existir uma coluna separada de coordenada normalizada.
+
 Só o **centro** do elemento vai para o modelo, não o retângulo completo. O centro basta para casar a lista com a imagem; o retângulo custaria quatro vezes mais token sem ganho, e quem precisa dele é o device, que o guarda. O `e3` sem nome é o caso que justifica o id: botão de ícone continua endereçável.
+
+As coordenadas da lista são **locais à superfície** (D15): `(0,0)` é o canto superior esquerdo daquele monitor, não do desktop virtual. É o que casa com a imagem que o modelo está olhando.
 
 ### 5.2 `clicar_elemento`
 
@@ -195,16 +205,20 @@ Pedido: `{"acao": "clicar_elemento", "elemento_id": "e7"}` ou `{"acao": "clicar_
 
 Antes de clicar, o device revalida nesta ordem, parando no primeiro que falhar:
 
-1. existe mapa de varredura para a janela em foco atual (se não, erro pedindo `ver_tela`);
+1. existe mapa de varredura, e ele pertence à superfície e à janela em foco atuais (se não, erro pedindo `ver_tela`);
 2. o elemento ainda existe na árvore **agora**, não no snapshot;
 3. o retângulo atual bate com o guardado;
 4. está visível e habilitado.
 
-Cada falha vira erro nomeado — "a tela mudou desde o `ver_tela`, chame de novo" — e nunca um clique no vazio. Sucesso devolve o elemento atingido: `cliquei em "Salvar" (Button) em (820,455)`.
+Cada falha vira erro nomeado — "a tela mudou desde o `ver_tela`, chame de novo" — e nunca um clique no vazio. Sucesso devolve o elemento atingido, com a superfície: `cliquei em "Salvar" (Button) em (820,455) de DISPLAY1`.
 
 ### 5.3 `click` — o caminho de pixel
 
-Continua aceitando `x`/`y`. Passa a validar contra a resolução real, obtida com DPI awareness ativo; fora dos limites vira erro, não clique.
+Continua aceitando `x`/`y`, agora interpretados como locais à superfície (D15), com `superficie` opcional seguindo o mesmo padrão de `ver_tela`. O device converte para coordenada global antes de acionar o `pyautogui`, somando a origem do monitor.
+
+**Essa conversão é obrigatória e é onde um bug silencioso mora.** No setup atual do Arthur, `DISPLAY7` tem origem `(1920, 255)`: um clique em `(100, 100)` daquele monitor é `(2020, 355)` em coordenada global. Esquecer a soma faz o clique cair no monitor errado, e o feedback de 5.3 reportaria com honestidade o elemento errado — erro plausível e difícil de rastrear.
+
+Passa também a validar contra a resolução real da superfície alvo, obtida com DPI awareness ativo; fora dos limites vira erro, não clique.
 
 E ganha feedback que hoje não tem: depois de clicar, o device consulta a UIA sobre qual controle está naquele ponto e reporta. `cliquei em (820,455), que é o Button "Salvar"`, ou `cliquei em (820,455), nenhum elemento identificável nesse ponto` — o que já é informação honesta, e é o que permite ao modelo perceber que errou em canvas e jogo, onde a lista de elementos não ajuda.
 
@@ -232,7 +246,9 @@ Falha de captura e falha de varredura são independentes (4.1): `ver_tela` numa 
 
 ## 8. Estratégia de teste
 
-**Testável em pytest, sem hardware:** a medição de distância e a escrita do log em `wake.py`; o formatador da lista de elementos; a lógica de revalidação de `elementos.py` contra uma árvore falsa injetada no lugar de `uiautomation`.
+**Testável em pytest, sem hardware:** a conversão local↔global e a escolha de superfície em `superficies.py`, com a lista de monitores injetada — inclusive o caso real de `DISPLAY7` em `(1920,255)`, que é o que prova D15; a medição de distância e a escrita do log em `wake.py`; o formatador da lista de elementos; a lógica de revalidação de `elementos.py` contra uma árvore falsa injetada no lugar de `uiautomation`.
+
+Vale destacar que a peça mais perigosa desta fase — a aritmética de coordenada, cujo erro produz clique no monitor errado com feedback plausível — é também a **mais barata de testar**: são funções puras sobre geometria conhecida. Isso deve estar coberto antes de qualquer verificação ao vivo.
 
 **Testável em Go:** o hub, com `Conexao` falsa — padrão já estabelecido no repositório; o mapeamento, por tabela, incluindo o caso que hoje descarta imagem em silêncio; `janela`, com PNGs reais gerados em memória; o loop, com ferramenta falsa implementando `FerramentaComImagem`.
 
@@ -263,10 +279,11 @@ Cada item precisa ser demonstrado com comando rodado e saída lida, conforme a r
 1. **CA1** — `go test ./...` verde, incluindo o `TestMontarContaImagemComoCusto` reescrito e os testes novos de mapeamento, hub e loop.
 2. **CA2** — `pytest` verde no device, incluindo revalidação com árvore falsa e log de wake word.
 3. **CA3** — a fórmula de tiles bate com o `count_tokens` real da API em duas resoluções, uma abaixo e uma acima de 384 px, com a saída registrada.
-4. **CA4 (ao vivo)** — com o `jamesd` rodando e o device conectado, um `ver_tela` real devolve imagem e lista de elementos de uma janela aberta de verdade, e a lista contém um elemento reconhecível.
+4. **CA4 (ao vivo)** — com o `jamesd` rodando e o device conectado, um `ver_tela` real devolve imagem e lista de elementos de uma janela aberta de verdade, e a lista contém um elemento reconhecível. O cabeçalho declara a superfície correta.
 5. **CA5 (ao vivo)** — o James clica num botão **pelo nome**, em app nativo aberto de verdade, e o efeito é observado na tela.
 6. **CA6 (ao vivo)** — o mesmo clique, pedido depois de a tela ter mudado, devolve erro nomeado em vez de clicar no lugar errado. Este é o critério que prova 1.2 corrigido, e é o mais importante da lista.
 7. **CA7 (ao vivo)** — um clique por pixel em área vazia devolve "nenhum elemento identificável nesse ponto", e não o sucesso incondicional de hoje.
+8. **CA8 (ao vivo)** — com a janela em foco no `DISPLAY7`, `ver_tela` sem argumento captura o `DISPLAY7` e não o primário, e um clique por elemento naquela tela acerta o alvo. É o critério que prova a conversão de coordenada de D15: se a soma da origem `(1920,255)` estiver errada, o clique cai no monitor primário e este teste falha.
 
 ---
 
@@ -274,16 +291,17 @@ Cada item precisa ser demonstrado com comando rodado e saída lida, conforme a r
 
 A ordem é ditada por uma restrição: nada do lado Go pode ser verificado de ponta a ponta antes de o device produzir imagem de verdade, e nada do device adianta se a imagem for descartada no mapeamento. Por isso o caminho de imagem é construído inteiro antes do caminho de elemento.
 
-1. DPI awareness e validação de limites em `tela.py`, com o retorno honesto do caminho de pixel. Isolado, e já corrige parte de 1.2 sozinho.
-2. Correção da estimativa de token (D8) e reescrita do teste. Não depende de nada e nada depende dela para compilar — mas precisa vir antes do passo 6, porque sem ela a primeira imagem real que chegar despeja a conversa inteira da janela e o comportamento observado em CA4 seria enganoso.
-3. `mapeamento.go`: `InlineData` no ramo `PapelFerramenta`, com teste que hoje falharia.
-4. `FerramentaComImagem`, `ResultadoFerramenta.Imagem` e a type assertion no loop.
-5. `hub.go`: campos de elemento, imagem no resultado, timeout por ação.
-6. `captura.py` e a ação `ver_tela` no device; ferramenta `ver_tela`. **Aqui fecha CA4.**
-7. `elementos.py`: varredura, lista e mapa por janela.
-8. `clicar_elemento` com a revalidação completa. **Aqui fecham CA5, CA6 e CA7.**
-9. Log passivo de wake word.
-10. Ajuste do item 2 do `prompts/sistema.md`.
+1. `superficies.py`: enumeração de monitores, escala DPI e conversão local↔global. Vem antes de tudo porque `tela.py`, `captura.py` e `elementos.py` dependem dela para saber o que "a tela" significa — e porque é a única peça nova inteiramente testável sem hardware: a geometria dos monitores é dado de entrada, e a conversão é aritmética.
+2. DPI awareness e validação de limites em `tela.py`, com o retorno honesto do caminho de pixel. Já corrige parte de 1.2 sozinho.
+3. Correção da estimativa de token (D8) e reescrita do teste. Não depende de nada e nada depende dela para compilar — mas precisa vir antes do passo 7, porque sem ela a primeira imagem real que chegar despeja a conversa inteira da janela e o comportamento observado em CA4 seria enganoso.
+4. `mapeamento.go`: `InlineData` no ramo `PapelFerramenta`, com teste que hoje falharia.
+5. `FerramentaComImagem`, `ResultadoFerramenta.Imagem` e a type assertion no loop.
+6. `hub.go`: campos de elemento e de superfície, imagem no resultado, timeout por ação.
+7. `captura.py` e a ação `ver_tela` no device; ferramenta `ver_tela`. **Aqui fecha CA4.**
+8. `elementos.py`: varredura por superfície, lista e mapa.
+9. `clicar_elemento` com a revalidação completa. **Aqui fecham CA5, CA6, CA7 e CA8.**
+10. Log passivo de wake word.
+11. Ajuste do item 2 do `prompts/sistema.md`.
 
 ---
 
@@ -291,11 +309,12 @@ A ordem é ditada por uma restrição: nada do lado Go pode ser verificado de po
 
 | # | Risco | Mitigação |
 |---|---|---|
-| R1 | Varredura UIA de tela cheia estoura o `Timeout` de 10 s do hub | Timeout por ação (4.2). Se ainda estourar, filtrar a varredura por elementos visíveis dentro da viewport antes de descer a árvore inteira |
+| R1 | Varredura UIA estoura o `Timeout` de 10 s do hub. **D14 agravou este risco**: varrer todas as janelas visíveis de um monitor é mais caro que varrer só a janela em foco, que era o desenho anterior | Timeout por ação (4.2). Se ainda estourar, filtrar por janela visível e não minimizada antes de descer a árvore, e cortar por profundidade. Medir antes de otimizar |
 | R2 | Tela densa gera lista de elementos grande o bastante para pesar no token | A lista é magra por construção (5.1). Se pesar, cortar por profundidade e por área mínima do elemento. Medir antes de otimizar |
 | R3 | Corrida entre a revalidação e a mudança de tela — a tela pode mudar entre o passo 4 e o clique | Não é eliminável, apenas estreitável: a janela de erro cai de "desde o `ver_tela`" para "desde a revalidação". Aceito conscientemente; é estritamente melhor que o comportamento atual |
 | R4 | Apps que não expõem árvore de acessibilidade útil (canvas, jogo, Electron mal comportado) | É o motivo de o caminho de pixel sobreviver (D2), agora com o feedback de 5.3 |
-| R5 | Múltiplos monitores com escalas de DPI diferentes | Não coberto por esta fase. DPI awareness resolve o monitor primário; escala mista é caso conhecido e não tratado. Registrado para não ser confundido com bug novo |
-| R6 | `ver_tela` sem aprovação, de qualquer perfil, envia a tela do desktop para quem pedir (D5) | Nenhuma. Decisão consciente do Arthur, com a consequência declarada |
-| R7 | Sem `SetReadLimit`, o `/ws/dispositivo` aceita mensagem de qualquer tamanho (D6) | Não é regressão — já é assim hoje. Mas com imagem trafegando passa a existir expectativa de tamanho, e um limite explícito e folgado deve ser definido junto com a compressão |
-| R8 | A verificação ao vivo move o mouse e digita na máquina em que o trabalho está sendo feito | Executar CA5 a CA7 com um app de teste em foco, nunca com o editor ou o terminal do projeto em foco |
+| R5 | Múltiplos monitores com escalas de DPI diferentes | **Coberto por D14**: cada superfície declara a própria escala, então escala mista deixa de ser caso não tratado. O que sobra é a mudança de configuração em runtime (monitor conectado ou desconectado com o James rodando) — tratada só pela invalidação de D9, sem reenumeração automática |
+| R6 | Janela arrastada de forma a ficar metade em cada monitor | Regra: o elemento pertence à superfície que contém o **centro** do seu retângulo. Simples e determinística, mas erra para uma janela cortada quase ao meio — nesse caso alguns elementos aparecem numa superfície e o resto na outra, e nenhuma das duas listas está completa. Caso conhecido, não tratado. Sair disso exigiria varredura no espaço do desktop virtual, que D14 descartou por causa das áreas mortas |
+| R7 | `ver_tela` sem aprovação, de qualquer perfil, envia a tela do desktop para quem pedir (D5) | Nenhuma. Decisão consciente do Arthur, com a consequência declarada |
+| R8 | Sem `SetReadLimit`, o `/ws/dispositivo` aceita mensagem de qualquer tamanho (D6) | Não é regressão — já é assim hoje. Mas com imagem trafegando passa a existir expectativa de tamanho, e um limite explícito e folgado deve ser definido junto com a captura |
+| R9 | A verificação ao vivo move o mouse e digita na máquina em que o trabalho está sendo feito | Executar CA5 a CA8 com um app de teste em foco, nunca com o editor ou o terminal do projeto em foco. CA8 é o mais delicado, porque envolve mover o foco para o segundo monitor |
