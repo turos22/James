@@ -71,9 +71,12 @@ def ativar_dpi_awareness() -> None:
         )
 
 
-# Efeito colateral de import, deliberado: DPI awareness precisa valer antes
-# do primeiro uso do pyautogui, e qualquer módulo que mexa com tela importa
-# este aqui.
+# Efeito colateral de import, deliberado: para que a detecção de falha
+# funcione, este módulo precisa ser importado ANTES de qualquer código que
+# use pyautogui (ver Task 2 do plano da Fase 5) — senão outra biblioteca já
+# terá fixado um awareness diferente, e ativar_dpi_awareness() só vai
+# conseguir logar o erro, não corrigir. Hoje (Task 1) nada em produção
+# importa este módulo ainda.
 ativar_dpi_awareness()
 
 
@@ -109,21 +112,29 @@ _MONITORENUMPROC = ctypes.WINFUNCTYPE(
 ctypes.windll.user32.GetForegroundWindow.restype = wintypes.HWND
 ctypes.windll.user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(_RECT)]
 ctypes.windll.user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MONITORINFOEXW)]
+ctypes.windll.shcore.GetDpiForMonitor.argtypes = [
+    wintypes.HANDLE, ctypes.c_int, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)
+]
 
 
 def _escala_de(handle_monitor) -> float:
     """Escala do monitor (1.25 para 125%). Cai no padrão de 1.0 se o shcore
     não responder — monitor com escala desconhecida é melhor tratado como
-    100% do que fazer a enumeração inteira falhar."""
+    100% do que fazer a enumeração inteira falhar, mas o log garante que essa
+    degradação não passe despercebida (mesma lição do Critical de
+    ativar_dpi_awareness, aplicada aqui: HRESULT não levanta, tem que ser
+    checado)."""
     dpi_x = ctypes.c_uint()
     dpi_y = ctypes.c_uint()
     try:
-        ctypes.windll.shcore.GetDpiForMonitor(
+        hr = ctypes.windll.shcore.GetDpiForMonitor(
             handle_monitor, _MDT_EFFECTIVE_DPI, ctypes.byref(dpi_x), ctypes.byref(dpi_y)
         )
     except Exception:
+        logger.warning("GetDpiForMonitor levantou exceção para o handle %s, assumindo escala 100%%", handle_monitor)
         return 1.0
-    if dpi_x.value == 0:
+    if hr != 0 or dpi_x.value == 0:
+        logger.warning("GetDpiForMonitor falhou (hr=%#x) para o handle %s, assumindo escala 100%%", hr & 0xFFFFFFFF, handle_monitor)
         return 1.0
     return dpi_x.value / _DPI_PADRAO
 

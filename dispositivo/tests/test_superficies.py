@@ -11,6 +11,7 @@ from james_device.superficies import (
     para_global,
     para_local,
     por_id,
+    primaria,
 )
 
 # Fixture sintética, escolhida para preservar a propriedade de área morta
@@ -84,3 +85,22 @@ def test_alvo_padrao_sem_janela_em_foco_cai_na_primaria():
 
 def test_alvo_padrao_com_janela_em_foco_usa_da_janela():
     assert alvo_padrao(TODAS, (1950, 300, 3100, 900)) is DISPLAY7
+
+
+def test_primaria_acha_quem_se_declara():
+    assert primaria(TODAS) is DISPLAY1
+
+
+def test_primaria_sem_ninguem_declarado_cai_no_primeiro():
+    sem_declaracao = [
+        Superficie(id="X", largura=800, altura=600, origem_x=0, origem_y=0, escala=1.0, primaria=False),
+        Superficie(id="Y", largura=800, altura=600, origem_x=800, origem_y=0, escala=1.0, primaria=False),
+    ]
+    assert primaria(sem_declaracao) is sem_declaracao[0]
+
+
+def test_primaria_com_lista_vazia_levanta_com_mensagem_util():
+    import pytest
+
+    with pytest.raises(RuntimeError, match="nenhuma superfície"):
+        primaria([])
