@@ -19,11 +19,16 @@ import logging
 from james_device import superficies
 import pyautogui
 
-from james_device import captura
+from james_device import captura, elementos
 
 logger = logging.getLogger(__name__)
 
 pyautogui.PAUSE = 0.01
+
+# Retrato da última varredura. Task 10 só o preenche; Task 11 (clicar_elemento)
+# é quem vai lê-lo de volta pra resolver clique por id/nome, revalidando
+# contra a árvore viva antes de agir (D9).
+_mapa_atual: elementos.Mapa | None = None
 
 
 def _resolver_superficie(dados: dict) -> tuple[superficies.Superficie | None, str | None]:
@@ -86,11 +91,31 @@ def _clicar(dados: dict) -> dict:
     return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}
 
 
+def _handle_janela_em_foco() -> int:
+    """Handle bruto (HWND) da janela em foco, como número — é a chave de
+    identidade que Mapa.valido_para usa pra saber se a janela trocou desde a
+    última varredura.
+
+    Duplica a chamada a GetForegroundWindow que superficies.py já faz dentro
+    de retangulo_da_janela_em_foco(): aquela função devolve o retângulo da
+    janela (o que _resolver_superficie precisa), não o handle (o que Mapa
+    precisa pra identidade). superficies.py não expõe o handle cru hoje, e
+    não está no escopo de arquivos desta task — duplicar duas linhas de
+    ctypes aqui é o custo aceito em vez de mexer lá."""
+    import ctypes
+
+    return int(ctypes.windll.user32.GetForegroundWindow())
+
+
 def _listar_elementos(superficie: superficies.Superficie) -> str:
-    """TODO(Task 10): lista de elementos da superfície. Vira a varredura de
-    verdade na Task 10; até lá devolve vazio, o que já deixa ver_tela útil
-    só com a imagem."""
-    return ""
+    """Varre a árvore UIA da superfície e formata pro modelo. Guarda o
+    retrato em _mapa_atual — Task 11 vai lê-lo de volta pra resolver clique
+    por elemento."""
+    global _mapa_atual
+    _mapa_atual = elementos.varrer(superficie, _handle_janela_em_foco())
+    if not _mapa_atual.elementos:
+        return "(nenhum elemento clicável legível nesta tela — use clique por coordenada)"
+    return elementos.formatar(_mapa_atual.elementos, superficie)
 
 
 def _ver_tela(dados: dict) -> dict:

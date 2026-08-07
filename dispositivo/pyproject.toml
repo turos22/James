@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 # quando o setup.py é exec'd num namespace isolado) — bug conhecido do
 # pacote, não do ambiente. 1.2.2 (já instalado globalmente) expõe a mesma
 # API usada aqui (playsound.playsound(caminho)).
-dependencies = ["websockets>=13.0", "pyautogui>=0.9.54", "SpeechRecognition>=3.10", "playsound>=1.2.2,<1.3.0"]
+dependencies = ["websockets>=13.0", "pyautogui>=0.9.54", "SpeechRecognition>=3.10", "playsound>=1.2.2,<1.3.0", "uiautomation>=2.0.18"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
