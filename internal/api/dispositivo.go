@@ -44,7 +44,10 @@ const tamanhoMaximoMensagemDevice = 32 << 20 // 32 MB
 // decodificarResultadoAcao lê o payload de resultado_acao. A imagem chega em
 // base64 porque o envelope é JSON. Base64 quebrada não vira erro do turno:
 // o texto do resultado ainda é útil sozinho, e derrubar tudo por causa de um
-// PNG mal formado seria pior que seguir sem ele.
+// PNG mal formado seria pior que seguir sem ele. Já o JSON de topo quebrado é
+// outra história: se "saida" e "erro" não decodificam, nada no payload é
+// confiável, e devolver sucesso vazio em silêncio esconderia uma falha real
+// do device — por isso vira erro explícito, não string vazia.
 func decodificarResultadoAcao(bruto []byte) (saida, erro string, imagem []byte) {
 	var dados struct {
 		Saida     string `json:"saida"`
@@ -52,7 +55,8 @@ func decodificarResultadoAcao(bruto []byte) (saida, erro string, imagem []byte) 
 		ImagemB64 string `json:"imagem_b64"`
 	}
 	if err := json.Unmarshal(bruto, &dados); err != nil {
-		return "", "", nil
+		slog.Warn("resultado_acao com payload ilegível do device, tratando como erro", "erro", err)
+		return "", "resultado_acao ilegível do device", nil
 	}
 	if dados.ImagemB64 != "" {
 		decodificada, err := base64.StdEncoding.DecodeString(dados.ImagemB64)

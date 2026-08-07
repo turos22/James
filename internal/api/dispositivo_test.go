@@ -93,11 +93,27 @@ func TestResultadoAcaoDecodificaImagemBase64(t *testing.T) {
 	if erro != "" {
 		t.Errorf("erro = %q, queria vazio", erro)
 	}
-	if saida == "" {
-		t.Error("saida veio vazia")
+	if saida != "e1 Button \"Salvar\" (820,455)" {
+		t.Errorf("saida = %q, queria o texto exato do fixture", saida)
 	}
 	if string(decodificada) != string(imagem) {
 		t.Errorf("imagem = %v, queria %v", decodificada, imagem)
+	}
+}
+
+func TestResultadoAcaoComJSONDeTopoQuebradoVideraErro(t *testing.T) {
+	bruto := []byte(`{"saida": "texto", "erro": [1,2]}`) // erro não é string, unmarshal falha
+
+	saida, erro, imagem := decodificarResultadoAcao(bruto)
+
+	if saida != "" {
+		t.Errorf("saida = %q, queria vazio (payload não confiável)", saida)
+	}
+	if erro == "" {
+		t.Error("erro veio vazio — JSON de topo quebrado devia virar erro explícito, não sucesso silencioso")
+	}
+	if imagem != nil {
+		t.Error("payload quebrado não devia produzir imagem")
 	}
 }
 
