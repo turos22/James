@@ -1,6 +1,7 @@
 import base64
 
 import james_device.tela as tela
+from james_device.elementos import Elemento, Mapa
 from james_device.superficies import Superficie
 
 DISPLAY1 = Superficie(id="DISPLAY1", largura=1920, altura=1080, origem_x=0, origem_y=0, escala=1.0, primaria=True)
@@ -168,3 +169,95 @@ def test_ver_tela_sobrevive_a_falha_da_varredura(monkeypatch):
     assert "erro" not in resultado
     assert resultado["imagem_b64"] != ""
     assert "sem arvore UIA" in resultado["saida"]
+
+
+def _preparar_mapa(monkeypatch, superficie, itens, handle=123):
+    monkeypatch.setattr(tela, "_mapa_atual", Mapa(superficie_id=superficie.id, janela_em_foco=handle, elementos=itens))
+    monkeypatch.setattr(tela, "_handle_janela_em_foco", lambda: handle)
+
+
+def test_clicar_elemento_por_id_acerta_o_centro(monkeypatch):
+    chamadas = []
+    salvar = Elemento(id="e7", nome="Salvar", tipo="Button", retangulo=(800, 440, 840, 470))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [salvar])
+    monkeypatch.setattr(tela, "_revalidar", lambda e: None)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
+
+    assert chamadas == [(820, 455)]
+    assert "Salvar" in resultado["saida"]
+
+
+def test_clicar_elemento_sem_varredura_pede_ver_tela(monkeypatch):
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    monkeypatch.setattr(tela, "_mapa_atual", None)
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
+
+    assert "erro" in resultado
+    assert "ver_tela" in resultado["erro"]
+
+
+def test_clicar_elemento_com_tela_mudada_devolve_erro_e_nao_clica(monkeypatch):
+    # Núcleo do CA6: a janela em foco mudou desde o ver_tela, então o mapa
+    # não vale mais. Clicar aqui seria clicar no lugar errado com certeza
+    # absoluta, que é o bug que esta fase inteira existe pra matar.
+    chamadas = []
+    salvar = Elemento(id="e7", nome="Salvar", tipo="Button", retangulo=(800, 440, 840, 470))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [salvar], handle=123)
+    monkeypatch.setattr(tela, "_handle_janela_em_foco", lambda: 999)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: chamadas.append("click"))
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
+
+    assert "erro" in resultado
+    assert "mudou" in resultado["erro"]
+    assert chamadas == []
+
+
+def test_clicar_elemento_que_sumiu_da_arvore_devolve_erro(monkeypatch):
+    chamadas = []
+    salvar = Elemento(id="e7", nome="Salvar", tipo="Button", retangulo=(800, 440, 840, 470))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [salvar])
+    monkeypatch.setattr(tela, "_revalidar", lambda e: "o elemento não está mais na tela")
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e7"})
+
+    assert "erro" in resultado
+    assert chamadas == []
+
+
+def test_clicar_elemento_por_nome_ambiguo_devolve_erro_util(monkeypatch):
+    a = Elemento(id="e1", nome="OK", tipo="Button", retangulo=(0, 0, 10, 10))
+    b = Elemento(id="e2", nome="OK", tipo="Button", retangulo=(20, 20, 30, 30))
+    _fixar_superficies(monkeypatch, [DISPLAY1], DISPLAY1)
+    _preparar_mapa(monkeypatch, DISPLAY1, [a, b])
+
+    resultado = tela.executar_acao({"acao": "clicar_elemento", "nome": "OK"})
+
+    assert "erro" in resultado
+    assert "OK" in resultado["erro"]
+
+
+def test_clicar_elemento_no_segundo_monitor_converte_coordenada(monkeypatch):
+    # CA8 em forma de teste unitário: elemento com retângulo global no
+    # DISPLAY7. Se a conversão sumir, o clique vai pro monitor errado.
+    chamadas = []
+    botao = Elemento(id="e1", nome="Play", tipo="Button", retangulo=(2000, 400, 2040, 430))
+    _fixar_superficies(monkeypatch, [DISPLAY1, DISPLAY7], DISPLAY7)
+    _preparar_mapa(monkeypatch, DISPLAY7, [botao])
+    monkeypatch.setattr(tela, "_revalidar", lambda e: None)
+    monkeypatch.setattr(tela.pyautogui, "moveTo", lambda x, y, duration: chamadas.append((x, y)))
+    monkeypatch.setattr(tela.pyautogui, "click", lambda: None)
+
+    tela.executar_acao({"acao": "clicar_elemento", "elemento_id": "e1"})
+
+    # O retângulo já é global, então o centro global é direto (2020,415).
+    assert chamadas == [(2020, 415)]

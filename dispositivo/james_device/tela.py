@@ -25,13 +25,13 @@ logger = logging.getLogger(__name__)
 
 pyautogui.PAUSE = 0.01
 
-# Retrato da última varredura. Task 10 só o preenche; Task 11 (clicar_elemento)
-# é quem vai lê-lo de volta pra resolver clique por id/nome, revalidando
-# contra a árvore viva antes de agir (D9).
+# Retrato da última varredura. _listar_elementos o preenche; _clicar_elemento
+# o lê de volta pra resolver clique por id/nome, revalidando contra a árvore
+# viva antes de agir (D9).
 #
 # Nunca invalidado explicitamente depois de um clique: valido_para cobre
 # troca de superfície/janela, e o resto da defesa contra tela mudada é a
-# revalidação contra a árvore viva (Task 11). Zerar aqui daria falsa
+# revalidação contra a árvore viva em _revalidar. Zerar aqui daria falsa
 # sensação de frescor sem checar o que importa de verdade.
 _mapa_atual: elementos.Mapa | None = None
 
@@ -67,6 +67,8 @@ def executar_acao(dados: dict) -> dict:
             return {"saida": f"tecla {texto} pressionada"}
         if acao == "ver_tela":
             return _ver_tela(dados)
+        if acao == "clicar_elemento":
+            return _clicar_elemento(dados)
         return {"erro": f"ação desconhecida: {acao}"}
     except Exception as erro:
         logger.exception("erro ao executar ação de tela")
@@ -114,8 +116,8 @@ def _handle_janela_em_foco() -> int:
 
 def _listar_elementos(superficie: superficies.Superficie) -> str:
     """Varre a árvore UIA da superfície e formata pro modelo. Guarda o
-    retrato em _mapa_atual — Task 11 vai lê-lo de volta pra resolver clique
-    por elemento."""
+    retrato em _mapa_atual — _clicar_elemento o lê de volta pra resolver
+    clique por elemento."""
     global _mapa_atual
     _mapa_atual = elementos.varrer(superficie, _handle_janela_em_foco())
     if not _mapa_atual.elementos:
@@ -149,3 +151,76 @@ def _ver_tela(dados: dict) -> dict:
         "saida": cabecalho + ("\n" + lista if lista else ""),
         "imagem_b64": base64.b64encode(imagem).decode(),
     }
+
+
+def _revalidar(elemento: elementos.Elemento) -> str | None:
+    """Confere o elemento contra a árvore VIVA, não contra o retrato.
+    Devolve o motivo da recusa, ou None se pode clicar.
+
+    É esta função que produz o erro real que faltava: sem ela o device
+    respondia sucesso incondicional e o modelo nunca sabia que errou.
+    Fala com o SO — sem teste automatizado, coberto por CA6."""
+    import uiautomation
+
+    x, y = elemento.centro_global()
+    try:
+        vivo = uiautomation.ControlFromPoint(x, y)
+    except Exception as erro:
+        return f"não consegui ler a tela nesse ponto: {erro}"
+
+    if vivo is None:
+        return "o elemento não está mais na tela"
+    if vivo.IsOffscreen:
+        return "o elemento está fora da área visível"
+    try:
+        if not vivo.IsEnabled:
+            return "o elemento está desabilitado"
+    except Exception:
+        pass
+
+    r = vivo.BoundingRectangle
+    if (r.left, r.top, r.right, r.bottom) != elemento.retangulo:
+        return "o elemento mudou de posição ou de tamanho desde o ver_tela"
+    return None
+
+
+def _clicar_elemento(dados: dict) -> dict:
+    superficie, erro = _resolver_superficie(dados)
+    if erro:
+        return {"erro": erro}
+
+    if _mapa_atual is None:
+        return {"erro": "não tenho varredura desta tela — chame ver_tela antes"}
+
+    handle = _handle_janela_em_foco()
+    if not _mapa_atual.valido_para(superficie.id, handle):
+        return {"erro": "a tela mudou desde o ver_tela — chame ver_tela de novo"}
+
+    identificador = dados.get("elemento_id", "")
+    nome = dados.get("nome", "")
+    tipo = dados.get("tipo", "")
+
+    if identificador:
+        elemento = _mapa_atual.por_id(identificador)
+        if elemento is None:
+            return {"erro": f"não achei o elemento {identificador} na última varredura"}
+    elif nome:
+        elemento = _mapa_atual.por_nome(nome, tipo)
+        if elemento is None:
+            quantos = sum(1 for e in _mapa_atual.elementos if e.nome == nome)
+            if quantos > 1:
+                return {"erro": f'achei {quantos} elementos chamados "{nome}" — use o elemento_id da lista'}
+            return {"erro": f'não achei nenhum elemento chamado "{nome}" na última varredura'}
+    else:
+        return {"erro": "informe elemento_id ou nome"}
+
+    recusa = _revalidar(elemento)
+    if recusa:
+        return {"erro": recusa}
+
+    x, y = elemento.centro_global()
+    pyautogui.moveTo(x, y, duration=1.0)
+    pyautogui.click()
+
+    local_x, local_y = elemento.centro_local(superficie)
+    return {"saida": f'cliquei em "{elemento.nome}" ({elemento.tipo}) em ({local_x},{local_y}) de {superficie.id}'}
