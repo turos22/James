@@ -226,3 +226,13 @@ func (v *Vault) aplicarOrcamento(notas []notaArquivo) ([]notaArquivo, bool) {
 	}
 	return mantidas, cortou
 }
+
+// Slug expõe a normalização de SlugAssunto através do Vault, sem o chamador
+// precisar importar o pacote memoria só pra reportar em qual assunto uma
+// nota caiu. Existe especificamente pra internal/ferramentas.SalvarNaMemoria
+// conseguir mostrar o slug resolvido sem fechar o ciclo de import
+// memoria → agente → ferramentas → memoria (ver comentário de vaultMemoria
+// em internal/ferramentas/memoria.go).
+func (v *Vault) Slug(assunto string) string {
+	return SlugAssunto(assunto)
+}

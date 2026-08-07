@@ -286,3 +286,10 @@ func TestRenderizarPulaDiretorioComSufixoMdSemPerderOResto(t *testing.T) {
 		t.Errorf("a nota boa sumiu junto com a ruim; bloco = %q", bloco)
 	}
 }
+
+func TestSlugExpoeSlugAssunto(t *testing.T) {
+	v := NovoVault(t.TempDir(), 2000)
+	if got := v.Slug("Preferências de Código"); got != "preferencias-de-codigo" {
+		t.Errorf("Slug(...) = %q, queria %q", got, "preferencias-de-codigo")
+	}
+}
