@@ -76,7 +76,7 @@ func dividirArredondandoPraCima(dividendo, divisor int) int {
 func custoMensagem(m agente.Mensagem) int {
 	custo := EstimarTokens(m.Texto)
 	for _, r := range m.Resultados {
-		custo += EstimarTokens(r.Saida) + EstimarTokens(r.Erro)
+		custo += EstimarTokens(r.Saida) + EstimarTokens(r.Erro) + custoImagem(r.Imagem)
 	}
 	custo += custoImagem(m.Imagem)
 	return custo

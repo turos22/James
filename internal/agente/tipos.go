@@ -28,9 +28,12 @@ type ResultadoFerramenta struct {
 	Nome  string
 	Saida string
 	Erro  string
-	// Imagem é preenchida só por ferramenta que implementa
-	// ferramentas.FerramentaComImagem — hoje só ver_tela.
-	Imagem []byte
+	// Imagem é preenchida só por ferramenta que implementar
+	// FerramentaComImagem (Fase 5, Task 5) — hoje nenhuma o faz. json:"-"
+	// porque, igual Mensagem.Imagem, não deve ser persistida no Postgres:
+	// o banco é log/auditoria, não deveria carregar binário pesado a cada
+	// turno com ver_tela.
+	Imagem []byte `json:"-"`
 }
 
 type Mensagem struct {

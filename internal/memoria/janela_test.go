@@ -178,3 +178,26 @@ func TestMontarContaImagemComoCusto(t *testing.T) {
 		}
 	})
 }
+
+func TestMontarContaImagemDeResultadoDeFerramentaComoCusto(t *testing.T) {
+	imagemGrande := pngDeTeste(t, 800, 600) // mesmo helper da Task 3, já existe no arquivo de teste
+
+	t.Run("orcamento apertado corta a mensagem com imagem no resultado", func(t *testing.T) {
+		j := Janela{OrcamentoTokens: 120}
+		mensagens := []agente.Mensagem{
+			{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
+			{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{
+				{Nome: "ver_tela", Saida: "e1 Button", Imagem: imagemGrande},
+			}},
+			{Papel: agente.PapelUsuario, Texto: "última, curta"},
+		}
+		resultado := j.Montar(mensagens)
+		for _, m := range resultado {
+			for _, r := range m.Resultados {
+				if len(r.Imagem) > 0 {
+					t.Errorf("resultado de ferramenta com screenshot de %d bytes deveria ter sido cortado, mas sobreviveu: %+v", len(r.Imagem), r)
+				}
+			}
+		}
+	})
+}
