@@ -111,20 +111,22 @@ func TestEstimarTokensImagemSegueTabelaDoGemini(t *testing.T) {
 }
 
 func TestCustoDeImagemNaoUsaMaisTamanhoEmBytes(t *testing.T) {
-	// Um PNG 960x540 de área uniforme comprime pra menos de 4KB (a janela do
-	// DEFLATE é 32KB, então em 1920x1080 a mesma imagem já não comprime bem
-	// o bastante pra provar o ponto — por isso a resolução menor aqui). Pela
-	// régua antiga (len/4) isso custaria quase nada; pela tabela do Gemini
-	// custa 1548 tokens (mesmo exemplo da doc oficial), porque o que pesa é
-	// a área, não o arquivo.
+	// Um PNG 960x540 de área uniforme comprime pra ~3,2KB (len/4 = 797,
+	// passa da guarda abaixo). Em 1920x1080 — mesma proporção, 4x a área —
+	// comprime pra ~10,5KB (len/4 = 2623, estouraria a guarda): o PNG cresce
+	// quase linearmente com a área depois que o compressor satura, por isso
+	// a resolução menor é a que prova o ponto aqui. Pela régua antiga
+	// (len/4) isso custaria quase nada; pela tabela do Gemini custa 1548
+	// tokens (mesmo exemplo da doc oficial), porque o que pesa é a área, não
+	// o arquivo.
 	imagem := pngDeTeste(t, 960, 540)
 	if len(imagem)/4 >= 1548 {
 		t.Fatalf("o PNG de teste ficou grande demais (%d bytes) para provar a diferença entre as duas réguas", len(imagem))
 	}
 
 	custo := custoMensagem(agente.Mensagem{Papel: agente.PapelUsuario, Imagem: imagem})
-	if custo < 1548 {
-		t.Errorf("custo = %d, queria pelo menos 1548 (a régua antiga por bytes daria ~%d)", custo, len(imagem)/4)
+	if custo != 1548 {
+		t.Errorf("custo = %d, queria 1548 (texto vazio, só a imagem conta; a régua antiga por bytes daria ~%d)", custo, len(imagem)/4)
 	}
 }
 
@@ -139,9 +141,7 @@ func TestCustoDeImagemQuebradaCaiNoFallbackConservador(t *testing.T) {
 }
 
 func TestMontarContaImagemComoCusto(t *testing.T) {
-	j := Janela{OrcamentoTokens: 120}
 	// 800x600: menor lado 600, crop 400, 2x2 = 4 tiles = 1032 tokens.
-	// Sozinha já estoura o orçamento de 120, que é o ponto.
 	imagemGrande := pngDeTeste(t, 800, 600)
 	mensagens := []agente.Mensagem{
 		{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
@@ -149,10 +149,32 @@ func TestMontarContaImagemComoCusto(t *testing.T) {
 		{Papel: agente.PapelUsuario, Texto: "última, curta"},
 	}
 
-	resultado := j.Montar(mensagens)
-	for _, m := range resultado {
-		if len(m.Imagem) > 0 {
-			t.Errorf("mensagem com screenshot de %d bytes deveria ter sido cortada (custo zero pra imagem reabriria o bug #4), mas sobreviveu: %+v", len(m.Imagem), m)
+	t.Run("orcamento apertado corta a mensagem com imagem", func(t *testing.T) {
+		// A imagem sozinha (1032 tokens) já estoura o orçamento de 120, que
+		// é o ponto: ela tem que ser cortada junto com o resto das antigas.
+		j := Janela{OrcamentoTokens: 120}
+		resultado := j.Montar(mensagens)
+		for _, m := range resultado {
+			if len(m.Imagem) > 0 {
+				t.Errorf("mensagem com screenshot de %d bytes deveria ter sido cortada (custo zero pra imagem reabriria o bug #4), mas sobreviveu: %+v", len(m.Imagem), m)
+			}
 		}
-	}
+	})
+
+	t.Run("orcamento generoso mantem a mensagem com imagem", func(t *testing.T) {
+		// Prova que é o CUSTO da imagem que decide, não um bug que corta
+		// tudo (ou que devolve slice vazia): com orçamento acima do custo
+		// real (1032 + texto), a mensagem com imagem sobrevive.
+		j := Janela{OrcamentoTokens: 2000}
+		resultado := j.Montar(mensagens)
+		var achouImagem bool
+		for _, m := range resultado {
+			if len(m.Imagem) > 0 {
+				achouImagem = true
+			}
+		}
+		if !achouImagem {
+			t.Error("com orçamento generoso, a mensagem com imagem deveria ter sobrevivido, mas nenhuma mensagem no resultado tem Imagem")
+		}
+	})
 }

@@ -6,8 +6,7 @@ package memoria
 import (
 	"bytes"
 	"image"
-	_ "image/jpeg" // registra o decoder — DecodeConfig só lê o header
-	_ "image/png"
+	_ "image/png" // registra o decoder — DecodeConfig só lê o header
 
 	"james/internal/agente"
 )
@@ -16,30 +15,44 @@ type Janela struct {
 	OrcamentoTokens int
 }
 
+// estimarTokensBytes é a régua grosseira compartilhada (4 caracteres/bytes
+// por token). Usada tanto pra texto (EstimarTokens) quanto como fallback de
+// imagem que não decodifica (custoImagem).
+func estimarTokensBytes(n int) int {
+	return (n + 3) / 4
+}
+
 // EstimarTokens é uma aproximação grosseira (4 caracteres por token) —
 // suficiente pra decidir o corte da janela, não pra faturamento exato.
 func EstimarTokens(texto string) int {
-	return (len(texto) + 3) / 4
+	return estimarTokensBytes(len(texto))
 }
 
 const (
 	tokensPorTile = 258
-	ladoTileUnico = 384
+	// ladoMaximoTileUnico é o maior lado (em px) até o qual a imagem inteira
+	// ainda cabe em um único tile — acima disso o custo passa a crescer por
+	// tile.
+	ladoMaximoTileUnico = 384
 )
 
 // EstimarTokensImagem devolve o custo em tokens de uma imagem pela tabela do
 // Gemini: 258 tokens quando ambos os lados cabem em 384 px, e 258 por tile
-// acima disso, com o tile derivado de floor(menor lado / 1.5).
+// acima disso, com o tile derivado de floor(menor lado / 1.5). Dimensão
+// inválida (largura ou altura <= 0) cai no custo de um tile — nunca zero,
+// que é o lado seguro pra um orçamento. O custo depende só da proporção da
+// imagem, não da resolução absoluta: 960x540 e 1920x1080 dão o mesmo tanto
+// de tiles, porque o tile cresce junto com a imagem.
 //
-// Confirmado contra a doc oficial (ai.google.dev/gemini-api/docs/image-
-// understanding) e ancorado no exemplo de lá: 960x540 tem crop 360 e dá 6
-// tiles (3x2). A régua antiga deste arquivo cobrava len(bytes)/4, o que
-// errava por cerca de 80x e criava um teto que tornaria a visão inviável.
+// Confirmado contra a doc oficial (https://ai.google.dev/gemini-api/docs/image-understanding)
+// e ancorado no exemplo de lá: 960x540 tem crop 360 e dá 6 tiles (3x2). A
+// régua antiga deste arquivo cobrava len(bytes)/4, o que errava por cerca de
+// 80x e criava um teto que tornaria a visão inviável.
 func EstimarTokensImagem(largura, altura int) int {
 	if largura <= 0 || altura <= 0 {
 		return tokensPorTile
 	}
-	if largura <= ladoTileUnico && altura <= ladoTileUnico {
+	if largura <= ladoMaximoTileUnico && altura <= ladoMaximoTileUnico {
 		return tokensPorTile
 	}
 
@@ -54,8 +67,10 @@ func EstimarTokensImagem(largura, altura int) int {
 	return dividirArredondandoPraCima(largura, crop) * dividirArredondandoPraCima(altura, crop) * tokensPorTile
 }
 
-func dividirArredondandoPraCima(a, b int) int {
-	return (a + b - 1) / b
+// dividirArredondandoPraCima só é chamada com divisor >= 1 (garantido pela
+// guarda "crop <= 0" em EstimarTokensImagem).
+func dividirArredondandoPraCima(dividendo, divisor int) int {
+	return (dividendo + divisor - 1) / divisor
 }
 
 func custoMensagem(m agente.Mensagem) int {
@@ -77,7 +92,7 @@ func custoImagem(imagem []byte) int {
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(imagem))
 	if err != nil {
-		return (len(imagem) + 3) / 4
+		return estimarTokensBytes(len(imagem))
 	}
 	return EstimarTokensImagem(cfg.Width, cfg.Height)
 }
