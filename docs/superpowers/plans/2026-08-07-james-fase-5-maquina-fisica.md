@@ -695,8 +695,7 @@ package memoria
 import (
 	"bytes"
 	"image"
-	_ "image/jpeg" // registra o decoder — DecodeConfig só lê o header
-	_ "image/png"
+	_ "image/png" // registra o decoder — DecodeConfig só lê o header
 
 	"james/internal/agente"
 )
