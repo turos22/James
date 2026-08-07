@@ -73,7 +73,11 @@ func TestVerTelaExecutarDelegaEDescartaImagem(t *testing.T) {
 }
 
 func TestVerTelaPropagaErroDaPonte(t *testing.T) {
-	ponte := &ponteFalsa{erro: dispositivo.ErroDispositivoAusente}
+	ponte := &ponteFalsa{
+		saida:  "não devia vazar",
+		imagem: []byte{9},
+		erro:   dispositivo.ErroDispositivoAusente,
+	}
 	v := NovoVerTela(ponte)
 
 	saida, imagem, err := v.ExecutarComImagem(context.Background(), map[string]any{})
