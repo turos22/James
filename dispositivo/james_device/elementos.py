@@ -18,20 +18,26 @@ logger = logging.getLogger(__name__)
 # Tipos de controle que valem a pena oferecer ao modelo. A lista existe pra
 # conter R2 (tela densa gerando lista enorme): painel, texto estático e
 # separador ocupariam a maior parte da saída sem serem clicáveis.
+#
+# Os nomes levam o sufixo "Control" (ButtonControl, não Button) porque é
+# assim que a biblioteca uiautomation devolve ControlTypeName de verdade —
+# achado na verificação ao vivo da Task 15 (CA4): a lista original, sem o
+# sufixo, não bate com nada, e varrer() volta sempre vazio em qualquer app
+# real, silenciosamente (nenhum erro, só zero elementos encontrados).
 TIPOS_INTERESSANTES = frozenset(
     {
-        "Button",
-        "CheckBox",
-        "ComboBox",
-        "Edit",
-        "Hyperlink",
-        "ListItem",
-        "MenuItem",
-        "RadioButton",
-        "Slider",
-        "Tab",
-        "TabItem",
-        "TreeItem",
+        "ButtonControl",
+        "CheckBoxControl",
+        "ComboBoxControl",
+        "EditControl",
+        "HyperlinkControl",
+        "ListItemControl",
+        "MenuItemControl",
+        "RadioButtonControl",
+        "SliderControl",
+        "TabControl",
+        "TabItemControl",
+        "TreeItemControl",
     }
 )
 
@@ -94,13 +100,44 @@ class Mapa:
         return None
 
 
+# Teto de linhas na lista formatada (não no Mapa — clicar_elemento continua
+# resolvendo por id/nome contra a lista inteira). Achado ao vivo na Task 15
+# (CA4): um desktop real com poucos apps abertos já produz 200+ elementos
+# (a maior parte da barra de tarefas, não da janela em foco), porque D14
+# varre todas as janelas visíveis da superfície, de propósito. Sem teto,
+# ver_tela custaria bem mais em tokens de texto do que a imagem em si — o
+# R2 que a Task 10 já tinha registrado como risco não fechado.
+MAXIMO_ELEMENTOS_FORMATADOS = 80
+
+
+def _nome_em_uma_linha(nome: str) -> str:
+    """Colapsa qualquer quebra de linha embutida no nome do controle numa
+    linha só. Achado ao vivo na Task 15 (CA4): controles de bandeja do
+    sistema (relógio, indicador de rede, indicador de microfone) têm .Name
+    com \\n/\\r\\n de verdade — texto de tooltip embutido no nome acessível.
+    Sem isto, "uma linha por elemento" deixa de ser verdade justamente pros
+    elementos mais exóticos, e o id/coordenada do elemento seguinte se
+    confunde com a continuação do nome anterior."""
+    return " ".join(nome.split())
+
+
 def formatar(elementos: list[Elemento], superficie: superficies.Superficie | None = None) -> str:
-    """Uma linha por elemento. Só o centro vai pro modelo — o retângulo
-    inteiro custaria quatro vezes mais token e quem precisa dele é o device."""
+    """Uma linha por elemento, até MAXIMO_ELEMENTOS_FORMATADOS. Só o centro
+    vai pro modelo — o retângulo inteiro custaria quatro vezes mais token e
+    quem precisa dele é o device.
+
+    Truncagem é honesta (avisa quantos ficaram de fora) em vez de silenciosa
+    — cortar em silêncio faria o modelo tratar "não apareceu na lista" como
+    "não existe", quando pode só estar depois do corte."""
+    visiveis = elementos[:MAXIMO_ELEMENTOS_FORMATADOS]
     linhas = []
-    for elemento in elementos:
+    for elemento in visiveis:
         x, y = elemento.centro_local(superficie) if superficie else elemento.centro_global()
-        linhas.append(f'{elemento.id}  {elemento.tipo}  "{elemento.nome}"  ({x},{y})')
+        nome = _nome_em_uma_linha(elemento.nome)
+        linhas.append(f'{elemento.id}  {elemento.tipo}  "{nome}"  ({x},{y})')
+    restantes = len(elementos) - len(visiveis)
+    if restantes > 0:
+        linhas.append(f"... e mais {restantes} elemento{'s' if restantes != 1 else ''} (peça por nome se não estiver na lista)")
     return "\n".join(linhas)
 
 

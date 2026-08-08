@@ -2,7 +2,12 @@
 sendo testado é a lógica em cima da árvore — filtro, formatação, ids — não a
 biblioteca."""
 
-from james_device.elementos import Elemento, Mapa, formatar
+from james_device.elementos import (
+    MAXIMO_ELEMENTOS_FORMATADOS,
+    Elemento,
+    Mapa,
+    formatar,
+)
 from james_device.superficies import Superficie
 
 DISPLAY1 = Superficie(id="DISPLAY1", largura=1920, altura=1080, origem_x=0, origem_y=0, escala=1.0, primaria=True)
@@ -82,3 +87,34 @@ def test_centro_local_converte_do_global():
     e = elemento("e1", "Salvar", "Button", 2000, 400, 2040, 430)
     display7 = Superficie(id="DISPLAY7", largura=1280, altura=720, origem_x=1920, origem_y=255, escala=1.0, primaria=False)
     assert e.centro_local(display7) == (100, 160)
+
+
+def test_formatar_colapsa_quebra_de_linha_no_nome():
+    # Achado ao vivo (Task 15, CA4): controles reais de bandeja (relógio,
+    # rede, microfone) têm .Name com \n/\r\n de tooltip embutido.
+    el = elemento("e1", "Relógio 02:14\n‎08/‎08/2026", "ButtonControl", 0, 0, 10, 10)
+    linhas = formatar([el]).splitlines()
+    assert len(linhas) == 1
+    assert "\n" not in linhas[0]
+
+
+def test_formatar_nao_trunca_abaixo_do_teto():
+    elementos = [elemento(f"e{i}", f"item{i}", "Button", 0, 0, 10, 10) for i in range(MAXIMO_ELEMENTOS_FORMATADOS)]
+    linhas = formatar(elementos).splitlines()
+    assert len(linhas) == MAXIMO_ELEMENTOS_FORMATADOS
+    assert "..." not in linhas[-1]
+
+
+def test_formatar_trunca_e_avisa_quantos_ficaram_de_fora():
+    # Achado ao vivo na Task 15 (CA4): um desktop real produz 200+
+    # elementos, dominado pela barra de tarefas, não pela janela em foco.
+    total = MAXIMO_ELEMENTOS_FORMATADOS + 15
+    elementos = [elemento(f"e{i}", f"item{i}", "Button", 0, 0, 10, 10) for i in range(total)]
+    linhas = formatar(elementos).splitlines()
+
+    assert len(linhas) == MAXIMO_ELEMENTOS_FORMATADOS + 1
+    assert "15 elementos" in linhas[-1]
+    # O elemento truncado ainda existe no Mapa — só não aparece formatado.
+    # Quem cortou foi formatar(), não varrer()/Mapa.
+    mapa = Mapa(superficie_id="DISPLAY1", janela_em_foco=1, elementos=elementos)
+    assert mapa.por_id(f"e{total - 1}") is not None
