@@ -87,18 +87,22 @@ func pngDeTeste(t *testing.T, largura, altura int) []byte {
 	return buf.Bytes()
 }
 
-func TestEstimarTokensImagemSegueTabelaDoGemini(t *testing.T) {
+func TestEstimarTokensImagemEhFixoConformeMedidoNaAPIReal(t *testing.T) {
+	// Valores medidos ao vivo (Task 15, CA3) contra o gemini-2.5-flash real,
+	// via GenerateContent + UsageMetadata.PromptTokensDetails: 258 tokens
+	// pra qualquer dimensão testada, de 300x200 a 5120x2880. A tabela de
+	// tiling da doc oficial não se confirmou pra este modelo nesta chamada.
 	casos := []struct {
 		nome     string
 		largura  int
 		altura   int
 		esperado int
 	}{
-		{"ambos os lados até 384 custam um tile", 300, 200, 258},
-		{"exatamente 384 ainda é um tile", 384, 384, 258},
-		{"exemplo da doc oficial: 960x540 dá 6 tiles", 960, 540, 1548},
-		{"1920x1080 tem a mesma proporção, mesmos 6 tiles", 1920, 1080, 1548},
-		{"dimensão inválida cai no custo de um tile", 0, 0, 258},
+		{"pequena", 300, 200, 258},
+		{"exemplo da doc oficial, que não se confirmou: 960x540", 960, 540, 258},
+		{"1920x1080", 1920, 1080, 258},
+		{"4K: 3840x2160", 3840, 2160, 258},
+		{"dimensão inválida", 0, 0, 258},
 	}
 
 	for _, c := range casos {
@@ -111,22 +115,19 @@ func TestEstimarTokensImagemSegueTabelaDoGemini(t *testing.T) {
 }
 
 func TestCustoDeImagemNaoUsaMaisTamanhoEmBytes(t *testing.T) {
-	// Um PNG 960x540 de área uniforme comprime pra ~3,2KB (len/4 = 797,
-	// passa da guarda abaixo). Em 1920x1080 — mesma proporção, 4x a área —
-	// comprime pra ~10,5KB (len/4 = 2623, estouraria a guarda): o PNG cresce
-	// quase linearmente com a área depois que o compressor satura, por isso
-	// a resolução menor é a que prova o ponto aqui. Pela régua antiga
-	// (len/4) isso custaria quase nada; pela tabela do Gemini custa 1548
-	// tokens (mesmo exemplo da doc oficial), porque o que pesa é a área, não
-	// o arquivo.
+	// Um PNG 960x540 de área uniforme comprime pra ~3,2KB (len/4 = 797). A
+	// régua antiga por bytes cobraria isso; o custo real medido contra a API
+	// (CA3, Task 15) é 258 tokens fixos — bem menos, porque o que importa
+	// pro Gemini não é o tamanho do arquivo, e neste modelo nem parece ser a
+	// dimensão da imagem.
 	imagem := pngDeTeste(t, 960, 540)
-	if len(imagem)/4 >= 1548 {
-		t.Fatalf("o PNG de teste ficou grande demais (%d bytes) para provar a diferença entre as duas réguas", len(imagem))
+	if len(imagem)/4 <= custoFixoImagem {
+		t.Fatalf("o PNG de teste ficou pequeno demais (%d bytes) para provar a diferença entre as duas réguas", len(imagem))
 	}
 
 	custo := custoMensagem(agente.Mensagem{Papel: agente.PapelUsuario, Imagem: imagem})
-	if custo != 1548 {
-		t.Errorf("custo = %d, queria 1548 (texto vazio, só a imagem conta; a régua antiga por bytes daria ~%d)", custo, len(imagem)/4)
+	if custo != custoFixoImagem {
+		t.Errorf("custo = %d, queria %d (texto vazio, só a imagem conta; a régua antiga por bytes daria ~%d)", custo, custoFixoImagem, len(imagem)/4)
 	}
 }
 
@@ -141,7 +142,6 @@ func TestCustoDeImagemQuebradaCaiNoFallbackConservador(t *testing.T) {
 }
 
 func TestMontarContaImagemComoCusto(t *testing.T) {
-	// 800x600: menor lado 600, crop 400, 2x2 = 4 tiles = 1032 tokens.
 	imagemGrande := pngDeTeste(t, 800, 600)
 	mensagens := []agente.Mensagem{
 		{Papel: agente.PapelUsuario, Texto: "pergunta antiga"},
@@ -150,8 +150,9 @@ func TestMontarContaImagemComoCusto(t *testing.T) {
 	}
 
 	t.Run("orcamento apertado corta a mensagem com imagem", func(t *testing.T) {
-		// A imagem sozinha (1032 tokens) já estoura o orçamento de 120, que
-		// é o ponto: ela tem que ser cortada junto com o resto das antigas.
+		// A imagem sozinha (custoFixoImagem tokens) já estoura o orçamento
+		// de 120, que é o ponto: ela tem que ser cortada junto com o resto
+		// das antigas.
 		j := Janela{OrcamentoTokens: 120}
 		resultado := j.Montar(mensagens)
 		for _, m := range resultado {

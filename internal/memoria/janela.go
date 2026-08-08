@@ -28,49 +28,32 @@ func EstimarTokens(texto string) int {
 	return estimarTokensBytes(len(texto))
 }
 
-const (
-	tokensPorTile = 258
-	// ladoMaximoTileUnico é o maior lado (em px) até o qual a imagem inteira
-	// ainda cabe em um único tile — acima disso o custo passa a crescer por
-	// tile.
-	ladoMaximoTileUnico = 384
-)
-
-// EstimarTokensImagem devolve o custo em tokens de uma imagem pela tabela do
-// Gemini: 258 tokens quando ambos os lados cabem em 384 px, e 258 por tile
-// acima disso, com o tile derivado de floor(menor lado / 1.5). Dimensão
-// inválida (largura ou altura <= 0) cai no custo de um tile — nunca zero,
-// que é o lado seguro pra um orçamento. O custo depende só da proporção da
-// imagem, não da resolução absoluta: 960x540 e 1920x1080 dão o mesmo tanto
-// de tiles, porque o tile cresce junto com a imagem.
+// custoFixoImagem é o custo em tokens de qualquer imagem no gemini-2.5-flash
+// nesta chamada de API (sem media_resolution configurado).
 //
-// Confirmado contra a doc oficial (https://ai.google.dev/gemini-api/docs/image-understanding)
-// e ancorado no exemplo de lá: 960x540 tem crop 360 e dá 6 tiles (3x2). A
-// régua antiga deste arquivo cobrava len(bytes)/4, o que errava por cerca de
-// 80x e criava um teto que tornaria a visão inviável.
+// Medido ao vivo contra a API real (Task 15, CA3 da Fase 5), via
+// GenerateContent + UsageMetadata.PromptTokensDetails isolando a
+// modalidade "imagem" do resto do prompt: 258 tokens para 300x200, 384x384,
+// 385x385, 960x540, 1920x1080, 3840x2160 e 5120x2880 — sempre o mesmo
+// valor, do menor caso ao maior testado.
+//
+// A tabela de tiling documentada em
+// ai.google.dev/gemini-api/docs/image-understanding (custo crescendo por
+// tile acima de 384px) NÃO se confirmou para este modelo nesta chamada.
+// O endpoint CountTokens também não serve pra verificar isso: devolve o
+// mesmo valor fixo (~259) pra qualquer dimensão testada, até 8000x4000 —
+// só GenerateContent com o usageMetadata real revela o custo verdadeiro.
+// Documentação não é medição; aqui a medição discordou da doc que orientou
+// a primeira versão desta função, e a medição venceu.
+const custoFixoImagem = 258
+
+// EstimarTokensImagem devolve o custo em tokens de uma imagem. Largura e
+// altura ficam na assinatura por compatibilidade com o chamador (que já tem
+// a dimensão decodificada em mãos) e porque um ajuste futuro de billing do
+// Gemini pode voltar a depender delas — mas hoje o valor é fixo, verificado
+// contra a API real (ver custoFixoImagem).
 func EstimarTokensImagem(largura, altura int) int {
-	if largura <= 0 || altura <= 0 {
-		return tokensPorTile
-	}
-	if largura <= ladoMaximoTileUnico && altura <= ladoMaximoTileUnico {
-		return tokensPorTile
-	}
-
-	menor := largura
-	if altura < menor {
-		menor = altura
-	}
-	crop := menor * 2 / 3 // floor(menor / 1.5)
-	if crop <= 0 {
-		crop = 1
-	}
-	return dividirArredondandoPraCima(largura, crop) * dividirArredondandoPraCima(altura, crop) * tokensPorTile
-}
-
-// dividirArredondandoPraCima só é chamada com divisor >= 1 (garantido pela
-// guarda "crop <= 0" em EstimarTokensImagem).
-func dividirArredondandoPraCima(dividendo, divisor int) int {
-	return (dividendo + divisor - 1) / divisor
+	return custoFixoImagem
 }
 
 func custoMensagem(m agente.Mensagem) int {
