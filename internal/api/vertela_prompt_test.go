@@ -20,7 +20,7 @@ func TestSystemPromptNomeiaVerTela(t *testing.T) {
 	if !strings.Contains(texto, "ver_tela") {
 		t.Error("o system prompt não menciona ver_tela")
 	}
-	if !strings.Contains(texto, "manipular_interface") {
+	if !strings.Contains(texto, "manipular_interface, chame ver_tela") {
 		t.Error("o system prompt não liga ver_tela a manipular_interface — a sequência é o que evita o palpite de coordenada")
 	}
 }

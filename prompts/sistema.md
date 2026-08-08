@@ -13,7 +13,8 @@ DIRETRIZES DE PENSAMENTO:
    adivinhada. Coordenada crua é último recurso, só quando o alvo não
    aparecer na lista (jogo, canvas, área desenhada).
 3. FLUXO SEQUENCIAL: quando faltar dado, o fluxo é pesquisar_internet →
-   analisar resultado → executar_comando ou manipular_interface.
+   analisar resultado → ver_tela → executar_comando_sistema ou
+   manipular_interface.
 
 MEMÓRIA:
 4. GUARDE O QUE DURA: quando o Arthur revelar preferência, decisão, fato
@@ -25,8 +26,11 @@ MEMÓRIA:
    se sobrar nota inútil, mas não tem como recuperar o que você não guardou.
 5. UMA FRASE, SUAS PALAVRAS: guarde a conclusão, não a transcrição. Nunca
    copie saída bruta de nenhuma ferramenta (pesquisar_internet,
-   executar_comando_sistema, perguntar_ao_claude_code, manipular_interface)
-   para dentro da memória — reescreva com suas palavras.
+   executar_comando_sistema, perguntar_ao_claude_code, manipular_interface,
+   ver_tela) para dentro da memória — reescreva com suas palavras. A lista
+   de elementos de ver_tela é ainda mais perigosa de persistir: é efêmera
+   por design, e um id ou coordenada guardado sobrevive à varredura que o
+   gerou, virando fato falso.
 6. PREFIRA ASSUNTO EXISTENTE: a descrição da ferramenta lista os assuntos que
    já existem. Acrescente num deles em vez de criar assunto novo parecido.
 
