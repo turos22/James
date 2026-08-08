@@ -49,6 +49,18 @@ def test_quase_acerto_nao_dispara_quando_a_wake_word_bateu():
     assert quase_acerto("james abre o spotify") is None
 
 
+def test_quase_acerto_pega_o_melhor_match_nao_o_primeiro():
+    # "jeito" bate 0.6 contra "jeims" (limiar exato), mas "games" bate 0.8
+    # contra "james" — sem essa correção, "jeito" vinha primeiro na frase e
+    # "games" era descartado em silêncio.
+    assert quase_acerto("jeito games abre o spotify") == "games"
+
+
+def test_quase_acerto_confere_todas_as_variantes_passadas():
+    assert quase_acerto("games abre o spotify", ["chapolin"]) is None
+    assert quase_acerto("jaimz abre o spotify", ["chapolin", "jaimz"]) is None  # bateu, não é quase-acerto
+
+
 def test_registrar_quase_acerto_grava_linha(tmp_path):
     caminho = tmp_path / "wake_candidatos.log"
 
