@@ -70,7 +70,10 @@ def quase_acerto(texto: str, variantes: list[str] | None = None) -> str | None:
     melhor_palavra = None
     melhor_ratio = 0.0
     for palavra in normalizar(texto).split():
-        ratio = max(difflib.SequenceMatcher(None, palavra, variante).ratio() for variante in variantes)
+        ratio = max(
+            (difflib.SequenceMatcher(None, palavra, variante).ratio() for variante in variantes),
+            default=0.0,
+        )
         if ratio > melhor_ratio:
             melhor_ratio = ratio
             melhor_palavra = palavra

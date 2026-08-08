@@ -57,8 +57,10 @@ def test_quase_acerto_pega_o_melhor_match_nao_o_primeiro():
 
 
 def test_quase_acerto_confere_todas_as_variantes_passadas():
-    assert quase_acerto("games abre o spotify", ["chapolin"]) is None
-    assert quase_acerto("jaimz abre o spotify", ["chapolin", "jaimz"]) is None  # bateu, não é quase-acerto
+    # "chapolin" (primeiro elemento) tem ratio baixo contra "games" — só
+    # comparando também contra "james" (segundo elemento) o quase-acerto
+    # aparece. Uma implementação que olhasse só variantes[0] devolveria None.
+    assert quase_acerto("games abre o spotify", ["chapolin", "james"]) == "games"
 
 
 def test_registrar_quase_acerto_grava_linha(tmp_path):
