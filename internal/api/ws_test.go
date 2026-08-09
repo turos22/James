@@ -209,6 +209,78 @@ func TestWSMesmaConexaoConsegueAprovarSuaPropriaAcao(t *testing.T) {
 	}
 }
 
+func TestReconstruirHistoricoDesambiguaPeloPapel(t *testing.T) {
+	chamadas, err := json.Marshal([]agente.ChamadaFerramenta{{ID: "c1", Nome: "ver_tela"}})
+	if err != nil {
+		t.Fatalf("erro ao preparar chamadas: %v", err)
+	}
+	resultados, err := json.Marshal([]agente.ResultadoFerramenta{{ID: "c1", Nome: "ver_tela", Saida: "superficie: DISPLAY1"}})
+	if err != nil {
+		t.Fatalf("erro ao preparar resultados: %v", err)
+	}
+
+	linhas := []postgres.Mensagem{
+		{Papel: string(agente.PapelUsuario), Conteudo: "o que tem na tela?"},
+		{Papel: string(agente.PapelModelo), Chamadas: chamadas},
+		{Papel: string(agente.PapelFerramenta), Chamadas: resultados},
+		{Papel: string(agente.PapelModelo), Conteudo: "tem a calculadora aberta"},
+	}
+
+	historico, err := reconstruirHistorico(linhas)
+	if err != nil {
+		t.Fatalf("erro ao reconstruir: %v", err)
+	}
+	if len(historico) != 4 {
+		t.Fatalf("esperava 4 mensagens, veio %d", len(historico))
+	}
+
+	// A mensagem do modelo com a coluna preenchida tem que virar Chamadas,
+	// não Resultados — e vice-versa. Trocar os dois produz histórico que o
+	// Gemini aceita com semântica errada, que é o modo de falha silencioso.
+	if len(historico[1].Chamadas) != 1 || historico[1].Chamadas[0].Nome != "ver_tela" {
+		t.Errorf("papel modelo devia virar Chamadas: %+v", historico[1])
+	}
+	if len(historico[1].Resultados) != 0 {
+		t.Errorf("papel modelo não pode produzir Resultados: %+v", historico[1])
+	}
+	if len(historico[2].Resultados) != 1 || historico[2].Resultados[0].Saida != "superficie: DISPLAY1" {
+		t.Errorf("papel ferramenta devia virar Resultados: %+v", historico[2])
+	}
+	if len(historico[2].Chamadas) != 0 {
+		t.Errorf("papel ferramenta não pode produzir Chamadas: %+v", historico[2])
+	}
+	if historico[0].Texto != "o que tem na tela?" || historico[0].Papel != agente.PapelUsuario {
+		t.Errorf("mensagem de usuário veio errada: %+v", historico[0])
+	}
+}
+
+func TestReconstruirHistoricoRejeitaColunaCorrompida(t *testing.T) {
+	linhas := []postgres.Mensagem{
+		{Papel: string(agente.PapelModelo), Chamadas: []byte("{isso não é json")},
+	}
+
+	if _, err := reconstruirHistorico(linhas); err == nil {
+		t.Fatal("esperava erro, veio nil — coluna ilegível não pode virar histórico mudo")
+	}
+}
+
+func TestReconstruirHistoricoIgnoraColunaVazia(t *testing.T) {
+	linhas := []postgres.Mensagem{
+		{Papel: string(agente.PapelModelo), Conteudo: "oi", Chamadas: nil},
+		{Papel: string(agente.PapelModelo), Conteudo: "oi de novo", Chamadas: []byte{}},
+	}
+
+	historico, err := reconstruirHistorico(linhas)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	for i, m := range historico {
+		if len(m.Chamadas) != 0 || len(m.Resultados) != 0 {
+			t.Errorf("linha %d não devia ter chamadas nem resultados: %+v", i, m)
+		}
+	}
+}
+
 func TestWSMensagemDevolveRespostaFinal(t *testing.T) {
 	servidor := servidorWSDeTeste(t)
 	defer servidor.Close()

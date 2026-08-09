@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"james/internal/agente"
+	"james/internal/armazenamento/postgres"
 	"james/internal/ferramentas"
 	"james/internal/permissao"
 )
@@ -243,4 +245,42 @@ func (s *Servidor) persistirNovasMensagens(ctx context.Context, sessaoID uuid.UU
 			slog.Error("erro ao persistir mensagem", "erro", err)
 		}
 	}
+}
+
+// reconstruirHistorico faz o caminho de volta de persistirNovasMensagens:
+// converte linhas da tabela `mensagens` em []agente.Mensagem para retomar
+// uma sessão anterior.
+//
+// A coluna `chamadas` é polimórfica de propósito — persistirNovasMensagens
+// grava ali OU m.Chamadas OU m.Resultados, o que estiver preenchido. Na
+// volta, a desambiguação é pelo papel, nunca por tentativa de decodificar
+// nos dois formatos: ChamadaFerramenta e ResultadoFerramenta compartilham
+// ID e Nome, então uma tentativa de decodificar teria sucesso nos dois e
+// escolheria o errado em silêncio.
+func reconstruirHistorico(linhas []postgres.Mensagem) ([]agente.Mensagem, error) {
+	historico := make([]agente.Mensagem, 0, len(linhas))
+
+	for i, linha := range linhas {
+		mensagem := agente.Mensagem{
+			Papel: agente.Papel(linha.Papel),
+			Texto: linha.Conteudo,
+		}
+
+		if len(linha.Chamadas) > 0 {
+			switch mensagem.Papel {
+			case agente.PapelFerramenta:
+				if err := json.Unmarshal(linha.Chamadas, &mensagem.Resultados); err != nil {
+					return nil, fmt.Errorf("linha %d (papel %q): resultados ilegíveis: %w", i, linha.Papel, err)
+				}
+			case agente.PapelModelo:
+				if err := json.Unmarshal(linha.Chamadas, &mensagem.Chamadas); err != nil {
+					return nil, fmt.Errorf("linha %d (papel %q): chamadas ilegíveis: %w", i, linha.Papel, err)
+				}
+			}
+		}
+
+		historico = append(historico, mensagem)
+	}
+
+	return historico, nil
 }
