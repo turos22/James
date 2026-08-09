@@ -2416,6 +2416,24 @@ git commit -m "feat(web): App.tsx vira composicao, sai o CSS antigo"
 
 Hoje `ferramenta_concluida` manda só `{nome, erro}`. A aba Tela precisa da saída.
 
+> **Emenda ao plano, decidida durante a Task 5.** `tratarMensagem` (`ws.go`) e
+> `tratarEntradaDeVoz` (`dispositivo.go`) montam o mesmo conjunto de eventos em
+> código independente. Essa duplicação já produziu uma regressão real: o evento
+> `token` foi removido de um caminho e sobreviveu no outro até alguém notar. Esta
+> task acrescenta campo a `ferramenta_concluida` nos **dois** caminhos, então é o
+> momento de fechar isso.
+>
+> Antes de acrescentar o campo, extraia a **forma** do evento, não o transporte:
+> injete uma função `emitir(tipo string, dados any)` em cada caminho — `cliente.Enviar`
+> de um lado, `s.Clientes.BroadcastParaPrivilegiados` do outro — e compartilhe a
+> montagem dos payloads. O broadcast nunca precisa saber que existe envio direto,
+> e vice-versa, então não há acoplamento novo entre os dois.
+>
+> Junto disso, troque os payloads de `map[string]string` por structs nomeadas com
+> tags `json`. Os testes já duplicam a struct anônima de decodificação em dois
+> arquivos, e um typo de chave num map literal hoje passa silencioso — com struct
+> nomeada vira erro de compilação.
+
 - [ ] **Step 1: Escrever o teste que falha**
 
 ```go
