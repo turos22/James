@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -334,5 +335,20 @@ func TestListarComVaultAusenteNaoEhErro(t *testing.T) {
 	}
 	if len(notas) != 0 {
 		t.Errorf("esperava lista vazia, veio %d", len(notas))
+	}
+}
+
+func TestListarPropagaErroDeLeitura(t *testing.T) {
+	// "NUL" é device reservado do Windows: os.ReadDir nele falha com erro
+	// genuíno que não é IsNotExist — diferente de caminho inexistente, de
+	// arquivo no lugar de diretório e de caminho longo demais, que o Go no
+	// Windows classifica como IsNotExist e faz cair no ramo "primeiro boot".
+	if runtime.GOOS != "windows" {
+		t.Skip("depende do device reservado NUL do Windows")
+	}
+	v := NovoVault("NUL", 2000)
+
+	if _, err := v.Listar(); err == nil {
+		t.Fatal("esperava erro de leitura, veio nil")
 	}
 }

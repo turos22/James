@@ -131,8 +131,15 @@ func (s *Servidor) listarMemoria(w http.ResponseWriter, r *http.Request) {
 
 	notas, err := s.Notas.Listar()
 	if err != nil {
+		// O erro completo vai pro log local; o cliente recebe só a
+		// notícia de que falhou. err.Error() aqui carrega o caminho
+		// absoluto do vault, e este JSON é renderizado numa tela que o
+		// celular também abre pela VPN.
 		slog.Warn("erro ao ler memória para a aba", "erro", err)
-		responderJSON(w, http.StatusOK, resposta{Notas: []memoria.NotaAssunto{}, Aviso: err.Error()})
+		responderJSON(w, http.StatusOK, resposta{
+			Notas: []memoria.NotaAssunto{},
+			Aviso: "não consegui ler a memória",
+		})
 		return
 	}
 	if notas == nil {
