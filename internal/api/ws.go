@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 
 	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
@@ -129,6 +131,21 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 	sessao, err := uuid.Parse(dados.SessaoID)
 	if err != nil {
 		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "id de sessão inválido"})
+		return
+	}
+
+	if _, err := s.Sessoes.BuscarPorID(ctx, sessao); err != nil {
+		// Sessão inexistente precisa ser recusa explícita. Aceitar e
+		// devolver "sessao_retomada" com zero mensagem deixa a conexão com
+		// sessaoID adotado que não existe em `sessoes` — o turno seguinte
+		// roda normal, mas persistirNovasMensagens estoura a foreign key e
+		// só loga, e a conversa passa a não gravar nada em silêncio.
+		mensagemCliente := "não consegui verificar essa conversa"
+		if errors.Is(err, pgx.ErrNoRows) {
+			mensagemCliente = "essa conversa não existe mais"
+		}
+		slog.Warn("retomada pedida para sessão inexistente ou ilegível", "erro", err, "sessao", sessao)
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": mensagemCliente})
 		return
 	}
 

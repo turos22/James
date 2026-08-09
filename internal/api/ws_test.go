@@ -497,3 +497,108 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 		t.Errorf("mensagens = %d, queria %d", dados.Mensagens, len(original))
 	}
 }
+
+// TestWSRetomarSessaoInexistenteDevolveErro cobre o achado da auto-revisão
+// da Task 4: sem a checagem de existência, "retomar" com um sessao_id que
+// não está em `sessoes` devolvia "sessao_retomada" com zero mensagem (sucesso
+// enganoso) e deixava a conexão com sessaoID adotado — o turno seguinte
+// tentava persistir sob esse id, estourava a foreign key
+// mensagens_sessao_id_fkey, e persistirNovasMensagens só logava o erro: a
+// conversa continuava rodando em memória sem gravar nada, em silêncio. Este
+// teste prova as duas pontas: o evento vem "erro", não "sessao_retomada"; e
+// a conexão segue limpa o bastante pra abrir e gravar uma sessão nova depois
+// da recusa.
+func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
+	s := servidorDeTeste(t)
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "resposta de teste"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
+	s.Memoria = memoria.Janela{OrcamentoTokens: 8000}
+	s.SistemaPrompt = "sistema de teste"
+	s.Clientes = NovoClientesHub()
+	s.AprovacoesPendentes = NovoRegistroAprovacoesPendentes()
+	s.TimeoutAprovacao = time.Second
+
+	ctx := context.Background()
+	antes, err := s.Sessoes.Listar(ctx)
+	if err != nil {
+		t.Fatalf("erro ao listar sessões antes: %v", err)
+	}
+	existiamAntes := make(map[uuid.UUID]bool, len(antes))
+	for _, sess := range antes {
+		existiamAntes[sess.ID] = true
+	}
+
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	inexistente := uuid.New()
+	if err := conn.WriteJSON(Envelope{Tipo: "retomar", ID: "1", Dados: codificarDados(map[string]string{"sessao_id": inexistente.String()})}); err != nil {
+		t.Fatalf("erro ao enviar retomar: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var recebido Envelope
+	if err := conn.ReadJSON(&recebido); err != nil {
+		t.Fatalf("erro ao ler do WS: %v", err)
+	}
+	if recebido.Tipo != "erro" {
+		t.Fatalf("esperava erro, veio %q (dados=%s) — sessão inexistente não pode virar sessao_retomada", recebido.Tipo, recebido.Dados)
+	}
+
+	// A conexão precisa continuar limpa: uma mensagem depois da recusa tem
+	// que abrir sessão nova (sessaoID da retomada recusada não pode ter
+	// ficado adotado) e gravar de verdade.
+	if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "2", Dados: codificarDados(map[string]string{"texto": "oi"})}); err != nil {
+		t.Fatalf("erro ao enviar mensagem: %v", err)
+	}
+	achouRespostaFinal := false
+	for i := 0; i < 5; i++ {
+		var ev Envelope
+		if err := conn.ReadJSON(&ev); err != nil {
+			t.Fatalf("erro ao ler do WS: %v", err)
+		}
+		if ev.Tipo == "resposta_final" {
+			achouRespostaFinal = true
+			break
+		}
+	}
+	if !achouRespostaFinal {
+		t.Fatal("esperava receber um envelope resposta_final")
+	}
+
+	depois, err := s.Sessoes.Listar(ctx)
+	if err != nil {
+		t.Fatalf("erro ao listar sessões depois: %v", err)
+	}
+	var nova uuid.UUID
+	for _, sess := range depois {
+		if !existiamAntes[sess.ID] {
+			nova = sess.ID
+			break
+		}
+	}
+	if nova == uuid.Nil {
+		t.Fatal("esperava uma sessão nova criada pela mensagem pós-recusa, não achei nenhuma")
+	}
+	if nova == inexistente {
+		t.Fatal("a sessão nova não pode ser o id inexistente que a retomada recusou")
+	}
+
+	linhas, err := s.Mensagens.ListarPorSessao(ctx, nova, 200)
+	if err != nil {
+		t.Fatalf("erro ao listar mensagens da sessão nova: %v", err)
+	}
+	if len(linhas) == 0 {
+		t.Error("a sessão nova devia ter gravado a mensagem enviada depois da recusa")
+	}
+}
