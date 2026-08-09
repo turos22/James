@@ -276,13 +276,23 @@ func (s *Servidor) gerarAudioDaResposta(ctx context.Context, texto string) strin
 // avisa os clientes Privilegiado, e espera decisão ou timeout (R4).
 func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarAprovacao {
 	return func(ctx context.Context, chamada agente.ChamadaFerramenta) (bool, error) {
-		argumentos, _ := json.Marshal(chamada.Args)
-		aprovacao, err := s.Aprovacoes.Criar(ctx, sessaoID, chamada.Nome, argumentos, "cliente-restrito")
+		argumentosJSON, _ := json.Marshal(chamada.Args)
+		aprovacao, err := s.Aprovacoes.Criar(ctx, sessaoID, chamada.Nome, argumentosJSON, "cliente-restrito")
 		if err != nil {
 			return false, err
 		}
 
 		espera := s.AprovacoesPendentes.aguardar(aprovacao.ID.String())
+
+		// Map nil em Go vira `null` no JSON, não `{}`. O gate de aprovação
+		// roda antes de qualquer validação de argumento, então uma chamada
+		// sem parâmetros chegaria ao front como argumentos: null — e o card
+		// de aprovação itera esse valor. "Sem argumentos" é objeto vazio.
+		argumentos := chamada.Args
+		if argumentos == nil {
+			argumentos = map[string]any{}
+		}
+
 		s.Clientes.BroadcastAprovacaoRequerida(aprovacao.ID.String(), map[string]any{
 			// Duplicado de propósito: o ClienteWS do frontend só repassa o
 			// campo "dados" do envelope pros manipuladores registrados via
@@ -293,7 +303,7 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 			// aprovação pendente de verdade.
 			"id":         aprovacao.ID.String(),
 			"ferramenta": chamada.Nome,
-			"argumentos": chamada.Args,
+			"argumentos": argumentos,
 		})
 
 		select {

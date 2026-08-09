@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -213,5 +214,75 @@ func TestCriarSolicitarAprovacaoIncluiIDDentroDeDados(t *testing.T) {
 	}
 	if idNosDados != captura.ids[0] {
 		t.Errorf(`dados["id"] = %q, queria o mesmo id do envelope (%q)`, idNosDados, captura.ids[0])
+	}
+}
+
+// clienteCapturaJSON serializa `dados` pra JSON do mesmo jeito que
+// conexaoCliente.Enviar faz de verdade (via codificarDados, em envelope.go)
+// — é o único jeito de pegar a diferença entre map[string]any nil e vazio.
+// Em memória as duas formas são indistinguíveis pros testes acima
+// (clienteCapturaIDEDados guarda o `any` cru: len() e indexação de um mapa
+// nil funcionam igual a um mapa vazio, e uma asserção sobre a struct
+// passaria mesmo com o bug). Só depois de passar por json.Marshal a
+// diferença aparece: nil vira `null`, vazio vira `{}`.
+type clienteCapturaJSON struct {
+	perfil permissao.Perfil
+	brutos []string
+}
+
+func (c *clienteCapturaJSON) Perfil() permissao.Perfil { return c.perfil }
+func (c *clienteCapturaJSON) Enviar(tipo, id string, dados any) error {
+	bruto, err := json.Marshal(dados)
+	if err != nil {
+		return err
+	}
+	c.brutos = append(c.brutos, string(bruto))
+	return nil
+}
+
+// TestCriarSolicitarAprovacaoArgumentosNuloViraObjetoVazio trava a
+// divergência entre o tipo TS (DadosAprovacaoRequerida.argumentos:
+// Record<string, unknown>, não-nulável) e o que o Go podia emitir de fato.
+// chamada.Args é map[string]any (internal/agente/tipos.go), e o gate de
+// aprovação roda ANTES de qualquer validação de argumento (internal/agente/
+// loop.go) — uma ferramenta perigosa chamada sem parâmetro nenhum chega
+// aqui com Args == nil. Map nil serializa como `null` em JSON, não `{}`; o
+// card de aprovação no front faz JSON.stringify/itera esse valor, e
+// "argumentos": null estoura em runtime mesmo com o tsc calado, porque o
+// tipo prometia objeto.
+func TestCriarSolicitarAprovacaoArgumentosNuloViraObjetoVazio(t *testing.T) {
+	s := servidorDeTesteParaAprovacao(t)
+	s.TimeoutAprovacao = 20 * time.Millisecond
+
+	sessao, err := s.Sessoes.Criar(context.Background(), "sessão de teste aprovação — argumentos nulos")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+
+	captura := &clienteCapturaJSON{perfil: permissao.Privilegiado}
+	s.Clientes.Registrar(captura)
+
+	solicitar := s.criarSolicitarAprovacao(sessao.ID)
+	// Args nil de propósito: é o zero value de ChamadaFerramenta, o que uma
+	// ferramenta sem parâmetro nenhum produz.
+	if _, err := solicitar(context.Background(), agente.ChamadaFerramenta{Nome: "ferramenta-perigosa"}); err != nil {
+		t.Fatalf("solicitar não deveria devolver erro no caminho de timeout: %v", err)
+	}
+
+	if len(captura.brutos) != 1 {
+		t.Fatalf("esperava 1 broadcast de aprovacao_requerida, recebeu %d", len(captura.brutos))
+	}
+
+	var decodificado map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(captura.brutos[0]), &decodificado); err != nil {
+		t.Fatalf("dados do evento não decodificaram como objeto JSON: %v", err)
+	}
+
+	argumentos, ok := decodificado["argumentos"]
+	if !ok {
+		t.Fatalf(`payload sem a chave "argumentos": %s`, captura.brutos[0])
+	}
+	if string(argumentos) != "{}" {
+		t.Errorf(`argumentos = %s, queria objeto vazio "{}" (não "null") — JSON completo: %s`, string(argumentos), captura.brutos[0])
 	}
 }
