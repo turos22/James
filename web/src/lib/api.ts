@@ -34,3 +34,20 @@ export async function listarMensagens(sessaoId: string): Promise<MensagemAPI[]> 
   if (!resp.ok) throw new Error(`erro ao listar mensagens: ${resp.status}`);
   return resp.json();
 }
+
+export interface NotaAssunto {
+  assunto: string;
+  conteudo: string;
+  modificado: string;
+}
+
+export interface RespostaMemoria {
+  notas: NotaAssunto[];
+  aviso?: string;
+}
+
+export async function lerMemoria(): Promise<RespostaMemoria> {
+  const resp = await fetch("/api/memoria");
+  if (!resp.ok) throw new Error(`erro ao ler memória: ${resp.status}`);
+  return resp.json();
+}
