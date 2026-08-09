@@ -318,6 +318,11 @@ func TestListarDevolveNotasPorAssuntoEmOrdem(t *testing.T) {
 	if !strings.Contains(notas[1].Conteudo, "Fase 6") {
 		t.Errorf("conteúdo não veio: %q", notas[1].Conteudo)
 	}
+	for i, nota := range notas {
+		if nota.Modificado.IsZero() {
+			t.Errorf("notas[%d].Modificado é zero, campo não foi preenchido", i)
+		}
+	}
 }
 
 func TestListarComVaultAusenteNaoEhErro(t *testing.T) {
