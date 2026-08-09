@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,6 +58,7 @@ func (s *Servidor) Rotas() http.Handler {
 	mux.HandleFunc("GET /api/sessoes", s.listarSessoes)
 	mux.HandleFunc("POST /api/sessoes", s.criarSessao)
 	mux.HandleFunc("GET /api/sessoes/{id}/mensagens", s.listarMensagens)
+	mux.HandleFunc("GET /api/memoria", s.listarMemoria)
 	mux.HandleFunc("GET /api/audio/{id}", s.servirAudio)
 	mux.HandleFunc("DELETE /api/audio/{id}", s.excluirAudio)
 	mux.HandleFunc("GET /ws", s.ws)
@@ -109,6 +111,34 @@ func (s *Servidor) listarMensagens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responderJSON(w, http.StatusOK, mensagens)
+}
+
+// listarMemoria alimenta a aba Memória. Nunca devolve 500 por vault
+// quebrado: memória é melhor-esforço em todo o resto do sistema (ver o
+// tratamento em processarTurno), e a aba segue a mesma regra — devolve
+// lista vazia com aviso, para o front conseguir mostrar o problema sem
+// tratar a resposta como falha de rede.
+func (s *Servidor) listarMemoria(w http.ResponseWriter, r *http.Request) {
+	type resposta struct {
+		Notas []memoria.NotaAssunto `json:"notas"`
+		Aviso string                `json:"aviso,omitempty"`
+	}
+
+	if s.Notas == nil {
+		responderJSON(w, http.StatusOK, resposta{Notas: []memoria.NotaAssunto{}})
+		return
+	}
+
+	notas, err := s.Notas.Listar()
+	if err != nil {
+		slog.Warn("erro ao ler memória para a aba", "erro", err)
+		responderJSON(w, http.StatusOK, resposta{Notas: []memoria.NotaAssunto{}, Aviso: err.Error()})
+		return
+	}
+	if notas == nil {
+		notas = []memoria.NotaAssunto{}
+	}
+	responderJSON(w, http.StatusOK, resposta{Notas: notas})
 }
 
 func (s *Servidor) servirAudio(w http.ResponseWriter, r *http.Request) {

@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"james/internal/armazenamento/postgres"
+	"james/internal/memoria"
 )
 
 // TestMain carrega o .env da raiz para que os testes de integração enxerguem
@@ -287,5 +288,54 @@ func TestRotasNaoPanicaComEmbutidosSPANilOuAusente(t *testing.T) {
 	s := &Servidor{}
 	if s.Rotas() == nil {
 		t.Fatal("Rotas() devolveu nil")
+	}
+}
+
+func TestGetMemoriaDevolveNotas(t *testing.T) {
+	raiz := t.TempDir()
+	vault := memoria.NovoVault(raiz, 2000)
+	if err := vault.Acrescentar("projetos", "James está na Fase 6"); err != nil {
+		t.Fatalf("erro ao preparar vault: %v", err)
+	}
+
+	s := &Servidor{Notas: vault}
+	req := httptest.NewRequest("GET", "/api/memoria", nil)
+	rec := httptest.NewRecorder()
+	s.Rotas().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200, veio %d", rec.Code)
+	}
+	var corpo struct {
+		Notas []memoria.NotaAssunto `json:"notas"`
+		Aviso string                `json:"aviso"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &corpo); err != nil {
+		t.Fatalf("resposta não é JSON válido: %v", err)
+	}
+	if len(corpo.Notas) != 1 || corpo.Notas[0].Assunto != "projetos" {
+		t.Errorf("notas vieram erradas: %+v", corpo.Notas)
+	}
+}
+
+func TestGetMemoriaSemVaultDevolve200EListaVazia(t *testing.T) {
+	// Notas nil é o estado de todo teste anterior e do primeiro boot. A aba
+	// não pode ser a única parte do sistema que trata vault ausente como 500.
+	s := &Servidor{}
+	req := httptest.NewRequest("GET", "/api/memoria", nil)
+	rec := httptest.NewRecorder()
+	s.Rotas().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200, veio %d", rec.Code)
+	}
+	var corpo struct {
+		Notas []memoria.NotaAssunto `json:"notas"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &corpo); err != nil {
+		t.Fatalf("resposta não é JSON válido: %v", err)
+	}
+	if len(corpo.Notas) != 0 {
+		t.Errorf("esperava lista vazia, veio %d", len(corpo.Notas))
 	}
 }
