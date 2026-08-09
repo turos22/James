@@ -45,6 +45,10 @@ audios/audio_jarvis.mp3
 # Material de referência de terceiros (obsidian.py é insumo da Fase 4)
 arquivos do Gui/
 
+# Mockups do companion visual de brainstorm — material de sessão,
+# regenerável, não é entregável.
+.superpowers/
+
 # Log de calibração de quase-acertos da wake word (Fase 5, D10) —
 # transcrição do que o Arthur falou, dado pessoal, não pertence ao repo.
 dispositivo/wake_candidatos.log
