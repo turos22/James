@@ -81,7 +81,7 @@ func (h *ClientesHub) BroadcastAprovacaoRequerida(id string, dados any) {
 	}
 }
 
-// BroadcastParaPrivilegiados manda qualquer evento (token, ferramenta_*,
+// BroadcastParaPrivilegiados manda qualquer evento (ferramenta_*,
 // resposta_final, erro) pra todo cliente Privilegiado conectado — é como o
 // dono da máquina vê a resposta a uma entrada de voz vinda do device, já
 // que a voz não chega por um cliente WS específico. Mesmo padrão de
