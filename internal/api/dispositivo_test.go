@@ -173,6 +173,65 @@ func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {
 	}
 }
 
+// capturarEventosDeEntradaDeVoz conecta um cliente e um device no WS de
+// teste, manda "entrada_voz" pelo device e devolve todos os envelopes que o
+// cliente Privilegiado recebeu até (e incluindo) resposta_final — molde de
+// capturarEventosDeUmTurno (ws_test.go), mas pro broadcast que sai do
+// caminho de voz em vez da resposta direta a um cliente WS.
+func capturarEventosDeEntradaDeVoz(t *testing.T, texto string) []Envelope {
+	t.Helper()
+	servidor := servidorComDispositivoDeTeste(t)
+	defer servidor.Close()
+
+	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
+
+	connCliente, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar cliente: %v", err)
+	}
+	defer connCliente.Close()
+
+	connDevice, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws/dispositivo", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar device: %v", err)
+	}
+	defer connDevice.Close()
+
+	if err := connDevice.WriteJSON(Envelope{Tipo: "entrada_voz", ID: "v1", Dados: codificarDados(map[string]string{"texto": texto})}); err != nil {
+		t.Fatalf("erro ao enviar entrada_voz: %v", err)
+	}
+
+	connCliente.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var eventos []Envelope
+	for i := 0; i < 10; i++ {
+		var recebido Envelope
+		if err := connCliente.ReadJSON(&recebido); err != nil {
+			t.Fatalf("erro ao ler no cliente: %v", err)
+		}
+		eventos = append(eventos, recebido)
+		if recebido.Tipo == "resposta_final" {
+			break
+		}
+	}
+	return eventos
+}
+
+// TestEntradaDeVozNaoEmiteToken estende pro caminho de voz o que
+// TestTurnoNaoEmiteToken (ws_test.go) já trava pro caminho de texto: sem
+// streaming (D8/D4 da spec), "token" duplicava resposta_final com o mesmo
+// conteúdo. Ficar vivo só no broadcast de voz mantinha a mesma mentira num
+// canto que ninguém olha — e o ClienteWS novo (Task 8) rejeita evento
+// desconhecido com console.warn, então token sobrevivendo aqui vira ruído
+// de console em todo turno falado.
+func TestEntradaDeVozNaoEmiteToken(t *testing.T) {
+	eventos := capturarEventosDeEntradaDeVoz(t, "oi James")
+	for _, e := range eventos {
+		if e.Tipo == "token" {
+			t.Fatalf("evento token voltou no broadcast de voz: %+v", eventos)
+		}
+	}
+}
+
 // TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID confere que a
 // emenda da Task 5 (Parte B) também vale pro caminho de voz: sessaoID já
 // era parâmetro de tratarEntradaDeVoz (preenchido por processarTurno) antes
