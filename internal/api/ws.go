@@ -69,12 +69,19 @@ func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 				s.AprovacoesPendentes.resolver(envelope.ID, false)
 			case "mensagem":
 				mensagens <- envelope
+			case "retomar":
+				mensagens <- envelope
 			}
 		}
 	}()
 
 	for envelope := range mensagens {
-		s.tratarMensagem(r.Context(), cliente, envelope, &sessaoID, &historico)
+		switch envelope.Tipo {
+		case "retomar":
+			s.tratarRetomar(r.Context(), cliente, envelope, &sessaoID, &historico)
+		default:
+			s.tratarMensagem(r.Context(), cliente, envelope, &sessaoID, &historico)
+		}
 	}
 }
 
@@ -105,6 +112,45 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 	if audioID != "" {
 		cliente.Enviar("audio_pronto", envelope.ID, map[string]string{"id": audioID})
 	}
+}
+
+// tratarRetomar roda no laço sequencial, junto com "mensagem", porque mexe
+// em sessaoID e historico — o mesmo motivo que mantém "mensagem" fora da
+// goroutine de leitura.
+func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, envelope Envelope, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
+	var dados struct {
+		SessaoID string `json:"sessao_id"`
+	}
+	if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "corpo inválido"})
+		return
+	}
+
+	sessao, err := uuid.Parse(dados.SessaoID)
+	if err != nil {
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "id de sessão inválido"})
+		return
+	}
+
+	linhas, err := s.Mensagens.ListarPorSessao(ctx, sessao, 200)
+	if err != nil {
+		// Erro de banco fica no log local: pode carregar host, porta ou
+		// detalhe de conexão, e esta mensagem é renderizada numa tela que
+		// o celular também abre pela VPN.
+		slog.Error("erro ao carregar mensagens para retomada", "erro", err, "sessao", sessao)
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui carregar a conversa"})
+		return
+	}
+
+	if err := aplicarRetomada(sessao, linhas, sessaoID, historico); err != nil {
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui reconstruir a conversa: " + err.Error()})
+		return
+	}
+
+	cliente.Enviar("sessao_retomada", envelope.ID, map[string]any{
+		"sessao_id": sessao.String(),
+		"mensagens": len(linhas),
+	})
 }
 
 // processarTurno é o núcleo compartilhado entre uma mensagem de cliente WS
@@ -289,4 +335,18 @@ func reconstruirHistorico(linhas []postgres.Mensagem) ([]agente.Mensagem, error)
 	}
 
 	return historico, nil
+}
+
+// aplicarRetomada adota uma sessão existente na conexão. Só escreve nos
+// ponteiros depois de a reconstrução ter dado certo: falhar no meio deixaria
+// a conexão com sessão adotada e histórico parcial, que é pior que não
+// retomar — o modelo receberia um contexto truncado sem ninguém saber.
+func aplicarRetomada(sessao uuid.UUID, linhas []postgres.Mensagem, sessaoID *uuid.UUID, historico *[]agente.Mensagem) error {
+	reconstruido, err := reconstruirHistorico(linhas)
+	if err != nil {
+		return err
+	}
+	*sessaoID = sessao
+	*historico = reconstruido
+	return nil
 }

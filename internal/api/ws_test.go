@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"james/internal/agente"
@@ -387,5 +388,112 @@ func TestWSMensagemDevolveRespostaFinal(t *testing.T) {
 	}
 	if !achouRespostaFinal {
 		t.Fatal("esperava receber um envelope resposta_final")
+	}
+}
+
+func TestRetomarCarregaSessaoEHistorico(t *testing.T) {
+	sessao := uuid.New()
+	linhas := []postgres.Mensagem{
+		{Papel: string(agente.PapelUsuario), Conteudo: "lembra do bolo?"},
+		{Papel: string(agente.PapelModelo), Conteudo: "lembro, de cenoura"},
+	}
+
+	var sessaoID uuid.UUID
+	var historico []agente.Mensagem
+
+	if err := aplicarRetomada(sessao, linhas, &sessaoID, &historico); err != nil {
+		t.Fatalf("erro ao retomar: %v", err)
+	}
+	if sessaoID != sessao {
+		t.Errorf("sessaoID não foi adotada: %v", sessaoID)
+	}
+	if len(historico) != 2 || historico[1].Texto != "lembro, de cenoura" {
+		t.Errorf("histórico veio errado: %+v", historico)
+	}
+}
+
+func TestRetomadaComColunaCorrompidaNaoSujaOEstado(t *testing.T) {
+	// Se a reconstrução falha, a conexão precisa continuar utilizável como
+	// sessão nova — não pode ficar com sessaoID adotada e histórico pela
+	// metade, que é o estado que produziria contexto silenciosamente errado.
+	linhas := []postgres.Mensagem{
+		{Papel: string(agente.PapelModelo), Chamadas: []byte("{quebrado")},
+	}
+
+	var sessaoID uuid.UUID
+	var historico []agente.Mensagem
+
+	if err := aplicarRetomada(uuid.New(), linhas, &sessaoID, &historico); err == nil {
+		t.Fatal("esperava erro")
+	}
+	if sessaoID != uuid.Nil {
+		t.Errorf("sessaoID não podia ter sido adotada: %v", sessaoID)
+	}
+	if len(historico) != 0 {
+		t.Errorf("histórico devia continuar vazio: %+v", historico)
+	}
+}
+
+// TestWSRetomarDevolveSessaoRetomada é o teste de integração pelo WebSocket
+// de verdade: cria uma sessão com histórico no Postgres real, conecta,
+// manda {tipo:"retomar"} com esse id e confirma que o evento
+// "sessao_retomada" volta com a contagem certa de mensagens. Os testes
+// acima cobrem aplicarRetomada isolada; este cobre o encanamento do
+// protocolo — goroutine de leitura repassando "retomar" pro canal, laço
+// sequencial despachando pro handler novo, e o handler batendo no
+// repositório real.
+func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
+	s := servidorDeTeste(t)
+	ctx := context.Background()
+
+	sessao, err := s.Sessoes.Criar(ctx, "sessão pra retomar")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+
+	original := []agente.Mensagem{
+		{Papel: agente.PapelUsuario, Texto: "lembra do bolo?"},
+		{Papel: agente.PapelModelo, Texto: "lembro, de cenoura"},
+	}
+	s.persistirNovasMensagens(ctx, sessao.ID, original, 0)
+
+	s.Clientes = NovoClientesHub()
+	s.AprovacoesPendentes = NovoRegistroAprovacoesPendentes()
+	s.TimeoutAprovacao = time.Second
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(Envelope{Tipo: "retomar", ID: "1", Dados: codificarDados(map[string]string{"sessao_id": sessao.ID.String()})}); err != nil {
+		t.Fatalf("erro ao enviar retomar: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var recebido Envelope
+	if err := conn.ReadJSON(&recebido); err != nil {
+		t.Fatalf("erro ao ler do WS: %v", err)
+	}
+	if recebido.Tipo != "sessao_retomada" {
+		t.Fatalf("esperava sessao_retomada, veio %q (dados=%s)", recebido.Tipo, recebido.Dados)
+	}
+
+	var dados struct {
+		SessaoID  string `json:"sessao_id"`
+		Mensagens int    `json:"mensagens"`
+	}
+	if err := json.Unmarshal(recebido.Dados, &dados); err != nil {
+		t.Fatalf("erro ao decodificar dados de sessao_retomada: %v", err)
+	}
+	if dados.SessaoID != sessao.ID.String() {
+		t.Errorf("sessao_id = %q, queria %q", dados.SessaoID, sessao.ID.String())
+	}
+	if dados.Mensagens != len(original) {
+		t.Errorf("mensagens = %d, queria %d", dados.Mensagens, len(original))
 	}
 }
