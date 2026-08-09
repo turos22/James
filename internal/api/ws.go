@@ -115,8 +115,13 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 		return
 	}
 
-	cliente.Enviar("token", envelope.ID, map[string]string{"texto": resp.Texto})
-	cliente.Enviar("resposta_final", envelope.ID, map[string]string{"texto": resp.Texto})
+	// sessaoID só é lido AQUI, depois de processarTurno: numa conversa nova
+	// o ponteiro ainda aponta pra uuid.Nil antes da chamada (a sessão nasce
+	// dentro dela). Ler antes mandaria sessao_id vazio pro cliente.
+	cliente.Enviar("resposta_final", envelope.ID, map[string]string{
+		"texto":     resp.Texto,
+		"sessao_id": sessaoID.String(),
+	})
 	if audioID != "" {
 		cliente.Enviar("audio_pronto", envelope.ID, map[string]string{"id": audioID})
 	}

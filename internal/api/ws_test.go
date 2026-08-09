@@ -391,6 +391,141 @@ func TestWSMensagemDevolveRespostaFinal(t *testing.T) {
 	}
 }
 
+// capturarEventosDeUmTurno conecta no WS de teste, manda uma mensagem e
+// devolve todos os envelopes recebidos até (e incluindo) resposta_final —
+// usado por testes que precisam inspecionar a sequência inteira de eventos
+// de um turno, não só o resultado final.
+func capturarEventosDeUmTurno(t *testing.T, texto string) []Envelope {
+	t.Helper()
+	servidor := servidorWSDeTeste(t)
+	defer servidor.Close()
+
+	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "1", Dados: codificarDados(map[string]string{"texto": texto})}); err != nil {
+		t.Fatalf("erro ao enviar mensagem: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var eventos []Envelope
+	for i := 0; i < 10; i++ {
+		var recebido Envelope
+		if err := conn.ReadJSON(&recebido); err != nil {
+			t.Fatalf("erro ao ler do WS: %v", err)
+		}
+		eventos = append(eventos, recebido)
+		if recebido.Tipo == "resposta_final" {
+			break
+		}
+	}
+	return eventos
+}
+
+// TestTurnoNaoEmiteToken trava a Task 5: sem streaming (decisão D4 da spec),
+// "token" mandava resp.Texto inteiro um instante antes de resposta_final
+// mandar o mesmo conteúdo de novo — evento duplicado prometendo streaming
+// que não existe. Este teste existe pra "token" não voltar por engano
+// quando alguém implementar streaming de verdade sem revisar o formato.
+func TestTurnoNaoEmiteToken(t *testing.T) {
+	eventos := capturarEventosDeUmTurno(t, "oi")
+	for _, e := range eventos {
+		if e.Tipo == "token" {
+			t.Fatalf("evento token voltou: %+v", eventos)
+		}
+	}
+}
+
+// TestRespostaFinalCarregaSessaoIDDaSessaoCriada é a emenda da Task 5,
+// Parte B: hoje sessaoID nasce dentro do servidor (processarTurno cria a
+// sessão na primeira mensagem de uma conversa nova) e nunca chegava ao
+// cliente — só descobria a sessão quem já tivesse pedido "retomar" alguma
+// vez. Isso quebraria a aba Sessões (Task 15), que precisa destacar como
+// "atual" a conversa que está rolando agora, não só as já retomadas. O
+// teste confere não só que sessao_id vem preenchido, mas que é EXATAMENTE o
+// id da sessão que processarTurno criou no Postgres — não um UUID qualquer.
+func TestRespostaFinalCarregaSessaoIDDaSessaoCriada(t *testing.T) {
+	s := servidorDeTeste(t)
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "resposta de teste"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
+	s.Memoria = memoria.Janela{OrcamentoTokens: 8000}
+	s.SistemaPrompt = "sistema de teste"
+	s.Clientes = NovoClientesHub()
+	s.AprovacoesPendentes = NovoRegistroAprovacoesPendentes()
+	s.TimeoutAprovacao = time.Second
+
+	ctx := context.Background()
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	// Título único (inclui um UUID) pelo mesmo motivo de
+	// TestWSRetomarSessaoInexistenteDevolveErro: os pacotes de teste rodam
+	// em paralelo contra o mesmo banco, filtrar só por "sessão mais nova"
+	// seria frágil.
+	textoUnico := "teste sessao_id em resposta_final " + uuid.New().String()
+	if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "1", Dados: codificarDados(map[string]string{"texto": textoUnico})}); err != nil {
+		t.Fatalf("erro ao enviar mensagem: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var dadosRecebidos struct {
+		Texto    string `json:"texto"`
+		SessaoID string `json:"sessao_id"`
+	}
+	achouRespostaFinal := false
+	for i := 0; i < 5; i++ {
+		var recebido Envelope
+		if err := conn.ReadJSON(&recebido); err != nil {
+			t.Fatalf("erro ao ler do WS: %v", err)
+		}
+		if recebido.Tipo == "resposta_final" {
+			if err := json.Unmarshal(recebido.Dados, &dadosRecebidos); err != nil {
+				t.Fatalf("erro ao decodificar dados de resposta_final: %v", err)
+			}
+			achouRespostaFinal = true
+			break
+		}
+	}
+	if !achouRespostaFinal {
+		t.Fatal("esperava receber um envelope resposta_final")
+	}
+	if dadosRecebidos.SessaoID == "" {
+		t.Fatal("sessao_id veio vazio em resposta_final")
+	}
+
+	todas, err := s.Sessoes.Listar(ctx)
+	if err != nil {
+		t.Fatalf("erro ao listar sessões: %v", err)
+	}
+	var criada uuid.UUID
+	for _, sess := range todas {
+		if sess.Titulo == textoUnico {
+			criada = sess.ID
+			break
+		}
+	}
+	if criada == uuid.Nil {
+		t.Fatal("não achei no banco a sessão criada pelo título único")
+	}
+	if dadosRecebidos.SessaoID != criada.String() {
+		t.Errorf("sessao_id em resposta_final = %q, queria o id da sessão criada no banco: %q", dadosRecebidos.SessaoID, criada.String())
+	}
+}
+
 func TestRetomarCarregaSessaoEHistorico(t *testing.T) {
 	sessao := uuid.New()
 	linhas := []postgres.Mensagem{

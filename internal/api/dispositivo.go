@@ -130,7 +130,12 @@ func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, ses
 		return
 	}
 	s.Clientes.BroadcastParaPrivilegiados("token", id, map[string]string{"texto": resp.Texto})
-	s.Clientes.BroadcastParaPrivilegiados("resposta_final", id, map[string]string{"texto": resp.Texto})
+	// Mesmo ponto de atenção de tratarMensagem (ws.go): sessaoID só é lido
+	// depois de processarTurno, nunca antes.
+	s.Clientes.BroadcastParaPrivilegiados("resposta_final", id, map[string]string{
+		"texto":     resp.Texto,
+		"sessao_id": sessaoID.String(),
+	})
 	if audioID != "" {
 		s.Clientes.BroadcastParaPrivilegiados("audio_pronto", id, map[string]string{"id": audioID})
 	}

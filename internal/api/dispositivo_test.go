@@ -172,3 +172,58 @@ func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {
 		t.Fatal("cliente privilegiado deveria ter recebido resposta_final originada da entrada_voz do device")
 	}
 }
+
+// TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID confere que a
+// emenda da Task 5 (Parte B) também vale pro caminho de voz: sessaoID já
+// era parâmetro de tratarEntradaDeVoz (preenchido por processarTurno) antes
+// desta mudança — não precisou de refatoração de assinatura pra ficar
+// disponível aqui, então não há motivo pra esse caminho ficar sem o campo
+// que o caminho do cliente WS ganhou.
+func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
+	servidor := servidorComDispositivoDeTeste(t)
+	defer servidor.Close()
+
+	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
+
+	connCliente, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar cliente: %v", err)
+	}
+	defer connCliente.Close()
+
+	connDevice, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws/dispositivo", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar device: %v", err)
+	}
+	defer connDevice.Close()
+
+	if err := connDevice.WriteJSON(Envelope{Tipo: "entrada_voz", ID: "v1", Dados: codificarDados(map[string]string{"texto": "oi James, sessao_id por voz"})}); err != nil {
+		t.Fatalf("erro ao enviar entrada_voz: %v", err)
+	}
+
+	connCliente.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var dadosRecebidos struct {
+		Texto    string `json:"texto"`
+		SessaoID string `json:"sessao_id"`
+	}
+	achouRespostaFinal := false
+	for i := 0; i < 5; i++ {
+		var recebido Envelope
+		if err := connCliente.ReadJSON(&recebido); err != nil {
+			t.Fatalf("erro ao ler no cliente: %v", err)
+		}
+		if recebido.Tipo == "resposta_final" {
+			if err := json.Unmarshal(recebido.Dados, &dadosRecebidos); err != nil {
+				t.Fatalf("erro ao decodificar dados de resposta_final: %v", err)
+			}
+			achouRespostaFinal = true
+			break
+		}
+	}
+	if !achouRespostaFinal {
+		t.Fatal("cliente privilegiado deveria ter recebido resposta_final originada da entrada_voz do device")
+	}
+	if dadosRecebidos.SessaoID == "" {
+		t.Fatal("sessao_id veio vazio em resposta_final originada de entrada_voz")
+	}
+}
