@@ -697,8 +697,14 @@ Em `web/src/App.tsx`, no `div.container`, acrescente `data-tw-teste` e a classe 
     <div className="container text-[13px]" data-tw-teste>
 ```
 
-Run: `npm run build --prefix web && grep -c "text-\[13px\]" web/dist/assets/*.css`
+Run: `npm run build --prefix web && grep -cF 'text-\[13px\]' web/dist/assets/*.css`
 Expected: pelo menos 1 — se der 0, o Tailwind não está varrendo os arquivos; consulte a documentação da versão instalada pelo context7 (MCP) antes de seguir.
+
+> **Use `grep -cF`, não `grep -c`.** O CSS gerado contém a barra de escape de
+> verdade (`.text-\[13px\]`), mas em expressão regular básica `\[` casa um
+> colchete literal **sem** barra — então `grep -c` devolve 0 mesmo com a classe
+> presente no bundle, e alguém conclui que o Tailwind quebrou quando não quebrou.
+> Isso aconteceu de verdade na primeira execução desta task.
 
 - [ ] **Step 5: Desfazer a marcação de teste**
 
