@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
 	"james/internal/agente"
@@ -18,7 +19,12 @@ import (
 	"james/internal/memoria"
 )
 
-func servidorComDispositivoDeTeste(t *testing.T) *httptest.Server {
+// servidorComDispositivoDeTeste devolve o *httptest.Server (pra dial WS e
+// Close) e também o *Servidor por trás dele — testes que precisam conferir
+// estado gravado no Postgres (ex.: TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID)
+// usam o segundo pra chamar s.Sessoes.Listar diretamente; quem não precisa,
+// descarta com `_`.
+func servidorComDispositivoDeTeste(t *testing.T) (*httptest.Server, *Servidor) {
 	t.Helper()
 	url := postgres.URLDoAmbiente()
 	if url == "" {
@@ -49,11 +55,11 @@ func servidorComDispositivoDeTeste(t *testing.T) *httptest.Server {
 		TimeoutAprovacao:    time.Second,
 		DispositivoHub:      dispositivo.NovoHub(),
 	}
-	return httptest.NewServer(s.Rotas())
+	return httptest.NewServer(s.Rotas()), s
 }
 
 func TestWSDispositivoResultadoAcaoResolveHub(t *testing.T) {
-	servidor := servidorComDispositivoDeTeste(t)
+	servidor, _ := servidorComDispositivoDeTeste(t)
 	defer servidor.Close()
 
 	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws/dispositivo"
@@ -135,7 +141,7 @@ func TestResultadoAcaoComBase64InvalidaSegueSemImagem(t *testing.T) {
 }
 
 func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {
-	servidor := servidorComDispositivoDeTeste(t)
+	servidor, _ := servidorComDispositivoDeTeste(t)
 	defer servidor.Close()
 
 	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
@@ -180,7 +186,7 @@ func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {
 // caminho de voz em vez da resposta direta a um cliente WS.
 func capturarEventosDeEntradaDeVoz(t *testing.T, texto string) []Envelope {
 	t.Helper()
-	servidor := servidorComDispositivoDeTeste(t)
+	servidor, _ := servidorComDispositivoDeTeste(t)
 	defer servidor.Close()
 
 	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
@@ -238,9 +244,16 @@ func TestEntradaDeVozNaoEmiteToken(t *testing.T) {
 // desta mudança — não precisou de refatoração de assinatura pra ficar
 // disponível aqui, então não há motivo pra esse caminho ficar sem o campo
 // que o caminho do cliente WS ganhou.
+//
+// A asserção final compara contra s.Sessoes.Listar (Postgres real), não só
+// "não vazio" — mesmo padrão de TestRespostaFinalCarregaSessaoIDDaSessaoCriada
+// (ws_test.go). "Não vazio" passaria até com um UUID trocado ou o de outra
+// sessão; a rede de segurança que essa task promete só existe comparando
+// UUID com UUID contra o que foi de fato gravado.
 func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
-	servidor := servidorComDispositivoDeTeste(t)
+	servidor, s := servidorComDispositivoDeTeste(t)
 	defer servidor.Close()
+	ctx := context.Background()
 
 	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
 
@@ -256,7 +269,12 @@ func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
 	}
 	defer connDevice.Close()
 
-	if err := connDevice.WriteJSON(Envelope{Tipo: "entrada_voz", ID: "v1", Dados: codificarDados(map[string]string{"texto": "oi James, sessao_id por voz"})}); err != nil {
+	// Título único (inclui um UUID), mesmo motivo de
+	// TestWSRetomarSessaoInexistenteDevolveErro (ws_test.go): os pacotes de
+	// teste rodam em paralelo contra o mesmo banco, filtrar só por "sessão
+	// mais nova" seria frágil.
+	textoUnico := "oi James, sessao_id por voz " + uuid.New().String()
+	if err := connDevice.WriteJSON(Envelope{Tipo: "entrada_voz", ID: "v1", Dados: codificarDados(map[string]string{"texto": textoUnico})}); err != nil {
 		t.Fatalf("erro ao enviar entrada_voz: %v", err)
 	}
 
@@ -284,5 +302,23 @@ func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
 	}
 	if dadosRecebidos.SessaoID == "" {
 		t.Fatal("sessao_id veio vazio em resposta_final originada de entrada_voz")
+	}
+
+	todas, err := s.Sessoes.Listar(ctx)
+	if err != nil {
+		t.Fatalf("erro ao listar sessões: %v", err)
+	}
+	var criada uuid.UUID
+	for _, sess := range todas {
+		if sess.Titulo == textoUnico {
+			criada = sess.ID
+			break
+		}
+	}
+	if criada == uuid.Nil {
+		t.Fatal("não achei no banco a sessão criada pelo título único")
+	}
+	if dadosRecebidos.SessaoID != criada.String() {
+		t.Errorf("sessao_id em resposta_final = %q, queria o id da sessão criada no banco: %q", dadosRecebidos.SessaoID, criada.String())
 	}
 }
