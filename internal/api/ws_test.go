@@ -505,9 +505,11 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 // tentava persistir sob esse id, estourava a foreign key
 // mensagens_sessao_id_fkey, e persistirNovasMensagens só logava o erro: a
 // conversa continuava rodando em memória sem gravar nada, em silêncio. Este
-// teste prova as duas pontas: o evento vem "erro", não "sessao_retomada"; e
-// a conexão segue limpa o bastante pra abrir e gravar uma sessão nova depois
-// da recusa.
+// teste prova três pontas: o evento vem "erro", não "sessao_retomada"; a
+// mensagem é especificamente a de sessão inexistente, não a genérica de
+// falha de banco (senão inverter a condição do errors.Is não quebraria
+// nada); e a conexão segue limpa o bastante pra abrir e gravar uma sessão
+// nova depois da recusa.
 func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 	s := servidorDeTeste(t)
 	s.Loop = &agente.Loop{
@@ -522,14 +524,6 @@ func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 	s.TimeoutAprovacao = time.Second
 
 	ctx := context.Background()
-	antes, err := s.Sessoes.Listar(ctx)
-	if err != nil {
-		t.Fatalf("erro ao listar sessões antes: %v", err)
-	}
-	existiamAntes := make(map[uuid.UUID]bool, len(antes))
-	for _, sess := range antes {
-		existiamAntes[sess.ID] = true
-	}
 
 	servidor := httptest.NewServer(s.Rotas())
 	defer servidor.Close()
@@ -554,11 +548,28 @@ func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 	if recebido.Tipo != "erro" {
 		t.Fatalf("esperava erro, veio %q (dados=%s) — sessão inexistente não pode virar sessao_retomada", recebido.Tipo, recebido.Dados)
 	}
+	var dadosErro struct {
+		Mensagem string `json:"mensagem"`
+	}
+	if err := json.Unmarshal(recebido.Dados, &dadosErro); err != nil {
+		t.Fatalf("erro ao decodificar dados do erro: %v", err)
+	}
+	// Especificamente esta mensagem, não a genérica de falha de banco —
+	// senão inverter a condição do errors.Is(err, pgx.ErrNoRows) em
+	// tratarRetomar não quebraria teste nenhum.
+	if dadosErro.Mensagem != "essa conversa não existe mais" {
+		t.Errorf("mensagem = %q, queria %q", dadosErro.Mensagem, "essa conversa não existe mais")
+	}
 
 	// A conexão precisa continuar limpa: uma mensagem depois da recusa tem
 	// que abrir sessão nova (sessaoID da retomada recusada não pode ter
-	// ficado adotado) e gravar de verdade.
-	if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "2", Dados: codificarDados(map[string]string{"texto": "oi"})}); err != nil {
+	// ficado adotado) e gravar de verdade. Título improvável de colidir
+	// (inclui um UUID) porque internal/armazenamento/postgres roda em
+	// paralelo com internal/api sob `go test ./...`, gravando na mesma
+	// tabela `sessoes` do mesmo banco — filtrar só por "sessão mais nova"
+	// seria frágil.
+	textoUnico := "teste retomada sessão inexistente " + uuid.New().String()
+	if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "2", Dados: codificarDados(map[string]string{"texto": textoUnico})}); err != nil {
 		t.Fatalf("erro ao enviar mensagem: %v", err)
 	}
 	achouRespostaFinal := false
@@ -576,25 +587,25 @@ func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 		t.Fatal("esperava receber um envelope resposta_final")
 	}
 
-	depois, err := s.Sessoes.Listar(ctx)
+	todas, err := s.Sessoes.Listar(ctx)
 	if err != nil {
-		t.Fatalf("erro ao listar sessões depois: %v", err)
+		t.Fatalf("erro ao listar sessões: %v", err)
 	}
 	var nova uuid.UUID
-	for _, sess := range depois {
-		if !existiamAntes[sess.ID] {
+	for _, sess := range todas {
+		if sess.Titulo == textoUnico {
 			nova = sess.ID
 			break
 		}
 	}
 	if nova == uuid.Nil {
-		t.Fatal("esperava uma sessão nova criada pela mensagem pós-recusa, não achei nenhuma")
+		t.Fatal("esperava achar a sessão nova pelo título único, não achei nenhuma")
 	}
 	if nova == inexistente {
 		t.Fatal("a sessão nova não pode ser o id inexistente que a retomada recusou")
 	}
 
-	linhas, err := s.Mensagens.ListarPorSessao(ctx, nova, 200)
+	linhas, err := s.Mensagens.ListarPorSessao(ctx, nova, limiteMensagensSessao)
 	if err != nil {
 		t.Fatalf("erro ao listar mensagens da sessão nova: %v", err)
 	}

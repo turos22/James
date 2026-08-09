@@ -105,7 +105,7 @@ func (s *Servidor) listarMensagens(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id inválido", http.StatusBadRequest)
 		return
 	}
-	mensagens, err := s.Mensagens.ListarPorSessao(r.Context(), id, 200)
+	mensagens, err := s.Mensagens.ListarPorSessao(r.Context(), id, limiteMensagensSessao)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

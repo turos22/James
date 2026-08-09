@@ -74,3 +74,40 @@ func (r *MensagemRepositorio) ListarPorSessao(ctx context.Context, sessaoID uuid
 	}
 	return mensagens, linhas.Err()
 }
+
+// ListarRecentesPorSessao devolve as `limite` mensagens mais RECENTES da
+// sessão, já em ordem cronológica. Existe separado de ListarPorSessao
+// porque as duas têm semântica oposta quando a sessão estoura o limite: o
+// REST lista do começo para exibir a conversa, a retomada precisa do fim
+// para continuar de onde parou.
+func (r *MensagemRepositorio) ListarRecentesPorSessao(ctx context.Context, sessaoID uuid.UUID, limite int) ([]Mensagem, error) {
+	linhas, err := r.pool.Query(ctx,
+		`SELECT id, sessao_id, papel, conteudo, chamadas, criada_em FROM mensagens
+		 WHERE sessao_id=$1 ORDER BY criada_em DESC LIMIT $2`, sessaoID, limite)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar mensagens recentes da sessão %s: %w", sessaoID, err)
+	}
+	defer linhas.Close()
+
+	var mensagens []Mensagem
+	for linhas.Next() {
+		var m Mensagem
+		if err := linhas.Scan(&m.ID, &m.SessaoID, &m.Papel, &m.Conteudo, &m.Chamadas, &m.CriadaEm); err != nil {
+			return nil, err
+		}
+		mensagens = append(mensagens, m)
+	}
+	if err := linhas.Err(); err != nil {
+		return nil, err
+	}
+
+	// A query veio DESC (mais recente primeiro) pra o LIMIT pegar a cauda
+	// certa; inverte aqui pra quem chama sempre receber em ordem
+	// cronológica, igual ListarPorSessao — reconstruirHistorico e
+	// memoria.Janela.Montar dependem dessa ordem.
+	for i, j := 0, len(mensagens)-1; i < j; i, j = i+1, j-1 {
+		mensagens[i], mensagens[j] = mensagens[j], mensagens[i]
+	}
+
+	return mensagens, nil
+}

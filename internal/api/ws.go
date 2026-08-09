@@ -25,6 +25,12 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// limiteMensagensSessao é o teto de linhas trazidas do Postgres por sessão,
+// tanto pro REST listar a conversa (ListarPorSessao, do começo) quanto pra
+// retomada via WS reconstruir o histórico (ListarRecentesPorSessao, do
+// fim) — mesmo número, semânticas opostas.
+const limiteMensagensSessao = 200
+
 func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -142,14 +148,27 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 		// só loga, e a conversa passa a não gravar nada em silêncio.
 		mensagemCliente := "não consegui verificar essa conversa"
 		if errors.Is(err, pgx.ErrNoRows) {
+			// Rotina: cliente mandou um id que não existe (apagada, digitada
+			// errado). Não é falha do servidor.
 			mensagemCliente = "essa conversa não existe mais"
+			slog.Warn("retomada pedida para sessão inexistente", "erro", err, "sessao", sessao)
+		} else {
+			// Qualquer outro erro é falha real de banco — merece Error, não
+			// Warn, pra não se perder no ruído de tentativas de retomar
+			// sessão apagada.
+			slog.Error("erro ao verificar sessão para retomada", "erro", err, "sessao", sessao)
 		}
-		slog.Warn("retomada pedida para sessão inexistente ou ilegível", "erro", err, "sessao", sessao)
 		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": mensagemCliente})
 		return
 	}
 
-	linhas, err := s.Mensagens.ListarPorSessao(ctx, sessao, 200)
+	// ListarRecentesPorSessao, não ListarPorSessao: a retomada precisa da
+	// CAUDA da conversa (continuar de onde parou), não do começo — que é o
+	// que ListarPorSessao devolve quando a sessão estoura o limite (usado
+	// pelo REST, que exibe a conversa desde o início). Usar o método errado
+	// aqui faria memoria.Janela.Montar montar a cauda de um pedaço antigo,
+	// e o turno seguinte rodaria com contexto desatualizado sem erro nenhum.
+	linhas, err := s.Mensagens.ListarRecentesPorSessao(ctx, sessao, limiteMensagensSessao)
 	if err != nil {
 		// Erro de banco fica no log local: pode carregar host, porta ou
 		// detalhe de conexão, e esta mensagem é renderizada numa tela que
@@ -160,7 +179,13 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 	}
 
 	if err := aplicarRetomada(sessao, linhas, sessaoID, historico); err != nil {
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui reconstruir a conversa: " + err.Error()})
+		// Mesmo critério dos branches acima: log completo local, mensagem
+		// genérica pro cliente. Este era o único caminho de erro de
+		// tratarRetomar sem slog — se a coluna `chamadas` corromper em
+		// produção, sem isso a única evidência seria o que o usuário
+		// copiasse da tela.
+		slog.Error("erro ao reconstruir histórico para retomada", "erro", err, "sessao", sessao)
+		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui reconstruir a conversa"})
 		return
 	}
 
