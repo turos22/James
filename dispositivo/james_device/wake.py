@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # A calibração com gravações reais do Arthur é tarefa da Fase 5.
 VARIANTES_PADRAO = [
     "james",
+    "jame",
     "jeimes",
     "jaimes",
     "jeims",
@@ -31,9 +32,12 @@ VARIANTES_PADRAO = [
 # ruído. Está no .gitignore — é transcrição do que o Arthur falou.
 CAMINHO_LOG_QUASE_ACERTO = Path("dispositivo/wake_candidatos.log")
 
-# 0.6 pega "games" (0.8 contra "james") e deixa passar palavra distante.
-# Calibrável depois, com o próprio log em mãos.
-LIMIAR_QUASE_ACERTO = 0.6
+# 0.65 pega "games" (0.8 contra "james") e deixa passar palavra distante.
+# Subiu de 0.6 quando "jame" entrou na lista: variante de 4 letras infla o
+# ratio de qualquer palavra que comece com "ja", e "janela" passou a bater
+# 0.6 cravado — o log de calibração ia encher de "abre a janela". Ativação
+# nunca dependeu deste limiar, só o log.
+LIMIAR_QUASE_ACERTO = 0.65
 
 
 def normalizar(texto: str) -> str:

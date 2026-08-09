@@ -20,6 +20,16 @@ def test_reconhece_variantes_da_wake_word(ouvido):
     assert contem_wake_word(ouvido) is True
 
 
+@pytest.mark.parametrize("ouvido", ["jame", "jame abre a calculadora", "ei Jame"])
+def test_reconhece_jame_sem_o_s_final(ouvido):
+    # Calibração real de 2026-08-08: com o device rodando, o log de
+    # quase-acerto registrou "jame" duas vezes em menos de trinta segundos —
+    # o STT em pt-BR come o S final na fala normal do Arthur. Como o
+    # casamento é por palavra inteira (\bjames\b), "jame" não ativava nada e
+    # a escuta parecia morta, mesmo com microfone e reconhecimento sãos.
+    assert contem_wake_word(ouvido) is True
+
+
 @pytest.mark.parametrize(
     "ouvido",
     ["athena", "bom dia", "", "jazz", "gosto de games", "hyperjames", "ohjamesboy", "jaimesabe"],
@@ -50,10 +60,12 @@ def test_quase_acerto_nao_dispara_quando_a_wake_word_bateu():
 
 
 def test_quase_acerto_pega_o_melhor_match_nao_o_primeiro():
-    # "jeito" bate 0.6 contra "jeims" (limiar exato), mas "games" bate 0.8
-    # contra "james" — sem essa correção, "jeito" vinha primeiro na frase e
-    # "games" era descartado em silêncio.
-    assert quase_acerto("jeito games abre o spotify") == "games"
+    # "jane" bate 0.75 contra "jame" (acima do limiar de 0.65), mas "games"
+    # bate 0.8 contra "james" — sem essa correção, "jane" vinha primeiro na
+    # frase e "games" era descartado em silêncio. O exemplo era "jeito"
+    # (0.6 contra "jeims") enquanto o limiar era 0.6; com 0.65 ele deixou de
+    # passar do limiar e o teste parava de provar o que diz provar.
+    assert quase_acerto("jane games abre o spotify") == "games"
 
 
 def test_quase_acerto_confere_todas_as_variantes_passadas():
