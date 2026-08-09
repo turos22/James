@@ -257,10 +257,14 @@ func (s *Servidor) persistirNovasMensagens(ctx context.Context, sessaoID uuid.UU
 // nos dois formatos: ChamadaFerramenta e ResultadoFerramenta compartilham
 // ID e Nome, então uma tentativa de decodificar teria sucesso nos dois e
 // escolheria o errado em silêncio.
+//
+// Imagem nunca é reconstruída — o Postgres nunca a persistiu (ver
+// ResultadoFerramenta.Imagem); retomar uma sessão com ver_tela recupera o
+// texto e a saída, não o frame.
 func reconstruirHistorico(linhas []postgres.Mensagem) ([]agente.Mensagem, error) {
 	historico := make([]agente.Mensagem, 0, len(linhas))
 
-	for i, linha := range linhas {
+	for _, linha := range linhas {
 		mensagem := agente.Mensagem{
 			Papel: agente.Papel(linha.Papel),
 			Texto: linha.Conteudo,
@@ -270,12 +274,14 @@ func reconstruirHistorico(linhas []postgres.Mensagem) ([]agente.Mensagem, error)
 			switch mensagem.Papel {
 			case agente.PapelFerramenta:
 				if err := json.Unmarshal(linha.Chamadas, &mensagem.Resultados); err != nil {
-					return nil, fmt.Errorf("linha %d (papel %q): resultados ilegíveis: %w", i, linha.Papel, err)
+					return nil, fmt.Errorf("mensagem id=%d (papel %q): resultados ilegíveis: %w", linha.ID, linha.Papel, err)
 				}
 			case agente.PapelModelo:
 				if err := json.Unmarshal(linha.Chamadas, &mensagem.Chamadas); err != nil {
-					return nil, fmt.Errorf("linha %d (papel %q): chamadas ilegíveis: %w", i, linha.Papel, err)
+					return nil, fmt.Errorf("mensagem id=%d (papel %q): chamadas ilegíveis: %w", linha.ID, linha.Papel, err)
 				}
+			default:
+				return nil, fmt.Errorf("mensagem id=%d: papel %q inesperado com a coluna chamadas preenchida", linha.ID, linha.Papel)
 			}
 		}
 

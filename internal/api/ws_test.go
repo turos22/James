@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -277,6 +278,82 @@ func TestReconstruirHistoricoIgnoraColunaVazia(t *testing.T) {
 	for i, m := range historico {
 		if len(m.Chamadas) != 0 || len(m.Resultados) != 0 {
 			t.Errorf("linha %d não devia ter chamadas nem resultados: %+v", i, m)
+		}
+	}
+}
+
+// TestReconstruirHistoricoRejeitaPapelInesperadoComColunaPreenchida cobre o
+// outro eixo de corrupção: JSON válido, mas numa linha cujo papel não é
+// nem PapelModelo nem PapelFerramenta. Migração de schema, bug futuro em
+// persistirNovasMensagens ou edição manual do banco podem produzir esse
+// estado — reconstruirHistorico não pode ignorá-lo em silêncio, porque
+// silêncio aqui vira contexto errado indo pro Gemini.
+func TestReconstruirHistoricoRejeitaPapelInesperadoComColunaPreenchida(t *testing.T) {
+	chamadas, err := json.Marshal([]agente.ChamadaFerramenta{{ID: "c1", Nome: "ver_tela"}})
+	if err != nil {
+		t.Fatalf("erro ao preparar chamadas: %v", err)
+	}
+
+	linhas := []postgres.Mensagem{
+		{ID: 42, Papel: string(agente.PapelUsuario), Chamadas: chamadas},
+	}
+
+	if _, err := reconstruirHistorico(linhas); err == nil {
+		t.Fatal("esperava erro, veio nil — papel usuário não pode ter a coluna chamadas preenchida")
+	}
+}
+
+// TestReconstruirHistoricoEhEspelhoDePersistirNovasMensagens prova que
+// persistirNovasMensagens e reconstruirHistorico são de fato inversas uma da
+// outra: grava um histórico com os três papéis num Postgres real, lê de
+// volta pela mesma via que uma sessão retomada usaria (ListarPorSessao), e
+// compara campo a campo com o original. Os testes acima montam
+// postgres.Mensagem na mão — este é o que pegaria as duas funções
+// divergindo com o tempo, já que vivem no mesmo arquivo.
+func TestReconstruirHistoricoEhEspelhoDePersistirNovasMensagens(t *testing.T) {
+	s := servidorDeTeste(t)
+	ctx := context.Background()
+
+	sessao, err := s.Sessoes.Criar(ctx, "sessão de ida e volta")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+
+	original := []agente.Mensagem{
+		{Papel: agente.PapelUsuario, Texto: "o que tem na tela?"},
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{{ID: "c1", Nome: "ver_tela"}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{ID: "c1", Nome: "ver_tela", Saida: "superficie: DISPLAY1"}}},
+		{Papel: agente.PapelModelo, Texto: "tem a calculadora aberta"},
+	}
+
+	s.persistirNovasMensagens(ctx, sessao.ID, original, 0)
+
+	linhas, err := s.Mensagens.ListarPorSessao(ctx, sessao.ID, 200)
+	if err != nil {
+		t.Fatalf("erro ao listar mensagens: %v", err)
+	}
+	if len(linhas) != len(original) {
+		t.Fatalf("esperava %d linhas gravadas, veio %d", len(original), len(linhas))
+	}
+
+	reconstruido, err := reconstruirHistorico(linhas)
+	if err != nil {
+		t.Fatalf("erro ao reconstruir: %v", err)
+	}
+	if len(reconstruido) != len(original) {
+		t.Fatalf("esperava %d mensagens reconstruídas, veio %d", len(original), len(reconstruido))
+	}
+
+	for i := range original {
+		quero, tenho := original[i], reconstruido[i]
+		// Imagem nunca é persistida (ver comentário de reconstruirHistorico)
+		// — comparar esse campo faria o teste falhar por design, não por
+		// bug. Já vem nil em ambos os lados aqui, mas zeramos explícito pra
+		// deixar a intenção clara caso o teste ganhe um caso com imagem.
+		quero.Imagem = nil
+		tenho.Imagem = nil
+		if !reflect.DeepEqual(quero, tenho) {
+			t.Errorf("mensagem %d divergiu na ida e volta:\nquero: %+v\ntenho: %+v", i, quero, tenho)
 		}
 	}
 }
