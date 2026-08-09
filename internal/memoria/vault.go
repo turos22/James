@@ -227,6 +227,35 @@ func (v *Vault) aplicarOrcamento(notas []notaArquivo) ([]notaArquivo, bool) {
 	return mantidas, cortou
 }
 
+// NotaAssunto é uma nota do vault exposta para leitura externa (a aba
+// Memória da Fase 6). Diferente de Renderizar, não aplica orçamento: o
+// orçamento existe para caber no system prompt, e a interface mostra tudo.
+type NotaAssunto struct {
+	Assunto    string    `json:"assunto"`
+	Conteudo   string    `json:"conteudo"`
+	Modificado time.Time `json:"modificado"`
+}
+
+// Listar devolve todas as notas em ordem alfabética de assunto. Reusa
+// carregarNotas para não duplicar a leitura de disco que Renderizar já faz.
+func (v *Vault) Listar() ([]NotaAssunto, error) {
+	notas, err := v.carregarNotas()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(notas, func(i, j int) bool { return notas[i].assunto < notas[j].assunto })
+
+	saida := make([]NotaAssunto, 0, len(notas))
+	for _, n := range notas {
+		saida = append(saida, NotaAssunto{
+			Assunto:    n.assunto,
+			Conteudo:   n.conteudo,
+			Modificado: n.modificado,
+		})
+	}
+	return saida, nil
+}
+
 // Slug expõe a normalização de SlugAssunto através do Vault, sem o chamador
 // precisar importar o pacote memoria só pra reportar em qual assunto uma
 // nota caiu. Existe especificamente pra internal/ferramentas.SalvarNaMemoria

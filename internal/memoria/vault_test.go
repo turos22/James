@@ -293,3 +293,41 @@ func TestSlugExpoeSlugAssunto(t *testing.T) {
 		t.Errorf("Slug(...) = %q, queria %q", got, "preferencias-de-codigo")
 	}
 }
+
+func TestListarDevolveNotasPorAssuntoEmOrdem(t *testing.T) {
+	raiz := t.TempDir()
+	v := NovoVault(raiz, 2000)
+
+	if err := v.Acrescentar("projetos", "James está na Fase 6"); err != nil {
+		t.Fatalf("erro ao acrescentar: %v", err)
+	}
+	if err := v.Acrescentar("comida", "não gosta de coentro"); err != nil {
+		t.Fatalf("erro ao acrescentar: %v", err)
+	}
+
+	notas, err := v.Listar()
+	if err != nil {
+		t.Fatalf("erro ao listar: %v", err)
+	}
+	if len(notas) != 2 {
+		t.Fatalf("esperava 2 notas, veio %d", len(notas))
+	}
+	if notas[0].Assunto != "comida" || notas[1].Assunto != "projetos" {
+		t.Errorf("ordem alfabética quebrada: %q, %q", notas[0].Assunto, notas[1].Assunto)
+	}
+	if !strings.Contains(notas[1].Conteudo, "Fase 6") {
+		t.Errorf("conteúdo não veio: %q", notas[1].Conteudo)
+	}
+}
+
+func TestListarComVaultAusenteNaoEhErro(t *testing.T) {
+	v := NovoVault(filepath.Join(t.TempDir(), "nao-existe"), 2000)
+
+	notas, err := v.Listar()
+	if err != nil {
+		t.Fatalf("vault ausente é primeiro boot, não erro: %v", err)
+	}
+	if len(notas) != 0 {
+		t.Errorf("esperava lista vazia, veio %d", len(notas))
+	}
+}
