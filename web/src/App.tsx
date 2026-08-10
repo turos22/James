@@ -1,53 +1,44 @@
-import { useEffect, useRef, useState } from "react";
-import "./App.css";
-import { CardAprovacao } from "./components/CardAprovacao";
-import { separarSegmentos } from "./lib/markdown";
-import { ClienteWS } from "./lib/ws";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { Atividade } from "./abas/atividade";
+import { Conversa } from "./abas/conversa";
+import { Memoria } from "./abas/memoria";
+import { Sessoes } from "./abas/sessoes";
+import { Tela } from "./abas/tela";
+import { estadoInicial, reduzir } from "./estado/turno";
+import { ClienteWS, type EstadoConexao } from "./lib/ws";
 import { Orbe } from "./shell/orbe";
-
-interface Message {
-  role: "user" | "James";
-  content: string;
-}
-
-interface PedidoAprovacao {
-  id: string;
-  ferramenta: string;
-  argumentos: Record<string, unknown>;
-}
+import { Trilha, type IdAba } from "./trilha";
+import { Visualizador } from "./visualizador";
 
 function urlWS(): string {
   const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocolo}//${window.location.host}/ws`;
 }
 
-function App() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [inputValue, setInputValue] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "James", content: "Sistemas online. Como posso ajudar, Arthur?" },
-  ]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [pedidoAprovacao, setPedidoAprovacao] = useState<PedidoAprovacao | null>(null);
+export default function App() {
+  const [aberto, setAberto] = useState(false);
+  const [aba, setAba] = useState<IdAba>("conversa");
+  const [conexao, setConexao] = useState<EstadoConexao>("conectando");
+  const [tentativa, setTentativa] = useState(0);
+  const [saidaVerTela, setSaidaVerTela] = useState<string | null>(null);
+  const [estado, despachar] = useReducer(reduzir, estadoInicial);
   const clienteRef = useRef<ClienteWS | null>(null);
 
   useEffect(() => {
     const cliente = new ClienteWS(urlWS());
     clienteRef.current = cliente;
 
-    cliente.on("resposta_final", (dados: { texto: string }) => {
-      setMessages((prev) => [...prev, { role: "James", content: dados.texto }]);
-      setIsTyping(false);
+    cliente.aoMudarEstado((novoEstado, n) => {
+      setConexao(novoEstado);
+      setTentativa(n);
     });
 
-    cliente.on("aprovacao_requerida", (dados: any) => {
-      setPedidoAprovacao({ id: dados.id ?? "", ferramenta: dados.ferramenta, argumentos: dados.argumentos ?? {} });
-    });
-
-    cliente.on("erro", (dados: { mensagem: string }) => {
-      setMessages((prev) => [...prev, { role: "James", content: `Erro: ${dados.mensagem}` }]);
-      setIsTyping(false);
-    });
+    cliente.on("resposta_final", (dados) => despachar({ tipo: "resposta_final", dados }));
+    cliente.on("erro", (dados) => despachar({ tipo: "erro", dados }));
+    cliente.on("ferramenta_iniciada", (dados) => despachar({ tipo: "ferramenta_iniciada", dados }));
+    cliente.on("ferramenta_concluida", (dados) => despachar({ tipo: "ferramenta_concluida", dados }));
+    cliente.on("aprovacao_requerida", (dados) => despachar({ tipo: "aprovacao_requerida", dados }));
+    cliente.on("sessao_retomada", (dados) => despachar({ tipo: "sessao_retomada", dados }));
 
     cliente.on("audio_pronto", (dados: { id: string }) => {
       const excluirAudio = () => {
@@ -55,91 +46,53 @@ function App() {
       };
       const audio = new Audio(`/api/audio/${dados.id}`);
       audio.addEventListener("ended", excluirAudio);
-      // Autoplay pode ser bloqueado pelo navegador sem gesto do usuário
-      // recente — se falhar, o áudio só não toca (chat continua normal
-      // por texto), mas o arquivo ainda precisa ser limpo do disco, já
-      // que "ended" nunca vai disparar nesse caso.
+      // Autoplay pode ser bloqueado sem gesto recente do usuário — se falhar,
+      // o áudio só não toca, mas o arquivo ainda precisa sair do disco.
       audio.play().catch(excluirAudio);
     });
 
     return () => cliente.fechar();
   }, []);
 
-  const renderMessageContent = (content: string) =>
-    separarSegmentos(content).map((segmento, indice) =>
-      segmento.tipo === "texto" ? (
-        <span key={indice}>{segmento.conteudo}</span>
-      ) : (
-        <pre className="code-block" key={indice}>
-          <code className={segmento.linguagem}>{segmento.conteudo}</code>
-        </pre>
-      )
-    );
-
-  const processarMensagem = (texto: string) => {
-    if (texto.trim() === "" || !clienteRef.current) return;
-    setMessages((prev) => [...prev, { role: "user", content: texto }]);
-    setIsTyping(true);
-    clienteRef.current.enviar("mensagem", crypto.randomUUID(), { texto });
+  const enviar = (texto: string) => {
+    despachar({ tipo: "envio_local", texto });
+    clienteRef.current?.enviar("mensagem", crypto.randomUUID(), { texto });
   };
 
-  const handleSendMessage = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && inputValue.trim() !== "") {
-      const textoDigitado = inputValue;
-      setInputValue("");
-      processarMensagem(textoDigitado);
-    }
+  const decidir = (aprovado: boolean) => {
+    if (!estado.aprovacao) return;
+    clienteRef.current?.enviar(aprovado ? "aprovar" : "negar", estado.aprovacao.id, {});
+    despachar({ tipo: "aprovacao_decidida" });
   };
 
-  const decidirAprovacao = (aprovado: boolean) => {
-    if (!pedidoAprovacao || !clienteRef.current) return;
-    clienteRef.current.enviar(aprovado ? "aprovar" : "negar", pedidoAprovacao.id, {});
-    setPedidoAprovacao(null);
+  const retomar = (id: string) => {
+    clienteRef.current?.enviar("retomar", crypto.randomUUID(), { sessao_id: id });
+    setAba("conversa");
   };
 
   return (
-    <div className="container">
-      <Orbe aberto={isOpen} aoAlternar={setIsOpen} />
+    <div className="h-screen w-screen text-white">
+      <Orbe aberto={aberto} aoAlternar={setAberto} />
 
-      {isOpen && (
-        <div className="chat-window">
-          {pedidoAprovacao && (
-            <CardAprovacao
-              ferramenta={pedidoAprovacao.ferramenta}
-              argumentos={pedidoAprovacao.argumentos}
-              onDecidir={decidirAprovacao}
-            />
-          )}
-          <div className="messages-container">
-            {messages.map((msg, i) => (
-              <div key={i} className={msg.role === "user" ? "msg-user" : "msg-jarvis"}>
-                <small style={{ fontSize: "10px", opacity: 0.5, marginBottom: "2px" }}>
-                  {msg.role === "user" ? "Arthur" : "James"}
-                </small>
-                {renderMessageContent(msg.content)}
-              </div>
-            ))}
-            {isTyping && (
-              <div className="msg-jarvis typing-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
+      {aberto && (
+        <div className="flex h-full flex-col-reverse rounded-xl bg-black/70 backdrop-blur md:flex-row">
+          <Trilha ativa={aba} aoTrocar={setAba} />
+
+          <main className="min-w-0 flex-1 p-2">
+            {aba === "conversa" && (
+              <Conversa estado={estado} conexao={conexao} tentativa={tentativa} aoEnviar={enviar} />
             )}
-          </div>
+            {aba === "tela" && <Tela saida={saidaVerTela} />}
+            {aba === "atividade" && <Atividade estado={estado} />}
+            {aba === "memoria" && <Memoria />}
+            {aba === "sessoes" && <Sessoes sessaoAtual={estado.sessaoAtual} aoRetomar={retomar} />}
+          </main>
 
-          <input
-            className="input-area"
-            placeholder="Comando de voz ou texto..."
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleSendMessage}
-            autoFocus
-          />
+          <aside className="min-w-0 flex-1 border-l border-white/10">
+            <Visualizador estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} />
+          </aside>
         </div>
       )}
     </div>
   );
 }
-
-export default App;

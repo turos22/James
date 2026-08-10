@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import qfLogo from "../assets/images/QF.png";
 import { moverJanela, posicaoJanela, redimensionarJanela } from "../lib/janela";
+import "./orbe.css";
 
 // Distância mínima (em px de tela) pra um mousedown+mousemove contar como
 // arraste em vez de clique — sem isso, qualquer tremor de mão ao clicar
