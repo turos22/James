@@ -55,6 +55,54 @@ type payloadErro struct {
 	Mensagem string `json:"mensagem"`
 }
 
+// mensagemDoHistorico é uma mensagem da conversa retomada, no formato que a
+// interface exibe. Só papel e texto: o front monta o balão a partir disso.
+type mensagemDoHistorico struct {
+	Papel string `json:"papel"`
+	Texto string `json:"texto"`
+}
+
+// payloadSessaoRetomada é o formato de "sessao_retomada". Antes carregava só
+// a CONTAGEM de mensagens (`mensagens int`) — achado da verificação ao vivo
+// da Fase 6: o Gemini lembrava do histórico (reconstruído certo pro
+// contexto), mas a tela ficava em branco, porque nada além da contagem
+// chegava ao front. Agora Mensagens carrega o conteúdo, montado por
+// mensagensExibiveis a partir do MESMO histórico que acabou de ser
+// reconstruído para o modelo — mesma fonte, mesmo instante, sem segunda
+// consulta ao Postgres (que além do custo extra teria a janela errada: ver
+// comentário de limiteMensagensSessao em ws.go).
+type payloadSessaoRetomada struct {
+	SessaoID  string                `json:"sessao_id"`
+	Mensagens []mensagemDoHistorico `json:"mensagens"`
+}
+
+// mensagensExibiveis filtra o histórico reconstruído (que alimenta o
+// CONTEXTO do modelo, com todos os papéis) para o que a interface consegue
+// desenhar como balão de conversa. Ficam de fora:
+//   - papel ferramenta: é saída de ferramenta, não fala da conversa — já tem
+//     superfície própria na aba Atividade e no visualizador (ver_tela).
+//     Mandar aqui encheria o balão de conversa com listas de dezenas de
+//     elementos.
+//   - qualquer mensagem com Texto vazio, o que na prática captura o modelo
+//     quando a linha só carrega chamada de ferramenta (Chamadas preenchido,
+//     Texto vazio) — sem esse filtro viraria balão em branco na tela.
+//
+// Preserva a ordem cronológica de `historico`, que já vem nessa ordem de
+// reconstruirHistorico.
+func mensagensExibiveis(historico []agente.Mensagem) []mensagemDoHistorico {
+	mensagens := make([]mensagemDoHistorico, 0, len(historico))
+	for _, m := range historico {
+		if m.Texto == "" {
+			continue
+		}
+		switch m.Papel {
+		case agente.PapelUsuario, agente.PapelModelo:
+			mensagens = append(mensagens, mensagemDoHistorico{Papel: string(m.Papel), Texto: m.Texto})
+		}
+	}
+	return mensagens
+}
+
 // hooksDeFerramenta monta os callbacks AoIniciarFerramenta/AoConcluirFerramenta
 // que processarTurno espera, emitindo ferramenta_iniciada e
 // ferramenta_concluida pelo emitir passado. É a forma compartilhada entre

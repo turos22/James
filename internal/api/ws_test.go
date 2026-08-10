@@ -677,13 +677,16 @@ func TestRetomadaComColunaCorrompidaNaoSujaOEstado(t *testing.T) {
 }
 
 // TestWSRetomarDevolveSessaoRetomada é o teste de integração pelo WebSocket
-// de verdade: cria uma sessão com histórico no Postgres real, conecta,
+// de verdade: cria uma sessão com histórico no Postgres real (usuário,
+// modelo com texto, ferramenta e modelo sem texto — só chamada), conecta,
 // manda {tipo:"retomar"} com esse id e confirma que o evento
-// "sessao_retomada" volta com a contagem certa de mensagens. Os testes
-// acima cobrem aplicarRetomada isolada; este cobre o encanamento do
-// protocolo — goroutine de leitura repassando "retomar" pro canal, laço
-// sequencial despachando pro handler novo, e o handler batendo no
-// repositório real.
+// "sessao_retomada" volta com o CONTEÚDO das mensagens exibíveis, na ordem
+// certa — não mais a contagem (achado da verificação ao vivo da Fase 6: o
+// Gemini lembrava do histórico, mas a tela ficava em branco). Os testes
+// acima cobrem aplicarRetomada e mensagensExibiveis isoladas; este cobre o
+// encanamento do protocolo — goroutine de leitura repassando "retomar" pro
+// canal, laço sequencial despachando pro handler novo, e o handler batendo
+// no repositório real.
 func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 	s := servidorDeTeste(t)
 	ctx := context.Background()
@@ -696,6 +699,8 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 	original := []agente.Mensagem{
 		{Papel: agente.PapelUsuario, Texto: "lembra do bolo?"},
 		{Papel: agente.PapelModelo, Texto: "lembro, de cenoura"},
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{{ID: "c1", Nome: "ver_tela"}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{ID: "c1", Nome: "ver_tela", Saida: "superficie: DISPLAY1"}}},
 	}
 	s.persistirNovasMensagens(ctx, sessao.ID, original, 0)
 
@@ -726,8 +731,8 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 	}
 
 	var dados struct {
-		SessaoID  string `json:"sessao_id"`
-		Mensagens int    `json:"mensagens"`
+		SessaoID  string                 `json:"sessao_id"`
+		Mensagens []mensagemDoHistorico `json:"mensagens"`
 	}
 	if err := json.Unmarshal(recebido.Dados, &dados); err != nil {
 		t.Fatalf("erro ao decodificar dados de sessao_retomada: %v", err)
@@ -735,8 +740,18 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 	if dados.SessaoID != sessao.ID.String() {
 		t.Errorf("sessao_id = %q, queria %q", dados.SessaoID, sessao.ID.String())
 	}
-	if dados.Mensagens != len(original) {
-		t.Errorf("mensagens = %d, queria %d", dados.Mensagens, len(original))
+
+	esperado := []mensagemDoHistorico{
+		{Papel: "usuario", Texto: "lembra do bolo?"},
+		{Papel: "modelo", Texto: "lembro, de cenoura"},
+	}
+	if len(dados.Mensagens) != len(esperado) {
+		t.Fatalf("mensagens = %+v, queria %+v (ferramenta e modelo sem texto deviam ficar de fora)", dados.Mensagens, esperado)
+	}
+	for i := range esperado {
+		if dados.Mensagens[i] != esperado[i] {
+			t.Errorf("mensagem %d = %+v, queria %+v", i, dados.Mensagens[i], esperado[i])
+		}
 	}
 }
 

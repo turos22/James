@@ -69,7 +69,12 @@ describe("estado do turno", () => {
     expect(estado.aprovacao).toBeNull();
   });
 
-  it("sessao_retomada grava a sessão atual e limpa ferramentas e andamento", () => {
+  it("sessao_retomada preenche a tela com o histórico, mapeia modelo para james e limpa ferramenta velha", () => {
+    // Achado da verificação ao vivo da Fase 6: o servidor reconstruía o
+    // histórico certo pro Gemini, mas o evento sessao_retomada só mandava a
+    // CONTAGEM de mensagens — a tela ficava em branco. Agora o payload leva
+    // o conteúdo, e este teste prova que o redutor usa esse conteúdo pra
+    // preencher `mensagens`, não só `sessaoAtual`.
     let estado = reduzir(estadoInicial, { tipo: "envio_local", texto: "olha a tela" });
     estado = reduzir(estado, { tipo: "ferramenta_iniciada", dados: { nome: "ver_tela" } });
 
@@ -78,12 +83,40 @@ describe("estado do turno", () => {
 
     estado = reduzir(estado, {
       tipo: "sessao_retomada",
-      dados: { sessao_id: "22222222-2222-2222-2222-222222222222", mensagens: 4 },
+      dados: {
+        sessao_id: "22222222-2222-2222-2222-222222222222",
+        mensagens: [
+          { papel: "usuario", texto: "lembra do bolo?" },
+          { papel: "modelo", texto: "lembro, de cenoura" },
+        ],
+      },
     });
 
     expect(estado.sessaoAtual).toBe("22222222-2222-2222-2222-222222222222");
     expect(estado.ferramentas).toHaveLength(0);
     expect(estado.emAndamento).toBe(false);
+    expect(estado.mensagens).toEqual([
+      { papel: "usuario", texto: "lembra do bolo?" },
+      { papel: "james", texto: "lembro, de cenoura" },
+    ]);
+  });
+
+  it("sessao_retomada ignora papel desconhecido no payload (defensivo contra rede)", () => {
+    const estado = reduzir(estadoInicial, {
+      tipo: "sessao_retomada",
+      dados: {
+        sessao_id: "33333333-3333-3333-3333-333333333333",
+        // O backend já filtra pra usuario/modelo (internal/api/eventos.go,
+        // mensagensExibiveis) — este teste cobre o redutor não confiando
+        // cegamente no payload de rede mesmo assim.
+        mensagens: [
+          { papel: "usuario", texto: "oi" },
+          { papel: "ferramenta", texto: "não devia chegar aqui" },
+        ],
+      },
+    });
+
+    expect(estado.mensagens).toEqual([{ papel: "usuario", texto: "oi" }]);
   });
 
   it("é puro: não muta o estado recebido", () => {

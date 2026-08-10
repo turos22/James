@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"james/internal/agente"
 	"james/internal/dispositivo"
 )
 
@@ -55,6 +56,42 @@ func TestFormatoDeEventosIdenticoEntreTextoEVoz(t *testing.T) {
 		}
 		if string(dTexto) != string(dVoz) {
 			t.Errorf("payload de %q divergiu entre texto e voz:\ntexto: %s\nvoz:   %s", tipo, dTexto, dVoz)
+		}
+	}
+}
+
+// TestMensagensExibiveisFiltraFerramentaEModeloSemTexto prova o achado da
+// verificação ao vivo da Fase 6: retomar sessão reconstrói o histórico certo
+// pro modelo, mas o evento sessao_retomada só mandava a CONTAGEM de
+// mensagens, não o conteúdo — a tela ficava em branco mesmo com o Gemini
+// lembrando de tudo. mensagensExibiveis é o filtro entre "o que o modelo usa
+// de contexto" (historico inteiro, todos os papéis) e "o que a tela pode
+// desenhar como balão" (usuário e modelo com texto). Papel ferramenta fica
+// de fora porque já tem superfície própria (aba Atividade, visualizador); e
+// modelo sem texto fica de fora porque essas linhas só carregam chamada de
+// ferramenta (Chamadas preenchido, Texto vazio) — sem filtro virariam balão
+// em branco. O teste também prova que a ordem cronológica sobrevive ao
+// filtro.
+func TestMensagensExibiveisFiltraFerramentaEModeloSemTexto(t *testing.T) {
+	historico := []agente.Mensagem{
+		{Papel: agente.PapelUsuario, Texto: "o que tem na tela?"},
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{{ID: "c1", Nome: "ver_tela"}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{ID: "c1", Nome: "ver_tela", Saida: "superficie: DISPLAY1"}}},
+		{Papel: agente.PapelModelo, Texto: "tem a calculadora aberta"},
+	}
+
+	mensagens := mensagensExibiveis(historico)
+
+	esperado := []mensagemDoHistorico{
+		{Papel: "usuario", Texto: "o que tem na tela?"},
+		{Papel: "modelo", Texto: "tem a calculadora aberta"},
+	}
+	if len(mensagens) != len(esperado) {
+		t.Fatalf("esperava %d mensagens exibíveis, veio %d: %+v", len(esperado), len(mensagens), mensagens)
+	}
+	for i := range esperado {
+		if mensagens[i] != esperado[i] {
+			t.Errorf("mensagem %d veio errada: %+v, queria %+v", i, mensagens[i], esperado[i])
 		}
 	}
 }

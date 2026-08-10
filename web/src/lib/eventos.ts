@@ -46,9 +46,17 @@ export interface DadosAprovacaoRequerida {
   argumentos: Record<string, unknown>;
 }
 
+// DadosSessaoRetomada carregava só a CONTAGEM de mensagens (`mensagens:
+// number`). Achado da verificação ao vivo da Fase 6: o Gemini lembrava do
+// histórico direitinho (reconstruído do Postgres pelo servidor), mas a tela
+// ficava em branco — nada além do número chegava ao front. Agora o próprio
+// servidor manda o conteúdo, no formato que a interface exibe (ver
+// internal/api/eventos.go, payloadSessaoRetomada e mensagemDoHistorico): a
+// mesma reconstrução que alimenta o contexto do modelo alimenta a tela, sem
+// segunda consulta ao backend.
 export interface DadosSessaoRetomada {
   sessao_id: string;
-  mensagens: number;
+  mensagens: { papel: string; texto: string }[];
 }
 
 export const EVENTOS_CONHECIDOS = [

@@ -184,9 +184,9 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 		return
 	}
 
-	cliente.Enviar("sessao_retomada", envelope.ID, map[string]any{
-		"sessao_id": sessao.String(),
-		"mensagens": len(linhas),
+	cliente.Enviar("sessao_retomada", envelope.ID, payloadSessaoRetomada{
+		SessaoID:  sessao.String(),
+		Mensagens: mensagensExibiveis(*historico),
 	})
 }
 

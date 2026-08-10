@@ -38,8 +38,7 @@ export type Acao =
   | { tipo: "ferramenta_concluida"; dados: DadosFerramentaConcluida }
   | { tipo: "aprovacao_requerida"; dados: DadosAprovacaoRequerida }
   | { tipo: "aprovacao_decidida" }
-  | { tipo: "sessao_retomada"; dados: DadosSessaoRetomada }
-  | { tipo: "historico_carregado"; mensagens: Mensagem[] };
+  | { tipo: "sessao_retomada"; dados: DadosSessaoRetomada };
 
 export const estadoInicial: EstadoTurno = {
   mensagens: [],
@@ -106,15 +105,25 @@ export function reduzir(estado: EstadoTurno, acao: Acao): EstadoTurno {
     case "aprovacao_decidida":
       return { ...estado, aprovacao: null };
 
-    case "sessao_retomada":
+    case "sessao_retomada": {
+      // Mapeia o papel do backend (agente.Papel: "usuario"/"modelo") pro
+      // papel que a tela entende ("usuario"/"james"). Papel desconhecido é
+      // ignorado: o backend já filtra pra usuario/modelo com texto não
+      // vazio (internal/api/eventos.go, mensagensExibiveis), mas o redutor
+      // não deve confiar cegamente em payload de rede — um typo ou uma
+      // versão de servidor divergente não pode virar balão quebrado na tela.
+      const mensagens: Mensagem[] = [];
+      for (const m of acao.dados.mensagens) {
+        if (m.papel === "usuario") mensagens.push({ papel: "usuario", texto: m.texto });
+        else if (m.papel === "modelo") mensagens.push({ papel: "james", texto: m.texto });
+      }
       return {
         ...estado,
         sessaoAtual: acao.dados.sessao_id,
+        mensagens,
         ferramentas: [],
         emAndamento: false,
       };
-
-    case "historico_carregado":
-      return { ...estado, mensagens: acao.mensagens, ferramentas: [], emAndamento: false };
+    }
   }
 }
