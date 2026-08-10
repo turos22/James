@@ -231,6 +231,30 @@ Todos verificados ao vivo, com `jamesd`, device e Postgres reais, e leitura pelo
 | CA7 | Pelo celular, na VPN, disparar ferramenta perigosa e aprovar pelo desktop, com o pedido aparecendo no visualizador e não como card flutuante |
 | CA8 | Layout em uma coluna no celular, com a trilha vertical virando barra inferior, sem rolagem horizontal |
 
+### 10.1 Resultado da verificação ao vivo (2026-08-09/10)
+
+Rodada com `jamesd` real na porta 8080, device Python conectado com escuta ativa, Postgres no Docker e chamadas reais ao Gemini. A leitura foi feita pelo DOM da página, não pelo banco — o que é a própria mudança que esta fase entrega.
+
+| # | Resultado | Evidência |
+|---|---|---|
+| CA1 | **Passa** | `Arthur \| responda apenas com a palavra pong` → `James \| pong`, com o campo limpando sozinho |
+| CA2 | **Passa** | `✓ ver_tela` apareceu na conversa durante o turno. A duração prevista no critério **não** é exibida — ver lacuna 1 abaixo |
+| CA3 | **Passa** | `jamesd` derrubado com a página aberta → `Reconectando ao James... (tentativa 3)` e campo travado. Subido de novo → faixa some, campo libera, painel continua aberto, e uma mensagem nova vai e volta |
+| CA4 | **Passa** | `DISPLAY1 (primaria) 1760x990 escala 100%`, 80 elementos mais `... e mais 29 elemento(s)`. O modelo descreveu a tela citando o Wireless Controller que estava em `e22` |
+| CA5 | **Passa** | Número 4719 plantado numa conversa (sem `salvar_na_memoria` disparar), página recarregada, sessão retomada, modelo respondeu `4719`. Depois da Task 21, as 8 mensagens da conversa também aparecem na tela |
+| CA6 | **Passa** | Aba Memória exibiu `CARRO — O carro do Arthur é um Fusca 1971 azul` |
+| CA7 | **Não exercitado** | Exige o celular do Arthur no tailnet. Nada foi verificado; não presuma que funciona |
+| CA8 | **Passa** | A 375px: trilha em `row`, painel em `column-reverse`, `scrollWidth == clientWidth == 375` (zero rolagem horizontal) |
+
+**Lacunas encontradas na verificação, e o que foi feito com cada uma:**
+
+1. **Duração da ferramenta não é exibida.** O CA2 pede "com duração" e a interface mostra só nome e estado. O campo `iniciadaEm` existe no `EstadoTurno` e ninguém o consome. Lacuna real, registrada, não corrigida.
+2. **Histórico invisível ao retomar** — corrigido pela Task 21, nascida desta verificação. O evento `sessao_retomada` carregava só a contagem de mensagens; passou a carregar o conteúdo, filtrando papel `ferramenta` e mensagens de modelo sem texto. A ação morta `historico_carregado` foi removida do redutor.
+3. **A aba Sessões renderiza 1646 botões.** `GET /api/sessoes` não tem limite nem paginação, e `SessaoRepositorio.Listar` devolve tudo. Boa parte é lixo da suíte Go, que roda contra o Postgres real e não limpa o que cria (`teste retomada sessão inexistente <uuid>`). São dois problemas: falta de limite na rota, e testes sujando o banco de trabalho. Nenhum dos dois foi corrigido.
+4. **A nota de metodologia da Fase 5 estava meio errada.** Aquele handoff registrou que `Enter` não disparava o handler de envio no SPA antigo. O mesmo sintoma se reproduz no SPA **novo**, e a causa é o automatizador, não o produto: input controlado do React só atualiza estado quando o `onChange` sintético dispara, e `type`/`fill` de ferramenta de automação não o disparam. Com setter nativo mais evento `input`, funciona. Metade daquela nota era artefato de teste diagnosticado como bug de produto — o que **não** invalida a outra metade, a de respostas que completavam no backend e não apareciam.
+
+**Item de escopo não entregue: o teste de ponta a ponta com Playwright.** A seção 2.1 prometeu Playwright no fluxo real, e ele não foi escrito. O que existe no lugar é a verificação ao vivo acima, feita à mão contra o sistema real — mais convincente como prova pontual, e pior como rede de segurança, porque não se repete sozinha. Consequência prática: a próxima fase que mexer no front não tem como saber que quebrou o CA1 ou o CA3 sem refazer tudo à mão. Fica como dívida explícita, não como coisa esquecida.
+
 ---
 
 ## 11. Ordem de implementação
@@ -257,7 +281,8 @@ Da folha para a raiz, deixando a troca da interface por último — mesmo princ�
 | # | Risco | Mitigação |
 |---|---|---|
 | R1 | Reconstruir `historico` da coluna polimórfica `chamadas` produzir histórico semanticamente errado que o Gemini aceita em silêncio | Desambiguar pelo papel da mensagem, nunca por tentativa de decodificar; teste com as duas formas gravadas; CA5 exige o modelo demonstrar lembrança real, não só a tela mostrar texto antigo |
-| R2 | A suíte Go fechar verde sem nunca tocar o banco | [`testutil_test.go:16`](../../../internal/armazenamento/postgres/testutil_test.go) faz `t.Skip` quando `DATABASE_URL` está vazia (a spec da Fase 4 cita a linha 15, que é a guarda `if url == ""`). Com a SPA passando a depender de `/api/sessoes` e da retomada, isso deixa de ser detalhe. Rodar a suíte com `DATABASE_URL` definida faz parte do critério de pronto desta fase |
+| R2 | ~~A suíte Go fechar verde sem nunca tocar o banco~~ **Risco descartado: não existe como descrito.** | Eu escrevi este risco lendo o `t.Skip` de [`testutil_test.go:16`](../../../internal/armazenamento/postgres/testutil_test.go) e presumindo que `DATABASE_URL` não estaria no ambiente. Está: o `TestMain` de `conexao_test.go` e de `rest_test.go` carrega o `.env` com `godotenv.Load("../../.env")` antes de qualquer teste rodar. Verificado durante a execução da fase: `go test ./internal/armazenamento/... -v -count=1` roda os 11 testes contra o Postgres real, **zero SKIP**. O único SKIP da suíte inteira é `TestAoVivoMemoriaAtravessaConexao`, com gate por `JAMES_AO_VIVO`. O risco era meu, de leitura parcial |
+| R9 | A suíte Go escrever no mesmo Postgres de trabalho e nunca limpar | Descoberto na verificação ao vivo: a aba Sessões mostrou **1646 sessões**, boa parte com títulos de teste (`teste retomada sessão inexistente <uuid>`). É consequência direta de R2 estar errado — os testes rodam contra o banco real, e isso é bom para a confiança, mas eles não limpam o que criam. Some-se a isso que `GET /api/sessoes` não tem limite nem paginação, e a interface renderiza um botão por sessão. Nenhum dos dois foi corrigido nesta fase |
 | R3 | Tailwind e o CSS legado convivendo durante a migração e produzindo estilo imprevisível | A migração é por aba (passo 8), e cada aba concluída deixa de depender do `App.css`. O arquivo antigo só é removido quando a última aba sair dele |
 | R4 | A janela expandida, sendo transparente e always-on-top, engolir clique do que está embaixo | D3 mantém o resize nativo justamente por isso. Verificar no CA1 que, com o painel fechado, o clique atravessa fora do orbe |
 | R5 | Layout de três colunas ficar inutilizável no celular | CA8 é critério explícito. A trilha vira barra inferior e o visualizador vira aba, em vez de comprimir três colunas |

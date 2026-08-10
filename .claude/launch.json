@@ -6,6 +6,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "web"],
       "port": 5173
+    },
+    {
+      "name": "jamesd",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/jamesd"],
+      "port": 8080,
+      "url": "http://127.0.0.1:8080"
     }
   ]
 }
