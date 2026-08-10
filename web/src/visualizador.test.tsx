@@ -46,7 +46,7 @@ describe("escolherConteudo", () => {
 });
 
 describe("Visualizador", () => {
-  it("mostra o pedido de aprovação com os dois botões", () => {
+  it("mostra o pedido de aprovação com os dois botões e os argumentos da ferramenta", () => {
     const estado = {
       ...estadoInicial,
       aprovacao: { id: "a1", ferramenta: "executar_comando_sistema", argumentos: { comando: "del x" } },
@@ -56,7 +56,24 @@ describe("Visualizador", () => {
     render(<Visualizador estado={estado} saidaVerTela={null} aoDecidir={aoDecidir} />);
 
     expect(screen.getByText(/executar_comando_sistema/)).toBeTruthy();
+    // Sem isso, o Arthur veria "o James quer rodar um comando" sem saber
+    // QUAL comando — é o que separa aprovar de olhos fechados de aprovar
+    // de verdade.
+    expect(screen.getByText(/del x/)).toBeTruthy();
     screen.getByRole("button", { name: "Aprovar" }).click();
     expect(aoDecidir).toHaveBeenCalledWith(true);
+  });
+
+  it("nega o pedido de aprovação pendente", () => {
+    const estado = {
+      ...estadoInicial,
+      aprovacao: { id: "a1", ferramenta: "executar_comando_sistema", argumentos: { comando: "del x" } },
+    };
+    const aoDecidir = vi.fn();
+
+    render(<Visualizador estado={estado} saidaVerTela={null} aoDecidir={aoDecidir} />);
+
+    screen.getByRole("button", { name: "Negar" }).click();
+    expect(aoDecidir).toHaveBeenCalledWith(false);
   });
 });
