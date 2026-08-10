@@ -183,12 +183,19 @@ func TestWSDispositivoEntradaDeVozGeraRespostaParaPrivilegiados(t *testing.T) {
 // teste, manda "entrada_voz" pelo device e devolve todos os envelopes que o
 // cliente Privilegiado recebeu até (e incluindo) resposta_final — molde de
 // capturarEventosDeUmTurno (ws_test.go), mas pro broadcast que sai do
-// caminho de voz em vez da resposta direta a um cliente WS.
+// caminho de voz em vez da resposta direta a um cliente WS. Sobe o servidor
+// de device fixo (servidorComDispositivoDeTeste); quem precisa de provider
+// ou registro de ferramentas customizado chama
+// capturarEventosDeEntradaDeVozNoServidor direto.
 func capturarEventosDeEntradaDeVoz(t *testing.T, texto string) []Envelope {
 	t.Helper()
 	servidor, _ := servidorComDispositivoDeTeste(t)
 	defer servidor.Close()
+	return capturarEventosDeEntradaDeVozNoServidor(t, servidor, texto)
+}
 
+func capturarEventosDeEntradaDeVozNoServidor(t *testing.T, servidor *httptest.Server, texto string) []Envelope {
+	t.Helper()
 	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
 
 	connCliente, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
@@ -220,6 +227,40 @@ func capturarEventosDeEntradaDeVoz(t *testing.T, texto string) []Envelope {
 		}
 	}
 	return eventos
+}
+
+// TestFerramentaConcluidaCarregaSaidaViaVoz estende pro caminho de voz o que
+// TestFerramentaConcluidaCarregaSaida (ws_test.go) já trava pro caminho de
+// texto: a Parte A da Task 18 unificou a montagem do payload de
+// ferramenta_concluida entre os dois caminhos, então a Saida acrescentada
+// na Parte B precisa valer aqui também — sem duplicar a fixture, só o
+// registro de DispositivoHub, que o caminho de voz exige e o de texto não.
+func TestFerramentaConcluidaCarregaSaidaViaVoz(t *testing.T) {
+	tool := &ferramentaFalsaComSaida{nome: "ver_tela", saida: "superficie: DISPLAY1\ne1 Button \"Salvar\" (820,455)"}
+	s := servidorComFerramentaFalsa(t, tool, "ver_tela")
+	s.DispositivoHub = dispositivo.NovoHub()
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	eventos := capturarEventosDeEntradaDeVozNoServidor(t, servidor, "olha a tela")
+
+	var achou bool
+	for _, e := range eventos {
+		if e.Tipo != "ferramenta_concluida" {
+			continue
+		}
+		var dados payloadFerramentaConcluida
+		if err := json.Unmarshal(e.Dados, &dados); err != nil {
+			t.Fatalf("dados ilegíveis: %v", err)
+		}
+		if dados.Saida == "" {
+			t.Errorf("ferramenta_concluida sem saida: %+v", dados)
+		}
+		achou = true
+	}
+	if !achou {
+		t.Fatal("nenhum ferramenta_concluida no turno de voz")
+	}
 }
 
 // TestEntradaDeVozNaoEmiteToken estende pro caminho de voz o que

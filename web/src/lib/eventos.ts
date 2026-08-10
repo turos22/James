@@ -28,6 +28,13 @@ export interface DadosFerramentaIniciada {
 export interface DadosFerramentaConcluida {
   nome: string;
   erro: string;
+  // Obrigatório, não opcional: o backend (internal/api/eventos.go,
+  // payloadFerramentaConcluida) sempre serializa o campo — nunca omite a
+  // chave — e usa string vazia pra "esta ferramenta não produziu saída",
+  // exatamente como já faz com `erro`. Opcional sugeriria que a chave pode
+  // faltar no JSON, o que nunca acontece e forçaria todo consumidor a um
+  // `?? ""` desnecessário.
+  saida: string;
 }
 
 export interface DadosAprovacaoRequerida {

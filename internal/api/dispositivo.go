@@ -117,25 +117,15 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
-	resp, audioID, err := s.processarTurno(ctx, permissao.Privilegiado, sessaoID, historico, texto,
-		func(c agente.ChamadaFerramenta) {
-			s.Clientes.BroadcastParaPrivilegiados("ferramenta_iniciada", id, map[string]string{"nome": c.Nome})
-		},
-		func(rf agente.ResultadoFerramenta) {
-			s.Clientes.BroadcastParaPrivilegiados("ferramenta_concluida", id, map[string]string{"nome": rf.Nome, "erro": rf.Erro})
-		},
-	)
+	emitir := func(tipo string, dados any) { s.Clientes.BroadcastParaPrivilegiados(tipo, id, dados) }
+
+	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
+	resp, audioID, err := s.processarTurno(ctx, permissao.Privilegiado, sessaoID, historico, texto, aoIniciar, aoConcluir)
 	if err != nil {
-		s.Clientes.BroadcastParaPrivilegiados("erro", id, map[string]string{"mensagem": err.Error()})
+		emitir("erro", payloadErro{Mensagem: err.Error()})
 		return
 	}
 	// Mesmo ponto de atenção de tratarMensagem (ws.go): sessaoID só é lido
 	// depois de processarTurno, nunca antes.
-	s.Clientes.BroadcastParaPrivilegiados("resposta_final", id, map[string]string{
-		"texto":     resp.Texto,
-		"sessao_id": sessaoID.String(),
-	})
-	if audioID != "" {
-		s.Clientes.BroadcastParaPrivilegiados("audio_pronto", id, map[string]string{"id": audioID})
-	}
+	emitirDesfechoDoTurno(emitir, resp, *sessaoID, audioID)
 }

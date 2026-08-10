@@ -86,19 +86,84 @@ func (f *ferramentaSempreExigeConfirmacao) foiExecutada() bool {
 	return f.executada
 }
 
-// providerChamaFerramentaUmaVez chama sempre_confirma na primeira iteração,
-// e devolve uma resposta final na segunda (depois da ferramenta resolvida).
-type providerChamaFerramentaUmaVez struct{ chamou bool }
+// providerChamaFerramentaUmaVez chama Nome na primeira iteração, e devolve
+// uma resposta final na segunda (depois da ferramenta resolvida).
+type providerChamaFerramentaUmaVez struct {
+	Nome   string
+	chamou bool
+}
 
 func (p *providerChamaFerramentaUmaVez) Gerar(ctx context.Context, req agente.Requisicao) (agente.Resposta, error) {
 	if !p.chamou {
 		p.chamou = true
-		return agente.Resposta{Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: "sempre_confirma"}}}, nil
+		return agente.Resposta{Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: p.Nome}}}, nil
 	}
 	return agente.Resposta{Texto: "concluido"}, nil
 }
 func (p *providerChamaFerramentaUmaVez) GerarStream(ctx context.Context, req agente.Requisicao, emitir func(string)) (agente.Resposta, error) {
 	return p.Gerar(ctx, req)
+}
+
+// ferramentaFalsaComSaida devolve uma saída fixa sem efeito colateral —
+// usada pelos testes que precisam de um ferramenta_concluida com Saida
+// preenchida de verdade (Task 18), sem depender de nenhuma ferramenta real
+// nem do device.
+type ferramentaFalsaComSaida struct {
+	nome  string
+	saida string
+}
+
+func (f *ferramentaFalsaComSaida) Declaracao() ferramentas.Declaracao {
+	return ferramentas.Declaracao{Nome: f.nome}
+}
+func (f *ferramentaFalsaComSaida) Nivel() ferramentas.Nivel { return ferramentas.NivelSeguro }
+func (f *ferramentaFalsaComSaida) Executar(ctx context.Context, args map[string]any) (string, error) {
+	return f.saida, nil
+}
+
+// servidorComFerramentaFalsa monta um *Servidor cujo provider chama `tool`
+// (registrada sob o nome que ela mesma declara) na primeira iteração do
+// loop, e devolve resposta final na segunda — usado pelos testes que
+// precisam inspecionar o payload de ferramenta_concluida com Saida
+// conhecida, nos dois caminhos que a Parte A da Task 18 unificou (texto e
+// voz). Devolve o *Servidor, não o *httptest.Server: quem chama decide se
+// precisa registrar DispositivoHub (caminho de voz) antes de expor as
+// rotas.
+func servidorComFerramentaFalsa(t *testing.T, tool ferramentas.Ferramenta, nomeFerramenta string) *Servidor {
+	t.Helper()
+	url := postgres.URLDoAmbiente()
+	if url == "" {
+		t.Skip("DATABASE_URL não definida; suba o docker compose e preencha o .env")
+	}
+	pool, err := postgres.Abrir(context.Background(), url)
+	if err != nil {
+		t.Fatalf("não consegui conectar: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := postgres.AplicarMigracoes(context.Background(), pool); err != nil {
+		t.Fatalf("erro ao aplicar migrações: %v", err)
+	}
+
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(tool); err != nil {
+		t.Fatalf("erro ao registrar ferramenta: %v", err)
+	}
+
+	return &Servidor{
+		Sessoes:    postgres.NovoSessaoRepositorio(pool),
+		Mensagens:  postgres.NovoMensagemRepositorio(pool),
+		Aprovacoes: postgres.NovoAprovacaoRepositorio(pool),
+		Loop: &agente.Loop{
+			Provider:     &providerChamaFerramentaUmaVez{Nome: nomeFerramenta},
+			Ferramentas:  registro,
+			MaxIteracoes: 5,
+		},
+		Memoria:             memoria.Janela{OrcamentoTokens: 8000},
+		SistemaPrompt:       "sistema de teste",
+		Clientes:            NovoClientesHub(),
+		AprovacoesPendentes: NovoRegistroAprovacoesPendentes(),
+		TimeoutAprovacao:    time.Second,
+	}
 }
 
 // TestWSMesmaConexaoConsegueAprovarSuaPropriaAcao trava um bug real,
@@ -135,7 +200,7 @@ func TestWSMesmaConexaoConsegueAprovarSuaPropriaAcao(t *testing.T) {
 		Mensagens:  postgres.NovoMensagemRepositorio(pool),
 		Aprovacoes: postgres.NovoAprovacaoRepositorio(pool),
 		Loop: &agente.Loop{
-			Provider:     &providerChamaFerramentaUmaVez{},
+			Provider:     &providerChamaFerramentaUmaVez{Nome: "sempre_confirma"},
 			Ferramentas:  registro,
 			MaxIteracoes: 5,
 		},
@@ -394,12 +459,20 @@ func TestWSMensagemDevolveRespostaFinal(t *testing.T) {
 // capturarEventosDeUmTurno conecta no WS de teste, manda uma mensagem e
 // devolve todos os envelopes recebidos até (e incluindo) resposta_final —
 // usado por testes que precisam inspecionar a sequência inteira de eventos
-// de um turno, não só o resultado final.
+// de um turno, não só o resultado final. Sobe o servidor WS fixo
+// (servidorWSDeTeste): quem precisa de um provider ou registro de
+// ferramentas customizado (ex.: TestFerramentaConcluidaCarregaSaida) monta o
+// próprio *httptest.Server e chama capturarEventosDeUmTurnoNoServidor
+// direto.
 func capturarEventosDeUmTurno(t *testing.T, texto string) []Envelope {
 	t.Helper()
 	servidor := servidorWSDeTeste(t)
 	defer servidor.Close()
+	return capturarEventosDeUmTurnoNoServidor(t, servidor, texto)
+}
 
+func capturarEventosDeUmTurnoNoServidor(t *testing.T, servidor *httptest.Server, texto string) []Envelope {
+	t.Helper()
 	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
 	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
 	if err != nil {
@@ -424,6 +497,40 @@ func capturarEventosDeUmTurno(t *testing.T, texto string) []Envelope {
 		}
 	}
 	return eventos
+}
+
+// TestFerramentaConcluidaCarregaSaida trava a Task 18: a aba Tela da Fase 6
+// depende da saída de ver_tela (superfície + lista de elementos), que até
+// esta task só ia para o modelo — nunca para o cliente. Sem o campo
+// "saida" em ferramenta_concluida, a aba fica permanentemente vazia. Usa
+// payloadFerramentaConcluida (o mesmo tipo que a produção serializa em
+// eventos.go) pra decodificar: um typo de chave no futuro vira erro de
+// compilação aqui, não passa silencioso como passava com map literal.
+func TestFerramentaConcluidaCarregaSaida(t *testing.T) {
+	tool := &ferramentaFalsaComSaida{nome: "ver_tela", saida: "superficie: DISPLAY1\ne1 Button \"Salvar\" (820,455)"}
+	s := servidorComFerramentaFalsa(t, tool, "ver_tela")
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	eventos := capturarEventosDeUmTurnoNoServidor(t, servidor, "olha a tela")
+
+	var achou bool
+	for _, e := range eventos {
+		if e.Tipo != "ferramenta_concluida" {
+			continue
+		}
+		var dados payloadFerramentaConcluida
+		if err := json.Unmarshal(e.Dados, &dados); err != nil {
+			t.Fatalf("dados ilegíveis: %v", err)
+		}
+		if dados.Saida == "" {
+			t.Errorf("ferramenta_concluida sem saida: %+v", dados)
+		}
+		achou = true
+	}
+	if !achou {
+		t.Fatal("nenhum ferramenta_concluida no turno")
+	}
 }
 
 // TestTurnoNaoEmiteToken trava a Task 5: sem streaming (decisão D4 da spec),

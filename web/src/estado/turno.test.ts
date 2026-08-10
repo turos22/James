@@ -17,7 +17,10 @@ describe("estado do turno", () => {
     expect(estado.ferramentas).toHaveLength(1);
     expect(estado.ferramentas[0]).toMatchObject({ nome: "ver_tela", estado: "voando" });
 
-    estado = reduzir(estado, { tipo: "ferramenta_concluida", dados: { nome: "ver_tela", erro: "" } });
+    estado = reduzir(estado, {
+      tipo: "ferramenta_concluida",
+      dados: { nome: "ver_tela", erro: "", saida: "superficie: DISPLAY1" },
+    });
 
     expect(estado.ferramentas[0].estado).toBe("concluida");
   });
@@ -26,7 +29,7 @@ describe("estado do turno", () => {
     let estado = reduzir(estadoInicial, { tipo: "ferramenta_iniciada", dados: { nome: "executar_comando_sistema" } });
     estado = reduzir(estado, {
       tipo: "ferramenta_concluida",
-      dados: { nome: "executar_comando_sistema", erro: "ação negada pelo usuário" },
+      dados: { nome: "executar_comando_sistema", erro: "ação negada pelo usuário", saida: "" },
     });
 
     expect(estado.ferramentas[0].estado).toBe("erro");

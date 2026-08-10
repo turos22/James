@@ -97,34 +97,24 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 	var dados struct {
 		Texto string `json:"texto"`
 	}
+	emitir := func(tipo string, dados any) { cliente.Enviar(tipo, envelope.ID, dados) }
+
 	if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "corpo inválido"})
+		emitir("erro", payloadErro{Mensagem: "corpo inválido"})
 		return
 	}
 
-	resp, audioID, err := s.processarTurno(ctx, cliente.Perfil(), sessaoID, historico, dados.Texto,
-		func(c agente.ChamadaFerramenta) {
-			cliente.Enviar("ferramenta_iniciada", envelope.ID, map[string]string{"nome": c.Nome})
-		},
-		func(rf agente.ResultadoFerramenta) {
-			cliente.Enviar("ferramenta_concluida", envelope.ID, map[string]string{"nome": rf.Nome, "erro": rf.Erro})
-		},
-	)
+	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
+	resp, audioID, err := s.processarTurno(ctx, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir)
 	if err != nil {
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": err.Error()})
+		emitir("erro", payloadErro{Mensagem: err.Error()})
 		return
 	}
 
 	// sessaoID só é lido AQUI, depois de processarTurno: numa conversa nova
 	// o ponteiro ainda aponta pra uuid.Nil antes da chamada (a sessão nasce
 	// dentro dela). Ler antes mandaria sessao_id vazio pro cliente.
-	cliente.Enviar("resposta_final", envelope.ID, map[string]string{
-		"texto":     resp.Texto,
-		"sessao_id": sessaoID.String(),
-	})
-	if audioID != "" {
-		cliente.Enviar("audio_pronto", envelope.ID, map[string]string{"id": audioID})
-	}
+	emitirDesfechoDoTurno(emitir, resp, *sessaoID, audioID)
 }
 
 // tratarRetomar roda no laço sequencial, junto com "mensagem", porque mexe
@@ -135,13 +125,13 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 		SessaoID string `json:"sessao_id"`
 	}
 	if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "corpo inválido"})
+		cliente.Enviar("erro", envelope.ID, payloadErro{Mensagem: "corpo inválido"})
 		return
 	}
 
 	sessao, err := uuid.Parse(dados.SessaoID)
 	if err != nil {
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "id de sessão inválido"})
+		cliente.Enviar("erro", envelope.ID, payloadErro{Mensagem: "id de sessão inválido"})
 		return
 	}
 
@@ -163,7 +153,7 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 			// sessão apagada.
 			slog.Error("erro ao verificar sessão para retomada", "erro", err, "sessao", sessao)
 		}
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": mensagemCliente})
+		cliente.Enviar("erro", envelope.ID, payloadErro{Mensagem: mensagemCliente})
 		return
 	}
 
@@ -179,7 +169,7 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 		// detalhe de conexão, e esta mensagem é renderizada numa tela que
 		// o celular também abre pela VPN.
 		slog.Error("erro ao carregar mensagens para retomada", "erro", err, "sessao", sessao)
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui carregar a conversa"})
+		cliente.Enviar("erro", envelope.ID, payloadErro{Mensagem: "não consegui carregar a conversa"})
 		return
 	}
 
@@ -190,7 +180,7 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 		// produção, sem isso a única evidência seria o que o usuário
 		// copiasse da tela.
 		slog.Error("erro ao reconstruir histórico para retomada", "erro", err, "sessao", sessao)
-		cliente.Enviar("erro", envelope.ID, map[string]string{"mensagem": "não consegui reconstruir a conversa"})
+		cliente.Enviar("erro", envelope.ID, payloadErro{Mensagem: "não consegui reconstruir a conversa"})
 		return
 	}
 

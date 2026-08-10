@@ -36,7 +36,10 @@ export default function App() {
     cliente.on("resposta_final", (dados) => despachar({ tipo: "resposta_final", dados }));
     cliente.on("erro", (dados) => despachar({ tipo: "erro", dados }));
     cliente.on("ferramenta_iniciada", (dados) => despachar({ tipo: "ferramenta_iniciada", dados }));
-    cliente.on("ferramenta_concluida", (dados) => despachar({ tipo: "ferramenta_concluida", dados }));
+    cliente.on("ferramenta_concluida", (dados) => {
+      despachar({ tipo: "ferramenta_concluida", dados });
+      if (dados.nome === "ver_tela" && dados.saida) setSaidaVerTela(dados.saida);
+    });
     cliente.on("aprovacao_requerida", (dados) => despachar({ tipo: "aprovacao_requerida", dados }));
     cliente.on("sessao_retomada", (dados) => despachar({ tipo: "sessao_retomada", dados }));
 
