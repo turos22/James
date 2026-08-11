@@ -74,7 +74,7 @@ npm test --prefix web
 **Arquivos:**
 - Modificar: `web/src/style.css`
 - Modificar: `web/package.json`
-- Criar: `web/src/assets/fonts/geist-latin-400.woff2`, `geist-latin-600.woff2`, `source-serif-4-latin-400.woff2`
+- Criar: `web/src/assets/fonts/geist-latin.woff2`, `web/src/assets/fonts/source-serif-4-latin.woff2`
 
 - [ ] **Passo 1: Instalar o lucide-react**
 
@@ -84,17 +84,27 @@ npm install lucide-react --prefix web
 
 - [ ] **Passo 2: Baixar as fontes**
 
-As fontes precisam ser locais — o binário roda offline e o `//go:embed` não busca recurso externo (D16). Baixe os `.woff2` do Geist (pesos 400 e 600) e do Source Serif 4 (peso 400), subconjunto latin, e salve com os nomes acima em `web/src/assets/fonts/`.
+As fontes precisam ser locais — o binário roda offline e o `//go:embed` não busca recurso externo (D16).
 
-Fontes possíveis: [github.com/vercel/geist-font](https://github.com/vercel/geist-font) (releases) e [Google Fonts — Source Serif 4](https://fonts.google.com/specimen/Source+Serif+4).
+**São dois arquivos, não três.** As duas famílias são fontes variáveis no Google Fonts: um único `.woff2` cobre todo o eixo de peso. Conferido resolvendo o CSS do Google Fonts em 2026-08-11 — Geist 400 e Geist 600 devolvem exatamente a mesma URL. As URLs abaixo são as do subconjunto **latin**, já resolvidas (o CSS devolve cinco arquivos por família, um por subconjunto; pegar o errado dá acentuação quebrada em português).
 
-Confira que os três arquivos existem:
+```bash
+curl -sS -o "web/src/assets/fonts/geist-latin.woff2" "https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwcGFU.woff2"
+```
+
+```bash
+curl -sS -o "web/src/assets/fonts/source-serif-4-latin.woff2" "https://fonts.gstatic.com/s/sourceserif4/v14/vEFy2_tTDB4M7-auWDN0ahZJW3IX2ih5nk3AucvUHf6OAVIJmeUDygwjihdqnhtdDg.woff2"
+```
+
+Confira que os dois existem e não estão vazios:
 
 ```bash
 ls -la "web/src/assets/fonts/"
 ```
 
-Esperado: os três `.woff2` novos, além do `nunito-v16-latin-regular.woff2` que já estava lá.
+Esperado: os dois `.woff2` novos com tamanho na casa das dezenas de KB, além do `nunito-v16-latin-regular.woff2` que já estava lá. Arquivo de 0 byte ou de poucas centenas de bytes significa que veio uma página de erro em vez da fonte — nesse caso o `curl` falhou e o download precisa ser refeito.
+
+Se não houver rede, **não invente um caminho alternativo**: reporte `DONE_WITH_CONCERNS`, deixe o `@font-face` no CSS mesmo assim (a pilha de fallback do `--font-sans` mantém o app legível) e diga que as fontes faltam.
 
 - [ ] **Passo 3: Reescrever o `style.css`**
 
@@ -122,28 +132,24 @@ Substitua **todo** o conteúdo de `web/src/style.css` por:
     --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
 }
 
+/* Fontes variáveis: um arquivo cobre o eixo de peso inteiro, e por isso
+   font-weight declara FAIXA, não valor. Declarar `font-weight: 400` aqui
+   faria o navegador sintetizar o negrito (esticar o traço) em vez de usar o
+   peso real que já está no arquivo. */
 @font-face {
     font-family: "Geist";
     font-style: normal;
-    font-weight: 400;
+    font-weight: 100 900;
     font-display: swap;
-    src: url("assets/fonts/geist-latin-400.woff2") format("woff2");
-}
-
-@font-face {
-    font-family: "Geist";
-    font-style: normal;
-    font-weight: 600;
-    font-display: swap;
-    src: url("assets/fonts/geist-latin-600.woff2") format("woff2");
+    src: url("assets/fonts/geist-latin.woff2") format("woff2");
 }
 
 @font-face {
     font-family: "Source Serif 4";
     font-style: normal;
-    font-weight: 400;
+    font-weight: 200 900;
     font-display: swap;
-    src: url("assets/fonts/source-serif-4-latin-400.woff2") format("woff2");
+    src: url("assets/fonts/source-serif-4-latin.woff2") format("woff2");
 }
 
 /* Tema escuro fixo (§9 da spec). O `text-align: center` do CSS antigo saiu:
