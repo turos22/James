@@ -93,8 +93,10 @@ curl -sS -o "web/src/assets/fonts/geist-latin.woff2" "https://fonts.gstatic.com/
 ```
 
 ```bash
-curl -sS -o "web/src/assets/fonts/source-serif-4-latin.woff2" "https://fonts.gstatic.com/s/sourceserif4/v14/vEFy2_tTDB4M7-auWDN0ahZJW3IX2ih5nk3AucvUHf6OAVIJmeUDygwjihdqnhtdDg.woff2"
+curl -sS -o "web/src/assets/fonts/source-serif-4-latin.woff2" "https://fonts.gstatic.com/s/sourceserif4/v14/vEFF2_tTDB4M7-auWDN0ahZJW3IX2ih5nk3AucvUHf6kDXr4.woff2"
 ```
+
+> **Cuidado que já mordeu uma vez.** A primeira versão deste plano trazia outra URL para o Source Serif 4 (`vEFy2_…OAVIJ…`, 20.088 bytes), resolvida pedindo `wght@400` ao Google Fonts. Peso **único** faz o Google servir um **corte estático**, não a fonte variável — e aí o `font-weight: 200 900` do `@font-face` mente, e o navegador sintetiza o negrito esticando o traço. A URL acima veio de pedir a **faixa** `wght@200..900`, e o arquivo tem 50.824 bytes. Se precisar reresolver, peça sempre faixa. Confira o tamanho: ~20 KB é o corte estático errado, ~50 KB é o variável certo.
 
 Confira que os dois existem e não estão vazios:
 
