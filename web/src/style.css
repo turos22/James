@@ -1,28 +1,58 @@
 @import "tailwindcss";
 
+/* Tokens do design de referência (docs/superpowers/referencias/). Tailwind 4
+   expõe cada `--color-*` declarado aqui como classe utilitária: --color-app-bg
+   vira bg-app-bg, text-app-bg, border-app-bg. */
+@theme {
+    --color-app-bg: oklch(0.09 0.004 265);
+    --color-app-panel: oklch(0.05 0.004 265);
+    --color-app-sidebar: oklch(0.13 0.006 265);
+    --color-app-blue: oklch(0.52 0.24 267);
+    --color-app-blue-foreground: oklch(0.98 0 0);
+    --color-app-icon: oklch(0.58 0.22 266);
+    --color-app-hover: oklch(0.82 0.01 265 / 0.16);
+    --color-app-line: oklch(1 0 0 / 0.08);
+    --color-app-text: oklch(0.96 0 0);
+    --color-app-muted: oklch(0.68 0.01 265);
+
+    --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+
+/* Fontes variáveis: um arquivo cobre o eixo de peso inteiro, e por isso
+   font-weight declara FAIXA, não valor. Declarar `font-weight: 400` aqui
+   faria o navegador sintetizar o negrito (esticar o traço) em vez de usar o
+   peso real que já está no arquivo. */
+@font-face {
+    font-family: "Geist";
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("assets/fonts/geist-latin.woff2") format("woff2");
+}
+
+@font-face {
+    font-family: "Source Serif 4";
+    font-style: normal;
+    font-weight: 200 900;
+    font-display: swap;
+    src: url("assets/fonts/source-serif-4-latin.woff2") format("woff2");
+}
+
+/* Tema escuro fixo (§9 da spec). O `text-align: center` do CSS antigo saiu:
+   ele vinha do template do Wails e centralizava texto de balão de conversa. */
 html {
-    background-color: rgba(27, 38, 54, 1);
-    text-align: center;
-    color: white;
+    background-color: var(--color-app-bg);
+    color: var(--color-app-text);
+    color-scheme: dark;
 }
 
 body {
     margin: 0;
-    color: white;
-    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
-}
-
-@font-face {
-    font-family: "Nunito";
-    font-style: normal;
-    font-weight: 400;
-    src: local(""),
-    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
 }
 
 #app {
     height: 100vh;
-    text-align: center;
 }
