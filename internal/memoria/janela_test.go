@@ -202,3 +202,72 @@ func TestMontarContaImagemDeResultadoDeFerramentaComoCusto(t *testing.T) {
 		}
 	})
 }
+
+// pngDe monta um PNG mínimo válido com a dimensão pedida — DecodeConfig só lê
+// o header, então não é preciso codificar pixel nenhum.
+func pngDe(largura, altura int) []byte {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, largura, altura))); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+// TestMontarMandaSoAImagemMaisRecente trava um problema de BYTES que o
+// orçamento de TOKENS não enxerga: custoImagem devolve 258 fixos por imagem
+// (medido contra a API real), então uma captura de 1920x1080 pesa o mesmo que
+// um ícone no cálculo da janela. Na prática cabiam ~7 capturas no orçamento —
+// e sete PNGs de tela cheia em base64 passam de 15 MB por requisição, contra
+// o teto de 20 MB de conteúdo inline do Gemini. Resultado: turno lento e, na
+// borda, requisição recusada.
+//
+// A captura velha também não serve pra nada: a tela já mudou. O texto dela (a
+// lista de elementos) continua no histórico e é o que o modelo de fato cita.
+func TestMontarMandaSoAImagemMaisRecente(t *testing.T) {
+	comImagem := func(saida string, img []byte) agente.Mensagem {
+		return agente.Mensagem{
+			Papel:      agente.PapelFerramenta,
+			Resultados: []agente.ResultadoFerramenta{{Nome: "ver_tela", Saida: saida, Imagem: img}},
+		}
+	}
+	historico := []agente.Mensagem{
+		comImagem("primeira tela", pngDe(1920, 1080)),
+		comImagem("segunda tela", pngDe(1920, 1080)),
+		comImagem("terceira tela", pngDe(1920, 1080)),
+	}
+
+	janela := Janela{OrcamentoTokens: 8000}.Montar(historico)
+
+	if len(janela) != 3 {
+		t.Fatalf("janela tem %d mensagens, queria as 3 (nenhuma deveria ser cortada)", len(janela))
+	}
+	for i, m := range janela[:2] {
+		if len(m.Resultados[0].Imagem) != 0 {
+			t.Errorf("mensagem %d ainda carrega imagem; só a mais recente deveria", i)
+		}
+		if m.Resultados[0].Saida == "" {
+			t.Errorf("mensagem %d perdeu a saída junto com a imagem — o texto tem que ficar", i)
+		}
+	}
+	if len(janela[2].Resultados[0].Imagem) == 0 {
+		t.Error("a captura mais recente perdeu a imagem")
+	}
+}
+
+// TestMontarNaoMutilaOHistoricoOriginal: Montar monta a requisição, não é dona
+// do histórico. Zerar a imagem no lugar apagaria o frame do estado da conexão
+// — e o turno seguinte montaria a janela a partir de um histórico já sem
+// nenhuma imagem.
+func TestMontarNaoMutilaOHistoricoOriginal(t *testing.T) {
+	imagem := pngDe(800, 600)
+	historico := []agente.Mensagem{
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{Nome: "ver_tela", Imagem: imagem}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{Nome: "ver_tela", Imagem: imagem}}},
+	}
+
+	Janela{OrcamentoTokens: 8000}.Montar(historico)
+
+	if len(historico[0].Resultados[0].Imagem) == 0 {
+		t.Error("Montar apagou a imagem dentro do histórico original")
+	}
+}

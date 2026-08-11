@@ -100,5 +100,49 @@ func (j Janela) Montar(mensagens []agente.Mensagem) []agente.Mensagem {
 	for i, m := range reversa {
 		resultado[len(reversa)-1-i] = m
 	}
-	return resultado
+	return soAImagemMaisRecente(resultado)
+}
+
+// soAImagemMaisRecente devolve a janela com a imagem preservada apenas na
+// captura mais nova; as anteriores ficam só com o texto.
+//
+// O orçamento acima conta TOKEN, e EstimarTokensImagem devolve 258 fixos
+// (medido contra a API real) — uma tela de 1920x1080 pesa ali o mesmo que um
+// ícone. O que ele não conta é BYTE: sete capturas cabiam folgadas no
+// orçamento e passavam de 15 MB em base64 numa requisição só, contra o teto
+// de 20 MB de conteúdo inline do Gemini. O sintoma não era erro limpo, era
+// turno cada vez mais lento e falha na borda.
+//
+// Descartar a captura velha não perde informação útil: a tela já mudou, e a
+// LISTA DE ELEMENTOS daquela captura — que é o que o modelo de fato cita —
+// continua no texto da saída, intacta.
+//
+// Copia em vez de zerar no lugar: `mensagens` é o histórico vivo da conexão,
+// e Montar só monta a requisição. Zerar ali apagaria o frame do estado, e a
+// janela do turno seguinte nasceria de um histórico já sem imagem nenhuma.
+func soAImagemMaisRecente(janela []agente.Mensagem) []agente.Mensagem {
+	jaViu := false
+	for i := len(janela) - 1; i >= 0; i-- {
+		if len(janela[i].Resultados) == 0 {
+			continue
+		}
+		var copiados []agente.ResultadoFerramenta
+		for j, r := range janela[i].Resultados {
+			if len(r.Imagem) == 0 {
+				continue
+			}
+			if !jaViu {
+				jaViu = true
+				continue
+			}
+			if copiados == nil {
+				copiados = append(copiados, janela[i].Resultados...)
+			}
+			copiados[j].Imagem = nil
+		}
+		if copiados != nil {
+			janela[i].Resultados = copiados
+		}
+	}
+	return janela
 }
