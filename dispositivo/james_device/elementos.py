@@ -50,12 +50,17 @@ PROFUNDIDADE_MAXIMA = 12
 @dataclass(frozen=True)
 class Elemento:
     """Um controle clicável. `retangulo` é (esquerda, topo, direita, base) em
-    coordenada GLOBAL, do jeito que a UIA entrega."""
+    coordenada GLOBAL, do jeito que a UIA entrega.
+
+    `em_foco` diz se o controle pertence à janela em primeiro plano. É o que
+    permite a `formatar` priorizar o que o Arthur está de fato usando na hora
+    do corte — ver o comentário de MAXIMO_ELEMENTOS_FORMATADOS."""
 
     id: str
     nome: str
     tipo: str
     retangulo: tuple[int, int, int, int]
+    em_foco: bool = False
 
     def centro_global(self) -> tuple[int, int]:
         esquerda, topo, direita, base = self.retangulo
@@ -122,14 +127,24 @@ def _nome_em_uma_linha(nome: str) -> str:
 
 
 def formatar(elementos: list[Elemento], superficie: superficies.Superficie | None = None) -> str:
-    """Uma linha por elemento, até MAXIMO_ELEMENTOS_FORMATADOS. Só o centro
-    vai pro modelo — o retângulo inteiro custaria quatro vezes mais token e
-    quem precisa dele é o device.
+    """Uma linha por elemento, até MAXIMO_ELEMENTOS_FORMATADOS, com a janela em
+    foco na frente. Só o centro vai pro modelo — o retângulo inteiro custaria
+    quatro vezes mais token e quem precisa dele é o device.
+
+    A prioridade pra janela em foco existe porque o corte é real e a ordem de
+    árvore é péssima pra ele: D14 manda varrer todas as janelas visíveis da
+    superfície, e a barra de tarefas do Windows sozinha rende dezenas de
+    controles que costumam vir primeiro. Num desktop com apps abertos (200+
+    elementos, medido na Task 15), a janela que o Arthur está usando podia não
+    sobrar NENHUM elemento na lista — e o modelo lia isso como "não há nada
+    clicável aqui". Ordenação estável: dentro de cada grupo a ordem de árvore
+    é preservada.
 
     Truncagem é honesta (avisa quantos ficaram de fora) em vez de silenciosa
     — cortar em silêncio faria o modelo tratar "não apareceu na lista" como
     "não existe", quando pode só estar depois do corte."""
-    visiveis = elementos[:MAXIMO_ELEMENTOS_FORMATADOS]
+    priorizados = sorted(elementos, key=lambda e: not e.em_foco)
+    visiveis = priorizados[:MAXIMO_ELEMENTOS_FORMATADOS]
     linhas = []
     for elemento in visiveis:
         x, y = elemento.centro_local(superficie) if superficie else elemento.centro_global()
@@ -160,7 +175,7 @@ def varrer(superficie: superficies.Superficie, janela_em_foco: int) -> Mapa:
     contador = 0
     ignorados = 0
 
-    def descer(no, profundidade: int) -> None:
+    def descer(no, profundidade: int, em_foco: bool) -> None:
         nonlocal contador, ignorados
         if profundidade > PROFUNDIDADE_MAXIMA:
             return
@@ -174,6 +189,17 @@ def varrer(superficie: superficies.Superficie, janela_em_foco: int) -> Mapa:
                 # num desktop com vários apps abertos.
                 if filho.IsOffscreen:
                     continue
+
+                # A marca só SOBE, nunca desce de volta pra False: um controle
+                # dentro da janela em foco pode ter HWND próprio (botão nativo,
+                # painel hospedado), e comparar o handle dele com o da janela
+                # daria diferente — o filho perderia a marca do pai por um
+                # detalhe de implementação do app.
+                filho_em_foco = em_foco
+                if not filho_em_foco:
+                    handle = getattr(filho, "NativeWindowHandle", 0) or 0
+                    filho_em_foco = int(handle) == janela_em_foco
+
                 if filho.ControlTypeName in TIPOS_INTERESSANTES:
                     r = filho.BoundingRectangle
                     retangulo = (r.left, r.top, r.right, r.bottom)
@@ -185,16 +211,19 @@ def varrer(superficie: superficies.Superficie, janela_em_foco: int) -> Mapa:
                                 nome=filho.Name or "",
                                 tipo=filho.ControlTypeName,
                                 retangulo=retangulo,
+                                em_foco=filho_em_foco,
                             )
                         )
-                descer(filho, profundidade + 1)
+                descer(filho, profundidade + 1, filho_em_foco)
             except Exception:
                 # Um controle que some no meio da varredura (app fechando,
                 # menu colapsando) não pode matar a varredura inteira.
                 ignorados += 1
                 logger.debug("elemento ilegível durante a varredura, pulando", exc_info=True)
 
-    descer(uiautomation.GetRootControl(), 0)
+    # A raiz (o desktop) nunca é a janela em foco: a marca nasce False e é
+    # promovida quando a descida encontra o HWND certo.
+    descer(uiautomation.GetRootControl(), 0, False)
     if ignorados > 0:
         # Sinal agregado: sem isso, uma falha sistemática (API do
         # uiautomation mudou, atributo faltando) se disfarça de "tela vazia"

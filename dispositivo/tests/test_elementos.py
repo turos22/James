@@ -118,3 +118,56 @@ def test_formatar_trunca_e_avisa_quantos_ficaram_de_fora():
     # Quem cortou foi formatar(), não varrer()/Mapa.
     mapa = Mapa(superficie_id="DISPLAY1", janela_em_foco=1, elementos=elementos)
     assert mapa.por_id(f"e{total - 1}") is not None
+
+
+def elemento_em_foco(identificador, nome, tipo, esquerda, topo, direita, base):
+    return Elemento(
+        id=identificador, nome=nome, tipo=tipo,
+        retangulo=(esquerda, topo, direita, base), em_foco=True,
+    )
+
+
+def test_janela_em_foco_vem_antes_na_lista():
+    """D14 manda varrer TODAS as janelas visíveis da superfície, e a barra de
+    tarefas do Windows sozinha produz dezenas de controles. Em ordem de árvore
+    ela costuma vir primeiro, então a janela que o Arthur está de fato usando
+    aparecia depois — e, num desktop cheio, depois do corte."""
+    elementos = [
+        elemento("e1", "Iniciar", "ButtonControl", 0, 1040, 40, 1080),
+        elemento("e2", "Pesquisar", "EditControl", 50, 1040, 300, 1080),
+        elemento_em_foco("e3", "Salvar", "ButtonControl", 800, 440, 840, 470),
+    ]
+
+    linhas = formatar(elementos, DISPLAY1).split("\n")
+
+    assert '"Salvar"' in linhas[0], f"a janela em foco não veio primeiro: {linhas[0]!r}"
+
+
+def test_ordem_relativa_preservada_dentro_de_cada_grupo():
+    elementos = [
+        elemento("e1", "fundo A", "ButtonControl", 0, 0, 10, 10),
+        elemento_em_foco("e2", "foco A", "ButtonControl", 20, 20, 30, 30),
+        elemento("e3", "fundo B", "ButtonControl", 40, 40, 50, 50),
+        elemento_em_foco("e4", "foco B", "ButtonControl", 60, 60, 70, 70),
+    ]
+
+    linhas = formatar(elementos, DISPLAY1).split("\n")
+    nomes = [l.split('"')[1] for l in linhas]
+
+    assert nomes == ["foco A", "foco B", "fundo A", "fundo B"]
+
+
+def test_corte_nao_sacrifica_a_janela_em_foco():
+    """O caso real: desktop com apps abertos passa de 200 elementos, quase
+    todos de barra de tarefas e janelas de fundo. Com o corte em ordem de
+    árvore, a janela em foco podia não sobrar nenhum elemento na lista — e o
+    modelo concluía que não havia nada clicável na tela."""
+    fundo = [
+        elemento(f"e{i}", f"fundo {i}", "ButtonControl", 0, 0, 10, 10)
+        for i in range(MAXIMO_ELEMENTOS_FORMATADOS + 50)
+    ]
+    alvo = elemento_em_foco("alvo", "Salvar", "ButtonControl", 800, 440, 840, 470)
+
+    saida = formatar(fundo + [alvo], DISPLAY1)
+
+    assert '"Salvar"' in saida, "o elemento da janela em foco caiu no corte"
