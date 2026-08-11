@@ -5,6 +5,7 @@ import type {
   DadosFerramentaIniciada,
   DadosRespostaFinal,
   DadosSessaoRetomada,
+  DadosTranscricao,
 } from "../lib/eventos";
 
 export interface Mensagem {
@@ -38,7 +39,8 @@ export type Acao =
   | { tipo: "ferramenta_concluida"; dados: DadosFerramentaConcluida }
   | { tipo: "aprovacao_requerida"; dados: DadosAprovacaoRequerida }
   | { tipo: "aprovacao_decidida" }
-  | { tipo: "sessao_retomada"; dados: DadosSessaoRetomada };
+  | { tipo: "sessao_retomada"; dados: DadosSessaoRetomada }
+  | { tipo: "transcricao"; dados: DadosTranscricao };
 
 export const estadoInicial: EstadoTurno = {
   mensagens: [],
@@ -53,19 +55,32 @@ export const estadoInicial: EstadoTurno = {
 // esta função.
 export function reduzir(estado: EstadoTurno, acao: Acao): EstadoTurno {
   switch (acao.tipo) {
+    // envio_local e transcricao são a MESMA abertura de turno por dois
+    // caminhos: no texto quem sabe o que foi dito é o próprio cliente que
+    // digitou; na voz é o servidor, que transcreve e anuncia. Daí o mesmo
+    // corpo — balão do usuário, ferramentas do turno anterior zeradas, turno
+    // marcado em andamento.
     case "envio_local":
+    case "transcricao": {
+      const texto = acao.tipo === "envio_local" ? acao.texto : acao.dados.texto;
       return {
         ...estado,
-        mensagens: [...estado.mensagens, { papel: "usuario", texto: acao.texto }],
+        mensagens: [...estado.mensagens, { papel: "usuario", texto }],
         ferramentas: [],
         emAndamento: true,
       };
+    }
 
+    // Turno encerrado (por resposta ou por erro) não pode deixar aprovação
+    // pendente para trás: o servidor já resolveu tudo que estava esperando,
+    // e um card sobrevivente trava o visualizador (precedência máxima em
+    // escolherConteudo) com botões que não resolvem mais nada.
     case "resposta_final":
       return {
         ...estado,
         mensagens: [...estado.mensagens, { papel: "james", texto: acao.dados.texto }],
         emAndamento: false,
+        aprovacao: null,
         sessaoAtual: acao.dados.sessao_id,
       };
 
@@ -74,6 +89,7 @@ export function reduzir(estado: EstadoTurno, acao: Acao): EstadoTurno {
         ...estado,
         mensagens: [...estado.mensagens, { papel: "james", texto: `Erro: ${acao.dados.mensagem}` }],
         emAndamento: false,
+        aprovacao: null,
       };
 
     case "ferramenta_iniciada":
@@ -96,7 +112,16 @@ export function reduzir(estado: EstadoTurno, acao: Acao): EstadoTurno {
           erro: acao.dados.erro || undefined,
         };
       });
-      return { ...estado, ferramentas };
+      // A ferramenta que estava bloqueada esperando o humano acabou de
+      // voltar — por aprovação, por negação ou por expiração do prazo. Em
+      // qualquer um dos três casos o pedido já não está mais pendente no
+      // servidor, e manter o card na tela só engana: os botões não resolvem
+      // nada e o visualizador fica travado nele. Comparação por nome porque
+      // ferramenta_concluida não carrega o id da aprovação; uma aprovação de
+      // OUTRA ferramenta segue pendente, como deve.
+      const aprovacao =
+        estado.aprovacao?.ferramenta === acao.dados.nome ? null : estado.aprovacao;
+      return { ...estado, ferramentas, aprovacao };
     }
 
     case "aprovacao_requerida":

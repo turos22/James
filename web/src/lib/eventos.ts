@@ -59,6 +59,13 @@ export interface DadosSessaoRetomada {
   mensagens: { papel: string; texto: string }[];
 }
 
+// DadosTranscricao é o texto que o device entendeu numa entrada falada. Só o
+// caminho de voz emite (internal/api/dispositivo.go, tratarEntradaDeVoz): no
+// caminho de texto o próprio cliente que digitou já desenhou o balão.
+export interface DadosTranscricao {
+  texto: string;
+}
+
 export const EVENTOS_CONHECIDOS = [
   "resposta_final",
   "erro",
@@ -67,6 +74,7 @@ export const EVENTOS_CONHECIDOS = [
   "ferramenta_concluida",
   "aprovacao_requerida",
   "sessao_retomada",
+  "transcricao",
 ] as const;
 
 export type TipoEvento = (typeof EVENTOS_CONHECIDOS)[number];

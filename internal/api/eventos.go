@@ -1,6 +1,9 @@
 package api
 
 import (
+	"errors"
+	"log/slog"
+
 	"github.com/google/uuid"
 
 	"james/internal/agente"
@@ -55,6 +58,14 @@ type payloadErro struct {
 	Mensagem string `json:"mensagem"`
 }
 
+// payloadTranscricao é o formato de "transcricao": o texto que o device
+// entendeu numa entrada falada. Só o caminho de voz emite. O caminho de
+// texto não precisa — o cliente que digitou já desenhou o próprio balão
+// (envio_local) antes mesmo de a mensagem sair.
+type payloadTranscricao struct {
+	Texto string `json:"texto"`
+}
+
 // mensagemDoHistorico é uma mensagem da conversa retomada, no formato que a
 // interface exibe. Só papel e texto: o front monta o balão a partir disso.
 type mensagemDoHistorico struct {
@@ -101,6 +112,24 @@ func mensagensExibiveis(historico []agente.Mensagem) []mensagemDoHistorico {
 		}
 	}
 	return mensagens
+}
+
+// mensagemDeErroDoTurno loga o erro real e devolve a frase que pode ir pra
+// tela. Existe porque tratarMensagem e tratarEntradaDeVoz mandavam
+// err.Error() cru: derrubando o Postgres, o cliente recebia usuário, banco,
+// host e porta na cara (reproduzido ao vivo na auditoria da Fase 6). É a
+// mesma regra que tratarRetomar já seguia e que o comentário dele explica —
+// esta tela é a que o celular abre pela VPN.
+//
+// ErroTetoIteracoes é a exceção deliberada: não é falha de infraestrutura, é
+// desfecho normal do loop (R5 pede mensagem honesta), e não carrega nada
+// sobre a máquina.
+func mensagemDeErroDoTurno(err error, origem string) string {
+	slog.Error("turno falhou", "erro", err, "origem", origem)
+	if errors.Is(err, agente.ErroTetoIteracoes) {
+		return "não consegui concluir esse pedido — precisei de passos demais"
+	}
+	return "não consegui completar esse turno"
 }
 
 // hooksDeFerramenta monta os callbacks AoIniciarFerramenta/AoConcluirFerramenta

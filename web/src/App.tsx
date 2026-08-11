@@ -23,6 +23,16 @@ export default function App() {
   const [saidaVerTela, setSaidaVerTela] = useState<string | null>(null);
   const [estado, despachar] = useReducer(reduzir, estadoInicial);
   const clienteRef = useRef<ClienteWS | null>(null);
+  // Espelho de estado.sessaoAtual só para leitura dentro do efeito de
+  // conexão, que roda uma vez e não enxerga estado novo pelo closure. É
+  // derivado, não uma segunda fonte de verdade: quem decide qual é a sessão
+  // continua sendo o redutor.
+  const sessaoAtualRef = useRef<string | null>(null);
+  const jaConectouRef = useRef(false);
+
+  useEffect(() => {
+    sessaoAtualRef.current = estado.sessaoAtual;
+  }, [estado.sessaoAtual]);
 
   useEffect(() => {
     const cliente = new ClienteWS(urlWS());
@@ -31,6 +41,24 @@ export default function App() {
     cliente.aoMudarEstado((novoEstado, n) => {
       setConexao(novoEstado);
       setTentativa(n);
+
+      if (novoEstado !== "conectado") return;
+
+      // Reconexão abre uma conexão NOVA no jamesd, e sessão e histórico
+      // vivem por conexão lá (ws.go: variáveis locais do handler). Sem
+      // reemitir "retomar", a tela segue mostrando a conversa antiga
+      // enquanto o modelo volta a zero e o turno seguinte grava numa sessão
+      // órfã — sem erro nenhum, que é o que torna isso perigoso.
+      //
+      // Sai daqui e não de um efeito: ClienteWS publica "conectado" dentro
+      // do onopen ANTES de descarregar a fila, então este envio entra na
+      // frente da mensagem que esperou a queda. É a ordem que importa — a
+      // mensagem enfileirada precisa cair na sessão retomada, não criar
+      // outra.
+      if (jaConectouRef.current && sessaoAtualRef.current) {
+        cliente.enviar("retomar", crypto.randomUUID(), { sessao_id: sessaoAtualRef.current });
+      }
+      jaConectouRef.current = true;
     });
 
     cliente.on("resposta_final", (dados) => despachar({ tipo: "resposta_final", dados }));
@@ -40,6 +68,7 @@ export default function App() {
       despachar({ tipo: "ferramenta_concluida", dados });
       if (dados.nome === "ver_tela" && dados.saida) setSaidaVerTela(dados.saida);
     });
+    cliente.on("transcricao", (dados) => despachar({ tipo: "transcricao", dados }));
     cliente.on("aprovacao_requerida", (dados) => despachar({ tipo: "aprovacao_requerida", dados }));
     cliente.on("sessao_retomada", (dados) => despachar({ tipo: "sessao_retomada", dados }));
 

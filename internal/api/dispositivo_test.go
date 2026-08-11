@@ -229,6 +229,40 @@ func capturarEventosDeEntradaDeVozNoServidor(t *testing.T, servidor *httptest.Se
 	return eventos
 }
 
+// TestEntradaDeVozAnunciaTranscricaoAntesDeProcessar trava o achado da
+// auditoria da Fase 6: um turno falado chegava na tela só com a resposta do
+// James, sem nenhum balão do que foi dito. O caminho de texto monta o balão
+// do usuário localmente (envio_local, no próprio front), mas a voz não passa
+// por cliente WS nenhum — quem fala é o device, e o texto transcrito morria
+// dentro do servidor. A resposta aparecia do nada.
+//
+// A transcrição precisa ser emitida ANTES de processarTurno, não junto com o
+// desfecho: o turno pode levar minutos (ferramenta, aprovação humana), e a
+// tela tem que mostrar o que foi entendido no ato — inclusive porque é assim
+// que se percebe que o Vosk ouviu errado.
+func TestEntradaDeVozAnunciaTranscricaoAntesDeProcessar(t *testing.T) {
+	eventos := capturarEventosDeEntradaDeVoz(t, "que horas são")
+
+	if len(eventos) == 0 {
+		t.Fatal("nenhum evento capturado")
+	}
+	if eventos[0].Tipo != "transcricao" {
+		tipos := make([]string, 0, len(eventos))
+		for _, e := range eventos {
+			tipos = append(tipos, e.Tipo)
+		}
+		t.Fatalf("primeiro evento devia ser transcricao, veio %q (sequência: %v)", eventos[0].Tipo, tipos)
+	}
+
+	var dados payloadTranscricao
+	if err := json.Unmarshal(eventos[0].Dados, &dados); err != nil {
+		t.Fatalf("dados de transcricao ilegíveis: %v", err)
+	}
+	if dados.Texto != "que horas são" {
+		t.Errorf("transcricao veio com texto %q, queria %q", dados.Texto, "que horas são")
+	}
+}
+
 // TestFerramentaConcluidaCarregaSaidaViaVoz estende pro caminho de voz o que
 // TestFerramentaConcluidaCarregaSaida (ws_test.go) já trava pro caminho de
 // texto: a Parte A da Task 18 unificou a montagem do payload de

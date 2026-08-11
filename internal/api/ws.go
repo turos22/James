@@ -20,9 +20,12 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	// A rede já é fechada pela VPN/loopback (spec I1/I2) — Origin de
-	// browser não é a fronteira de segurança aqui.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Já foi `return true`, com a justificativa de que a rede fechada pela
+	// VPN/loopback (spec I1/I2) tornava a origem irrelevante. A justificativa
+	// estava errada: WebSocket não passa por CORS, então "rede fechada" não
+	// impede uma página aberta no navegador DESTA máquina de abrir uma conexão
+	// pro loopback — e loopback é Privilegiado. Ver origem.go.
+	CheckOrigin: origemPermitida,
 }
 
 // limiteMensagensSessao é o teto de linhas trazidas do Postgres por sessão,
@@ -31,6 +34,10 @@ var upgrader = websocket.Upgrader{
 // fim) — mesmo número, semânticas opostas.
 const limiteMensagensSessao = 200
 
+// tamanhoMaximoMensagemCliente é o teto de uma mensagem vinda de um cliente
+// WS (o shell desktop ou o celular pela VPN).
+const tamanhoMaximoMensagemCliente = 1 << 20 // 1 MB
+
 func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -38,6 +45,11 @@ func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	// Sem isto o gorilla aceita mensagem de qualquer tamanho, e esta rota
+	// também atende o celular pela VPN. O cliente só manda texto de conversa e
+	// aprovar/negar — 1 MB é folga de ordens de grandeza sobre o caso real.
+	// O WS do device tem teto próprio, bem maior, porque por lá passa PNG.
+	conn.SetReadLimit(tamanhoMaximoMensagemCliente)
 
 	cliente := &conexaoCliente{ws: conn, perfil: permissao.ResolverPerfil(r.RemoteAddr)}
 	s.Clientes.Registrar(cliente)
@@ -107,7 +119,7 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
 	resp, audioID, err := s.processarTurno(ctx, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir)
 	if err != nil {
-		emitir("erro", payloadErro{Mensagem: err.Error()})
+		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "texto")})
 		return
 	}
 

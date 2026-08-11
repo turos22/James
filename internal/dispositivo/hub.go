@@ -97,12 +97,27 @@ func (h *Hub) Registrar(c Conexao) {
 	h.conexao = c
 }
 
-// Desregistrar remove a conexão atual. A partir daí, EnviarAcao volta a
-// devolver ErroDispositivoAusente.
-func (h *Hub) Desregistrar() {
+// Desregistrar remove a conexão informada, e só ela: se outra já tomou o
+// lugar dela em Registrar, esta chamada é um no-op. A partir daí EnviarAcao
+// volta a devolver ErroDispositivoAusente — a menos que exista uma conexão
+// mais nova registrada.
+//
+// Receber a conexão como parâmetro (em vez de zerar o que estiver lá) não é
+// zelo excessivo: o device reconecta sozinho a cada 2s (conexao.py) e o lado
+// Go só percebe um socket meio-aberto quando o read falha, o que pode demorar.
+// A ordem "a nova registra, e só depois a velha morre" é o caso NORMAL de uma
+// queda de rede, não a borda. Com o Desregistrar incondicional de antes, o
+// defer da conexão velha apagava o registro da NOVA, e o Hub passava a
+// responder ErroDispositivoAusente para sempre — com um device vivo do outro
+// lado e sem nada que o fizesse reconectar, porque do ponto de vista dele a
+// conexão estava perfeita. Coberto por
+// TestReconexaoDoDeviceNaoDesregistraAConexaoNova (internal/api).
+func (h *Hub) Desregistrar(c Conexao) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.conexao = nil
+	if h.conexao == c {
+		h.conexao = nil
+	}
 }
 
 // timeoutDe devolve o timeout específico da ação, se houver um cadastrado em

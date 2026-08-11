@@ -41,6 +41,12 @@ func (c *conexaoDispositivo) Enviar(envelope []byte) error {
 // o comportamento padrão do gorilla quando SetReadLimit nunca é chamado.
 const tamanhoMaximoMensagemDevice = 32 << 20 // 32 MB
 
+// tempoSemNoticiaDoDevice é quanto a leitura espera por QUALQUER frame do
+// device antes de declarar a conexão morta. Três heartbeats do device (15s
+// cada, ver conexao.py) com folga: o ponto é derrubar socket zumbi, não
+// disputar com uma oscilação de rede.
+const tempoSemNoticiaDoDevice = 50 * time.Second
+
 // decodificarResultadoAcao lê o payload de resultado_acao. A imagem chega em
 // base64 porque o envelope é JSON. Base64 quebrada não vira erro do turno:
 // o texto do resultado ainda é útil sozinho, e derrubar tudo por causa de um
@@ -80,7 +86,7 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 
 	conexao := &conexaoDispositivo{ws: conn}
 	s.DispositivoHub.Registrar(conexao)
-	defer s.DispositivoHub.Desregistrar()
+	defer s.DispositivoHub.Desregistrar(conexao)
 
 	// Conversa por voz do device é sempre tratada como perfil Privilegiado:
 	// é a mesma máquina física, e as respostas vão pros clientes
@@ -88,41 +94,87 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 	var sessaoID uuid.UUID
 	var historico []agente.Mensagem
 
-	for {
-		var envelope Envelope
-		if err := conn.ReadJSON(&envelope); err != nil {
-			return
-		}
+	// Mesmo desenho de ws(), e pelo mesmo motivo — só que aqui o travamento
+	// era pior. tratarEntradaDeVoz roda o turno INTEIRO de forma síncrona e
+	// pode levar minutos, e o resultado_acao que uma ferramenta de tela espera
+	// chega POR ESTA MESMA CONEXÃO. Com um goroutine só lendo e processando em
+	// série: o Hub manda acao_tela, o device responde na hora, e ninguém lê a
+	// resposta até o turno terminar — o que só acontece depois de a própria
+	// ação expirar por timeout. Toda ver_tela e todo manipular_interface
+	// pedido POR VOZ falhava assim, com o device saudável.
+	// Coberto por TestEntradaDeVozConsegueUsarFerramentaDeTela.
+	vozes := make(chan Envelope, 1)
+	go func() {
+		defer close(vozes)
+		for {
+			// Renovado a cada leitura bem-sucedida: o device manda heartbeat a
+			// cada 15s (conexao.py), então três batidas perdidas significam
+			// socket morto. Sem prazo nenhum, um TCP meio-aberto (sleep/wake,
+			// Wi-Fi caindo, VPN oscilando) ficava registrado indefinidamente e
+			// o Hub despachava ação pra um socket que ninguém lê do outro lado.
+			_ = conn.SetReadDeadline(time.Now().Add(tempoSemNoticiaDoDevice))
 
-		switch envelope.Tipo {
-		case "resultado_acao":
-			saida, erroDoDevice, imagem := decodificarResultadoAcao(envelope.Dados)
-			s.DispositivoHub.ResolverResultado(envelope.ID, saida, erroDoDevice, imagem)
-
-		case "entrada_voz":
-			var dados struct {
-				Texto string `json:"texto"`
+			var envelope Envelope
+			if err := conn.ReadJSON(&envelope); err != nil {
+				return
 			}
-			if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
-				continue
-			}
-			s.tratarEntradaDeVoz(r.Context(), envelope.ID, dados.Texto, &sessaoID, &historico)
 
-		case "registro", "heartbeat":
-			// Fase 1 só precisa aceitar sem derrubar a conexão — telemetria
-			// de status_dispositivo fica como polimento futuro (não bloqueia
-			// nenhum critério de aceitação).
+			switch envelope.Tipo {
+			case "resultado_acao":
+				// Resolvido aqui mesmo, dentro da leitura: ResolverResultado é
+				// não-bloqueante por contrato (ver hub.go), então não reintroduz
+				// o travamento que este desenho existe pra evitar.
+				saida, erroDoDevice, imagem := decodificarResultadoAcao(envelope.Dados)
+				s.DispositivoHub.ResolverResultado(envelope.ID, saida, erroDoDevice, imagem)
+
+			case "entrada_voz":
+				// Envio não-bloqueante, e é o ponto todo: se a leitura travar
+				// esperando o laço abaixo aceitar a fala, o resultado_acao do
+				// turno em andamento volta a não ser lido — o mesmo deadlock,
+				// um nível acima. Dois turnos falados também não poderiam rodar
+				// em paralelo de qualquer forma: compartilham sessaoID e
+				// historico.
+				select {
+				case vozes <- envelope:
+				default:
+					slog.Warn("turno de voz já em andamento, fala descartada")
+					s.Clientes.BroadcastParaPrivilegiados("erro", envelope.ID,
+						payloadErro{Mensagem: "ainda estou no pedido anterior — repita quando eu terminar"})
+				}
+
+			case "registro", "heartbeat":
+				// Fase 1 só precisa aceitar sem derrubar a conexão — telemetria
+				// de status_dispositivo fica como polimento futuro (não bloqueia
+				// nenhum critério de aceitação).
+			}
 		}
+	}()
+
+	for envelope := range vozes {
+		var dados struct {
+			Texto string `json:"texto"`
+		}
+		if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
+			continue
+		}
+		s.tratarEntradaDeVoz(r.Context(), envelope.ID, dados.Texto, &sessaoID, &historico)
 	}
 }
 
 func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
 	emitir := func(tipo string, dados any) { s.Clientes.BroadcastParaPrivilegiados(tipo, id, dados) }
 
+	// Antes de qualquer processamento: o turno pode levar minutos (ferramenta
+	// lenta, espera por aprovação humana) e a tela precisa mostrar no ato o
+	// que foi entendido. Sem isso a resposta do James aparecia sozinha, sem
+	// balão do que foi falado — o caminho de texto não tem esse problema
+	// porque o próprio cliente que digitou desenha o balão localmente.
+	emitir("transcricao", payloadTranscricao{Texto: texto})
+
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
 	resp, audioID, err := s.processarTurno(ctx, permissao.Privilegiado, sessaoID, historico, texto, aoIniciar, aoConcluir)
 	if err != nil {
-		emitir("erro", payloadErro{Mensagem: err.Error()})
+		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "voz")})
 		return
 	}
 	// Mesmo ponto de atenção de tratarMensagem (ws.go): sessaoID só é lido

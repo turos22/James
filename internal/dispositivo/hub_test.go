@@ -165,12 +165,44 @@ func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
 
 func TestDesregistrarVoltaAErroDispositivoAusente(t *testing.T) {
 	h := NovoHub()
-	h.Registrar(&conexaoFalsa{})
-	h.Desregistrar()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	h.Desregistrar(conexao)
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click"})
 	if !errors.Is(err, ErroDispositivoAusente) {
 		t.Fatalf("erro = %v, queria ErroDispositivoAusente após Desregistrar", err)
+	}
+}
+
+// TestDesregistrarConexaoVelhaNaoDerrubaANova é a versão unitária do bug que
+// TestReconexaoDoDeviceNaoDesregistraAConexaoNova (internal/api) exercita pelo
+// WS real: quem chega depois manda, e quem já foi substituído não tem mais
+// nada pra desregistrar.
+func TestDesregistrarConexaoVelhaNaoDerrubaANova(t *testing.T) {
+	h := NovoHub()
+	velha := &conexaoFalsa{}
+	nova := &conexaoFalsa{}
+	h.Registrar(velha)
+	h.Registrar(nova)
+
+	h.Desregistrar(velha)
+
+	// Contexto curto: ninguém vai resolver este id, então o desfecho esperado
+	// é o prazo estourar. O que o teste afirma é que NÃO foi
+	// ErroDispositivoAusente — ou seja, o Hub ainda tem device.
+	ctx, cancelar := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelar()
+
+	_, err := h.EnviarAcao(ctx, AcaoTela{Acao: "click"})
+	if errors.Is(err, ErroDispositivoAusente) {
+		t.Fatal("o Hub esqueceu a conexão nova quando a velha se desregistrou")
+	}
+	if _, ok := nova.primeiroEnviado(); !ok {
+		t.Fatal("a ação não chegou na conexão nova")
+	}
+	if _, ok := velha.primeiroEnviado(); ok {
+		t.Fatal("a ação foi parar na conexão velha")
 	}
 }
 

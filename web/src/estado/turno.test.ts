@@ -69,6 +69,85 @@ describe("estado do turno", () => {
     expect(estado.aprovacao).toBeNull();
   });
 
+  it("aprovação some quando a ferramenta que a esperava conclui sem ninguém decidir", () => {
+    // Reproduzido ao vivo na auditoria da Fase 6: aprovação que expira (5min
+    // no default) resolve no servidor — a ferramenta volta com "ação negada
+    // pelo usuário" e o turno termina — mas nenhum evento dizia isso ao
+    // redutor. O card ficava na tela com os dois botões vivos, e como ele tem
+    // precedência máxima em escolherConteudo, o visualizador travava para
+    // sempre. Clicar "Aprovar" no card morto não executa nada (o id já não
+    // existe no registro do servidor) e ainda assim limpa a tela: o usuário
+    // sai achando que aprovou.
+    let estado = reduzir(estadoInicial, { tipo: "envio_local", texto: "apaga o arquivo" });
+    estado = reduzir(estado, { tipo: "ferramenta_iniciada", dados: { nome: "executar_comando_sistema" } });
+    estado = reduzir(estado, {
+      tipo: "aprovacao_requerida",
+      dados: { id: "a1", ferramenta: "executar_comando_sistema", argumentos: {} },
+    });
+
+    estado = reduzir(estado, {
+      tipo: "ferramenta_concluida",
+      dados: { nome: "executar_comando_sistema", erro: "ação negada pelo usuário", saida: "" },
+    });
+
+    expect(estado.aprovacao).toBeNull();
+  });
+
+  it("aprovação de OUTRA ferramenta sobrevive à conclusão da ferramenta corrente", () => {
+    // O contrário do teste acima: limpar em qualquer ferramenta_concluida
+    // apagaria um pedido legítimo ainda pendente. Um turno pode ter uma
+    // ferramenta concluindo enquanto outra espera aprovação.
+    let estado = reduzir(estadoInicial, { tipo: "envio_local", texto: "olha a tela e depois apaga" });
+    estado = reduzir(estado, { tipo: "ferramenta_iniciada", dados: { nome: "ver_tela" } });
+    estado = reduzir(estado, {
+      tipo: "aprovacao_requerida",
+      dados: { id: "a1", ferramenta: "executar_comando_sistema", argumentos: {} },
+    });
+
+    estado = reduzir(estado, {
+      tipo: "ferramenta_concluida",
+      dados: { nome: "ver_tela", erro: "", saida: "superficie: DISPLAY1" },
+    });
+
+    expect(estado.aprovacao?.id).toBe("a1");
+  });
+
+  it("fim do turno limpa aprovação pendente, por resposta final ou por erro", () => {
+    // Rede de segurança para o mesmo bug: turno encerrado não pode ter
+    // aprovação pendente, qualquer que tenha sido o caminho até o card
+    // ficar órfão.
+    const pendente = reduzir(estadoInicial, {
+      tipo: "aprovacao_requerida",
+      dados: { id: "a1", ferramenta: "executar_comando_sistema", argumentos: {} },
+    });
+
+    const porResposta = reduzir(pendente, {
+      tipo: "resposta_final",
+      dados: { texto: "pronto", sessao_id: "s1" },
+    });
+    expect(porResposta.aprovacao).toBeNull();
+
+    const porErro = reduzir(pendente, { tipo: "erro", dados: { mensagem: "deu ruim" } });
+    expect(porErro.aprovacao).toBeNull();
+  });
+
+  it("transcricao abre o turno falado com o balão do usuário", () => {
+    // Achado da auditoria da Fase 6: turno por voz chegava na tela só com a
+    // resposta do James. O caminho de texto monta o balão do usuário em
+    // envio_local, no próprio front; a voz não passa por cliente WS nenhum,
+    // então o servidor precisa anunciar o que ouviu e o redutor precisa
+    // tratar isso como abertura de turno — inclusive marcando emAndamento e
+    // zerando as ferramentas do turno anterior.
+    const estado = reduzir(
+      { ...estadoInicial, ferramentas: [{ nome: "ver_tela", estado: "concluida", iniciadaEm: 0 }] },
+      { tipo: "transcricao", dados: { texto: "que horas são" } },
+    );
+
+    expect(estado.mensagens).toEqual([{ papel: "usuario", texto: "que horas são" }]);
+    expect(estado.emAndamento).toBe(true);
+    expect(estado.ferramentas).toEqual([]);
+  });
+
   it("sessao_retomada preenche a tela com o histórico, mapeia modelo para james e limpa ferramenta velha", () => {
     // Achado da verificação ao vivo da Fase 6: o servidor reconstruía o
     // histórico certo pro Gemini, mas o evento sessao_retomada só mandava a

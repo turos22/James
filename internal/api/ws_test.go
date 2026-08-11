@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
+	"james/internal/dispositivo"
 	"james/internal/ferramentas"
 	"james/internal/memoria"
 )
@@ -499,6 +502,233 @@ func capturarEventosDeUmTurnoNoServidor(t *testing.T, servidor *httptest.Server,
 	return eventos
 }
 
+// TestRetomarTrazACaudaDaConversaQuandoEstouraOLimite é o guarda que faltava.
+//
+// A auditoria da Fase 6 mostrou que trocar ListarRecentesPorSessao por
+// ListarPorSessao em tratarRetomar deixava a suíte INTEIRA verde: o teste que
+// existia (TestListarRecentesPorSessaoDivergeDeListarPorSessaoQuandoEstoraLimite,
+// no pacote postgres) prova que os dois repositórios divergem, mas não olha
+// para o ponto de chamada. E o plano da fase já tinha mandado a retomada usar
+// o método do REST uma vez — é um erro que o projeto já cometeu.
+//
+// A divergência só aparece acima de limiteMensagensSessao: abaixo dele os
+// dois métodos devolvem a conversa toda e qualquer um "funciona". Por isso
+// este é também o primeiro exercício real do truncamento da retomada, que
+// nenhuma sessão de verdade tinha alcançado.
+//
+// Limpa a sessão que criou: a suíte já enche o banco de trabalho sem limpar
+// nada (1775 sessões na auditoria), e um teste que escreve 205 linhas por
+// execução não pode piorar isso.
+func TestRetomarTrazACaudaDaConversaQuandoEstouraOLimite(t *testing.T) {
+	s := servidorComFerramentaFalsa(t, &ferramentaFalsaComSaida{nome: "nada"}, "nada")
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	ctx := context.Background()
+	sessao, err := s.Sessoes.Criar(ctx, "conversa longa de teste")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+	t.Cleanup(func() { apagarSessaoDeTeste(t, sessao.ID) })
+
+	const excedente = 5
+	total := limiteMensagensSessao + excedente
+	for i := 0; i < total; i++ {
+		papel := string(agente.PapelUsuario)
+		if i%2 == 1 {
+			papel = string(agente.PapelModelo)
+		}
+		if _, err := s.Mensagens.Salvar(ctx, sessao.ID, papel, fmt.Sprintf("msg-%d", i), nil); err != nil {
+			t.Fatalf("erro ao salvar mensagem %d: %v", i, err)
+		}
+	}
+
+	retomada := retomarSessaoNoServidor(t, servidor, sessao.ID.String())
+
+	if len(retomada.Mensagens) != limiteMensagensSessao {
+		t.Fatalf("retomada trouxe %d mensagens, queria o teto de %d", len(retomada.Mensagens), limiteMensagensSessao)
+	}
+
+	primeira := retomada.Mensagens[0].Texto
+	ultima := retomada.Mensagens[len(retomada.Mensagens)-1].Texto
+	if ultima != fmt.Sprintf("msg-%d", total-1) {
+		t.Errorf("última mensagem retomada = %q, queria %q — a retomada não pegou o fim da conversa",
+			ultima, fmt.Sprintf("msg-%d", total-1))
+	}
+	if primeira != fmt.Sprintf("msg-%d", excedente) {
+		t.Errorf("primeira mensagem retomada = %q, queria %q — isto é o começo da conversa, não a cauda (ListarPorSessao no lugar de ListarRecentesPorSessao)",
+			primeira, fmt.Sprintf("msg-%d", excedente))
+	}
+}
+
+// retomarSessaoNoServidor manda "retomar" e devolve o payload de
+// sessao_retomada decodificado.
+func retomarSessaoNoServidor(t *testing.T, servidor *httptest.Server, sessaoID string) payloadSessaoRetomada {
+	t.Helper()
+	urlWS := "ws" + strings.TrimPrefix(servidor.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(urlWS, nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(Envelope{Tipo: "retomar", ID: "r1", Dados: codificarDados(map[string]string{"sessao_id": sessaoID})}); err != nil {
+		t.Fatalf("erro ao enviar retomar: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	var recebido Envelope
+	if err := conn.ReadJSON(&recebido); err != nil {
+		t.Fatalf("erro ao ler do WS: %v", err)
+	}
+	if recebido.Tipo != "sessao_retomada" {
+		t.Fatalf("esperava sessao_retomada, veio %q: %s", recebido.Tipo, recebido.Dados)
+	}
+
+	var payload payloadSessaoRetomada
+	if err := json.Unmarshal(recebido.Dados, &payload); err != nil {
+		t.Fatalf("payload de sessao_retomada ilegível: %v", err)
+	}
+	return payload
+}
+
+// apagarSessaoDeTeste remove a sessão criada pelo teste. As mensagens saem
+// junto pela foreign key com ON DELETE CASCADE.
+func apagarSessaoDeTeste(t *testing.T, id uuid.UUID) {
+	t.Helper()
+	pool, err := postgres.Abrir(context.Background(), postgres.URLDoAmbiente())
+	if err != nil {
+		t.Logf("não consegui abrir o banco para limpar a sessão %s: %v", id, err)
+		return
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(context.Background(), "DELETE FROM sessoes WHERE id = $1", id); err != nil {
+		t.Logf("não consegui apagar a sessão de teste %s: %v", id, err)
+	}
+}
+
+// providerQueFalha simula qualquer falha de infraestrutura no meio do turno
+// (Gemini fora, DNS, credencial) trazendo no texto do erro o tipo de detalhe
+// que erros reais carregam: host, porta, usuário.
+type providerQueFalha struct{}
+
+func (p *providerQueFalha) Gerar(context.Context, agente.Requisicao) (agente.Resposta, error) {
+	return agente.Resposta{}, errors.New("dial tcp 127.0.0.1:5433: user=james database=james recusou a conexão")
+}
+func (p *providerQueFalha) GerarStream(ctx context.Context, req agente.Requisicao, emitir func(string)) (agente.Resposta, error) {
+	return p.Gerar(ctx, req)
+}
+
+// detalheDeInfraestrutura é o que não pode aparecer na tela. Esta lista é o
+// contrato: qualquer um desses fragmentos vazando significa que o handler
+// mandou err.Error() cru pro cliente.
+var detalheDeInfraestrutura = []string{"127.0.0.1", "5433", "user=james", "dial tcp"}
+
+// TestErroDeTurnoNaoVazaDetalheDeInfraestrutura trava um achado da auditoria
+// da Fase 6, reproduzido ao vivo: derrubando o Postgres e mandando uma
+// mensagem, a tela recebia
+//
+//	Erro: erro ao criar sessão: failed to connect to `user=james database=james`:
+//	[::1]:5433 (localhost): dial error ...
+//
+// com usuário, banco, host e porta. O próprio ws.go já documenta por que isso
+// não pode acontecer (o comentário em tratarRetomar diz que essa tela é a que
+// o celular abre pela VPN) e tratarRetomar respeita a regra — loga completo e
+// manda mensagem genérica. tratarMensagem e tratarEntradaDeVoz não respeitavam.
+func TestErroDeTurnoNaoVazaDetalheDeInfraestrutura(t *testing.T) {
+	casos := []struct {
+		nome     string
+		capturar func(*testing.T, *httptest.Server) []Envelope
+		comVoz   bool
+	}{
+		{
+			nome: "caminho de texto",
+			capturar: func(t *testing.T, srv *httptest.Server) []Envelope {
+				return capturarEventosAteErro(t, srv, false)
+			},
+		},
+		{
+			nome:   "caminho de voz",
+			comVoz: true,
+			capturar: func(t *testing.T, srv *httptest.Server) []Envelope {
+				return capturarEventosAteErro(t, srv, true)
+			},
+		},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			s := servidorComFerramentaFalsa(t, &ferramentaFalsaComSaida{nome: "nada"}, "nada")
+			s.Loop.Provider = &providerQueFalha{}
+			if caso.comVoz {
+				s.DispositivoHub = dispositivo.NovoHub()
+			}
+			servidor := httptest.NewServer(s.Rotas())
+			defer servidor.Close()
+
+			eventos := caso.capturar(t, servidor)
+
+			dadosErro := dadosDoEvento(eventos, "erro")
+			if dadosErro == nil {
+				t.Fatalf("nenhum evento de erro capturado: %+v", eventos)
+			}
+			var payload payloadErro
+			if err := json.Unmarshal(dadosErro, &payload); err != nil {
+				t.Fatalf("payload de erro ilegível: %v", err)
+			}
+			if payload.Mensagem == "" {
+				t.Fatal("mensagem de erro vazia: o usuário precisa saber que o turno falhou")
+			}
+			for _, fragmento := range detalheDeInfraestrutura {
+				if strings.Contains(payload.Mensagem, fragmento) {
+					t.Errorf("mensagem de erro vazou %q para o cliente: %q", fragmento, payload.Mensagem)
+				}
+			}
+		})
+	}
+}
+
+// capturarEventosAteErro manda um turno (por texto ou por voz) e lê até o
+// evento "erro" chegar — os helpers existentes param em "resposta_final",
+// que num turno que falha nunca vem.
+func capturarEventosAteErro(t *testing.T, servidor *httptest.Server, porVoz bool) []Envelope {
+	t.Helper()
+	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
+
+	conn, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar no WS: %v", err)
+	}
+	defer conn.Close()
+
+	if porVoz {
+		connDevice, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws/dispositivo", nil)
+		if err != nil {
+			t.Fatalf("erro ao conectar device: %v", err)
+		}
+		defer connDevice.Close()
+		if err := connDevice.WriteJSON(Envelope{Tipo: "entrada_voz", ID: "v1", Dados: codificarDados(map[string]string{"texto": "oi"})}); err != nil {
+			t.Fatalf("erro ao enviar entrada_voz: %v", err)
+		}
+	} else if err := conn.WriteJSON(Envelope{Tipo: "mensagem", ID: "1", Dados: codificarDados(map[string]string{"texto": "oi"})}); err != nil {
+		t.Fatalf("erro ao enviar mensagem: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var eventos []Envelope
+	for i := 0; i < 10; i++ {
+		var recebido Envelope
+		if err := conn.ReadJSON(&recebido); err != nil {
+			t.Fatalf("erro ao ler do WS: %v", err)
+		}
+		eventos = append(eventos, recebido)
+		if recebido.Tipo == "erro" {
+			break
+		}
+	}
+	return eventos
+}
+
 // TestFerramentaConcluidaCarregaSaida trava a Task 18: a aba Tela da Fase 6
 // depende da saída de ver_tela (superfície + lista de elementos), que até
 // esta task só ia para o modelo — nunca para o cliente. Sem o campo
@@ -731,7 +961,7 @@ func TestWSRetomarDevolveSessaoRetomada(t *testing.T) {
 	}
 
 	var dados struct {
-		SessaoID  string                 `json:"sessao_id"`
+		SessaoID  string                `json:"sessao_id"`
 		Mensagens []mensagemDoHistorico `json:"mensagens"`
 	}
 	if err := json.Unmarshal(recebido.Dados, &dados); err != nil {

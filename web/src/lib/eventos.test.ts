@@ -14,6 +14,7 @@ describe("eventos", () => {
       "ferramenta_iniciada",
       "resposta_final",
       "sessao_retomada",
+      "transcricao",
     ]);
   });
 
@@ -21,6 +22,15 @@ describe("eventos", () => {
     expect(ehEventoConhecido("resposta_final")).toBe(true);
     expect(ehEventoConhecido("token")).toBe(false);
     expect(ehEventoConhecido("qualquer_coisa")).toBe(false);
+  });
+
+  it("reconhece transcricao, senão o turno falado é descartado no ClienteWS", () => {
+    // ClienteWS.onmessage descarta tudo que não passa por ehEventoConhecido.
+    // Emitir "transcricao" no servidor sem registrar aqui deixaria o evento
+    // chegar pela rede e morrer em silêncio, com um console.warn — que é
+    // exatamente o sintoma difícil de diagnosticar que esta lista existe pra
+    // evitar.
+    expect(ehEventoConhecido("transcricao")).toBe(true);
   });
 
   it("DadosRespostaFinal exige texto e sessao_id juntos", () => {
