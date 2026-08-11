@@ -1,0 +1,96 @@
+import { useState } from "react";
+import {
+  Gem,
+  Hourglass,
+  LayoutDashboard,
+  MessageCircle,
+  PanelLeft,
+  Sparkle,
+  type LucideIcon,
+} from "lucide-react";
+
+export type IdAba = "james" | "mensagens" | "memoria" | "historico" | "dashboard";
+
+interface ItemNav {
+  id: IdAba;
+  rotulo: string;
+  Icone: LucideIcon;
+}
+
+const ITENS: ItemNav[] = [
+  { id: "james", rotulo: "James", Icone: Sparkle },
+  { id: "mensagens", rotulo: "Mensagens", Icone: MessageCircle },
+  { id: "memoria", rotulo: "Memória", Icone: Gem },
+  { id: "historico", rotulo: "Histórico", Icone: Hourglass },
+  { id: "dashboard", rotulo: "DashBoard", Icone: LayoutDashboard },
+];
+
+interface Props {
+  ativa: IdAba;
+  aoSelecionar: (id: IdAba) => void;
+  aprovacoesPendentes: number;
+}
+
+export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props) {
+  const [expandida, setExpandida] = useState(true);
+
+  return (
+    <nav
+      aria-label="Navegação principal"
+      className={`flex h-full shrink-0 flex-col border-r border-app-line bg-app-sidebar transition-[width] duration-300 ease-out ${
+        expandida ? "w-52" : "w-16"
+      }`}
+    >
+      {/* pt-11 abre espaço para os controles de janela, que são posicionados
+          por cima desta área pelo aplicativo.tsx */}
+      <div
+        className={`flex px-3 pt-11 pb-4 ${
+          expandida ? "items-center justify-between gap-2" : "flex-col items-center gap-3"
+        }`}
+      >
+        {expandida && <span className="font-serif text-sm text-app-icon">James</span>}
+        <button
+          type="button"
+          onClick={() => setExpandida((v) => !v)}
+          aria-label={expandida ? "Recolher menu" : "Expandir menu"}
+          className="grid size-8 place-items-center rounded-md text-app-muted transition-colors hover:bg-app-hover hover:text-app-text"
+        >
+          <PanelLeft className="size-4" />
+        </button>
+      </div>
+
+      <ul className="flex flex-1 flex-col gap-1 px-2">
+        {ITENS.map(({ id, rotulo, Icone }) => {
+          const estaAtiva = id === ativa;
+          const pendentes = id === "james" ? aprovacoesPendentes : 0;
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                onClick={() => aoSelecionar(id)}
+                aria-current={estaAtiva ? "page" : undefined}
+                aria-label={rotulo}
+                className={`group relative flex w-full items-center rounded-lg text-left transition-colors ${
+                  expandida ? "gap-3 px-3 py-2" : "justify-center px-0 py-2"
+                } ${estaAtiva ? "bg-app-blue text-app-blue-foreground" : "text-app-icon hover:bg-app-hover"}`}
+              >
+                <span className="relative grid size-5 shrink-0 place-items-center">
+                  <Icone className="size-5" />
+                  {pendentes > 0 && (
+                    <span
+                      aria-label={`${pendentes} aprovação pendente`}
+                      className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-amber-500 text-[10px] font-semibold text-black"
+                    >
+                      {pendentes}
+                    </span>
+                  )}
+                </span>
+                {expandida && <span className="font-serif text-sm">{rotulo}</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
