@@ -145,6 +145,15 @@ func TestClaudeCodeUsaOFixtureReal(t *testing.T) {
 // provou que acceptEdits executa shell em modo headless; sem esta confirmação,
 // perguntar_ao_claude_code vira um caminho indireto pra shell arbitrário que
 // contorna o gate do executar_comando_sistema.
+//
+// SOBREVIVEU DE PROPÓSITO à virada de política de 2026-08-11, que trocou a
+// allowlist de leitura por uma denylist de destruição (classificador.go) e
+// liberou o executar_comando_sistema pro trabalho comum. Este caso é
+// diferente por um motivo estrutural, não por excesso de zelo: o argumento
+// aqui é instrução em linguagem natural pra OUTRO agente, e nenhuma denylist
+// classifica o que esse agente vai decidir fazer com ela. Liberar isto seria
+// abrir exatamente o "excluir sem eu ter pedido" que a política nova existe
+// pra impedir — só que por um caminho onde a política não alcança.
 func TestClaudeCodeSempreExigeConfirmacao(t *testing.T) {
 	var _ ExigeConfirmacao = NovoClaudeCode()
 

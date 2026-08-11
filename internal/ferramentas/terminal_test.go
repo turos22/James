@@ -182,21 +182,28 @@ func TestExecutarPowerShellDeVerdadeNaoDeixaBOM(t *testing.T) {
 
 // TestPrefixoDeEncodingNaoVazaParaOClassificador prova, e não apenas assume,
 // que ConfirmacaoNecessaria roda sobre o comando cru dos args — nunca sobre a
-// versão que executarPowerShell prefixa com a linha de forçar UTF-8. Newline
-// reprova qualquer comando em ComandoEhLeitura (ehUmaLinhaSo): se o prefixo
-// vazasse pro classificador, até Get-Process passaria a exigir confirmação.
+// linha de comando que executarPowerShell de fato monta pro sistema.
+//
+// A premissa mudou junto com a política (ver classificador.go). Antes, o que
+// reprovava a versão montada era a newline do prefixo UTF-8, contra a regra
+// ehUmaLinhaSo do classificador de leitura. Hoje a newline é irrelevante, mas
+// existe uma premissa mais forte no lugar: a linha real passa por
+// -EncodedCommand, e -EncodedCommand é marca de ofuscação — se ela vazasse
+// pro classificador, TODO comando passaria a exigir confirmação, inclusive
+// Get-Process.
+//
 // loop.go despacharSemHook chama ConfirmacaoNecessaria(chamada.Args) e depois
 // Executar(ctx, chamada.Args) com o mesmo mapa, sem mutação entre as duas —
 // este teste é a contraparte em nível de unidade dessa leitura de código.
 func TestPrefixoDeEncodingNaoVazaParaOClassificador(t *testing.T) {
 	comandoCru := "Get-Process"
 
-	// Confere a premissa com o prefixo de verdade (não uma newline
-	// inventada à mão): o comando do jeito que executarPowerShell de fato
-	// manda pro PowerShell seria reprovado por ComandoEhLeitura.
-	comandoComoSeriaEnviado := prefixoUTF8 + comandoCru
-	if ComandoEhLeitura(comandoComoSeriaEnviado) {
-		t.Fatal("premissa quebrou: comando prefixado deveria reprovar em ComandoEhLeitura por causa do newline")
+	// Confere a premissa com o que executarPowerShell realmente manda pro
+	// sistema, não com uma string inventada à mão.
+	comandoComoSeriaEnviado := "powershell -NoProfile -NonInteractive -EncodedCommand " +
+		codificarComando(prefixoUTF8+comandoCru)
+	if !ComandoPrecisaConfirmacao(comandoComoSeriaEnviado) {
+		t.Fatal("premissa quebrou: a linha montada deveria exigir confirmação por causa do -EncodedCommand")
 	}
 
 	// Caminho real: ConfirmacaoNecessaria recebe os args do jeito que

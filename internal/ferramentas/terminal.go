@@ -13,8 +13,8 @@ import (
 )
 
 // ComandoSistema executa PowerShell. Não há allowlist de comando — a
-// contenção escolhida (Fase 3, decisão D2) é confirmação humana pra comando
-// de escrita, via ConfirmacaoNecessaria, mais timeout e limite de saída.
+// contenção é confirmação humana pro que destrói, abre a máquina ou executa
+// código baixado (ver classificador.go), mais timeout e limite de saída.
 type ComandoSistema struct {
 	// Executor recebe o ctx pra que o timeout mate o processo de verdade, e
 	// não só abandone a espera.
@@ -93,16 +93,16 @@ func (c *ComandoSistema) Declaracao() Declaracao {
 
 func (c *ComandoSistema) Nivel() Nivel { return NivelPerigoso }
 
-// ConfirmacaoNecessaria implementa ExigeConfirmacao: comando de escrita pede
-// confirmação humana mesmo do perfil Privilegiado. Argumento ausente, vazio
-// ou de tipo errado devolve true (fail closed) — a validação de argumento em
-// si continua acontecendo em Executar.
+// ConfirmacaoNecessaria implementa ExigeConfirmacao: comando destrutivo pede
+// confirmação humana mesmo do perfil Privilegiado. Comando comum — inclusive
+// de escrita — passa direto. Argumento ausente ou de tipo errado devolve true
+// (fail closed); a validação de argumento em si continua em Executar.
 func (c *ComandoSistema) ConfirmacaoNecessaria(args map[string]any) bool {
 	comando, ok := args["comando"].(string)
 	if !ok {
 		return true
 	}
-	return !ComandoEhLeitura(comando)
+	return ComandoPrecisaConfirmacao(comando)
 }
 
 func (c *ComandoSistema) Executar(ctx context.Context, args map[string]any) (string, error) {
