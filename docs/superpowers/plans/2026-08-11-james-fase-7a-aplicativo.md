@@ -1891,15 +1891,20 @@ export function Orbe({ analisador }: Props) {
       fase += 0.03;
 
       const analisadorAtual = analisadorRef.current;
-      // Uint8Array<ArrayBuffer>, não Uint8Array puro: TS 5.9 com o
-      // lib.dom.d.ts atual tipa AnalyserNode.getByteFrequencyData exigindo
-      // esse genérico exato, e `new Uint8Array(n)` infere
-      // Uint8Array<ArrayBufferLike> (supertipo, não atribuível). Achado
-      // rodando o build de verdade — o texto anterior deste plano não
+      // A ANOTAÇÃO precisa ser Uint8Array<ArrayBuffer>, não Uint8Array puro:
+      // TS 5.9 com o lib.dom.d.ts atual tipa
+      // AnalyserNode.getByteFrequencyData exigindo esse genérico exato, e o
+      // ALIAS "Uint8Array" sem parâmetro widena para Uint8Array<ArrayBufferLike>
+      // (supertipo, não atribuível) — mesmo que o valor atribuído já seja
+      // Uint8Array<ArrayBuffer>. `new Uint8Array(n)` sozinho já devolve
+      // Uint8Array<ArrayBuffer> (ver a sobrecarga `new (length: number)` em
+      // lib.es5.d.ts); não precisa de `new ArrayBuffer(n)` por baixo —
+      // testado isoladamente antes de escrever este comentário. Achado
+      // rodando o build de verdade: o texto anterior deste plano não
       // compilava.
       let dados: Uint8Array<ArrayBuffer> | null = null;
       if (analisadorAtual) {
-        dados = new Uint8Array(new ArrayBuffer(analisadorAtual.frequencyBinCount));
+        dados = new Uint8Array(analisadorAtual.frequencyBinCount);
         analisadorAtual.getByteFrequencyData(dados);
       }
 
