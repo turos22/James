@@ -104,7 +104,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen text-white">
-      <Orbe aberto={aberto} aoAlternar={setAberto} />
+      <Orbe analisador={null} />
 
       {aberto && (
         <div className="flex h-full flex-col-reverse rounded-xl bg-black/70 backdrop-blur md:flex-row">
