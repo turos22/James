@@ -241,20 +241,46 @@ describe("Barra lateral", () => {
     // Recolhida: sobra só o ícone, e o nome vive no aria-label do botão.
     expect(screen.queryByText("Mensagens")).toBeNull();
     expect(screen.getByRole("button", { name: /Mensagens/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expandir menu" }));
+
+    expect(screen.getByText("Mensagens")).toBeTruthy();
   });
 
   // O contador existe porque, estando em outra aba, você não veria o James
   // travado esperando um sim — e o timeout de 300s corre igual (§4.2).
-  it("mostra o contador de aprovação pendente na aba James", () => {
+  //
+  // A asserção é sobre o NOME ACESSÍVEL DO BOTÃO, e isso não é detalhe. A
+  // primeira versão deste plano checava `getByLabelText("1 aprovação
+  // pendente")`, mirando um aria-label no <span> do contador. Passava, e
+  // mentia: `aria-label` no botão SUBSTITUI todo o conteúdo descendente no
+  // cálculo do nome acessível, então esse rótulo interno nunca é anunciado.
+  // O leitor de tela dizia só "James", e o contador — cuja única razão de
+  // existir é avisar quem está noutra aba — não avisava ninguém.
+  // `getByLabelText` varre atributos soltos na árvore; não é o que o usuário
+  // ouve ao focar o botão.
+  it("anuncia a aprovação pendente no nome do botão da aba James", () => {
     render(<BarraLateral ativa="mensagens" aoSelecionar={vi.fn()} aprovacoesPendentes={1} />);
 
-    expect(screen.getByLabelText("1 aprovação pendente")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "James, 1 aprovação pendente" })).toBeTruthy();
   });
 
-  it("não mostra contador quando não há aprovação", () => {
+  it("pluraliza o contador", () => {
+    render(<BarraLateral ativa="mensagens" aoSelecionar={vi.fn()} aprovacoesPendentes={2} />);
+
+    expect(screen.getByRole("button", { name: "James, 2 aprovações pendentes" })).toBeTruthy();
+  });
+
+  it("sem aprovação, o nome do botão é só o rótulo", () => {
     render(<BarraLateral ativa="mensagens" aoSelecionar={vi.fn()} aprovacoesPendentes={0} />);
 
-    expect(screen.queryByLabelText(/aprovaç(ão|ões) pendente/)).toBeNull();
+    expect(screen.getByRole("button", { name: "James" })).toBeTruthy();
+  });
+
+  it("o contador não aparece em aba que não é a James", () => {
+    render(<BarraLateral ativa="james" aoSelecionar={vi.fn()} aprovacoesPendentes={3} />);
+
+    expect(screen.getByRole("button", { name: "Mensagens" })).toBeTruthy();
   });
 });
 ```
@@ -305,6 +331,16 @@ interface Props {
   aprovacoesPendentes: number;
 }
 
+// nomeAcessivel é o que o leitor de tela anuncia ao focar o botão. Hoje o
+// estado do turno guarda no máximo uma aprovação por vez, mas a prop é um
+// número livre — pluralizar custa uma linha e evita "2 aprovação pendente"
+// se isso mudar.
+function nomeAcessivel(rotulo: string, pendentes: number): string {
+  if (pendentes <= 0) return rotulo;
+  const plural = pendentes === 1 ? "aprovação pendente" : "aprovações pendentes";
+  return `${rotulo}, ${pendentes} ${plural}`;
+}
+
 export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props) {
   const [expandida, setExpandida] = useState(true);
 
@@ -343,16 +379,26 @@ export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props
                 type="button"
                 onClick={() => aoSelecionar(id)}
                 aria-current={estaAtiva ? "page" : undefined}
-                aria-label={rotulo}
-                className={`group relative flex w-full items-center rounded-lg text-left transition-colors ${
+                // A contagem entra AQUI, no nome do próprio botão, e não num
+                // aria-label do badge: aria-label no botão substitui todo o
+                // conteúdo descendente no cálculo do nome acessível, então
+                // rótulo posto no <span> de dentro nunca seria anunciado.
+                aria-label={nomeAcessivel(rotulo, pendentes)}
+                // title é a pista para quem ENXERGA e não reconhece o ícone
+                // com a barra recolhida — ali o rótulo textual não existe.
+                // Não interfere no nome acessível, que o aria-label já fixa.
+                title={rotulo}
+                className={`flex w-full items-center rounded-lg text-left transition-colors ${
                   expandida ? "gap-3 px-3 py-2" : "justify-center px-0 py-2"
                 } ${estaAtiva ? "bg-app-blue text-app-blue-foreground" : "text-app-icon hover:bg-app-hover"}`}
               >
                 <span className="relative grid size-5 shrink-0 place-items-center">
                   <Icone className="size-5" />
                   {pendentes > 0 && (
+                    // Puramente decorativo: o texto equivalente já está no
+                    // nome do botão.
                     <span
-                      aria-label={`${pendentes} aprovação pendente`}
+                      aria-hidden="true"
                       className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-amber-500 text-[10px] font-semibold text-black"
                     >
                       {pendentes}
