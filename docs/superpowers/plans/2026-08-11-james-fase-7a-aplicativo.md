@@ -2546,7 +2546,36 @@ func (r *SessaoRepositorio) AtualizarResumo(ctx context.Context, id uuid.UUID, r
 }
 ```
 
-> `Listar()` sai. O compilador vai apontar quem chamava: `internal/api/rest.go:78`. A Task 12 conserta.
+> `Listar()` sai. O compilador vai apontar quem chamava. **São dois chamadores, não um**: `internal/api/rest.go:78` (a Task 12 conserta) e `cmd/migrar-historico/main.go:50` — este segundo não estava registrado neste plano antes desta revisão, e a Task 12 não toca nele. Sem o Passo 3.5 abaixo, o build da raiz continuaria quebrado mesmo depois da Task 12.
+
+- [ ] **Passo 3.5: Consertar o segundo chamador, `cmd/migrar-historico/main.go`**
+
+Essa é uma ferramenta de ETL de execução única (SQLite → Postgres, já rodada historicamente), mas ela ainda precisa compilar — o `go vet ./... && go test ./...` deste projeto roda sobre o módulo inteiro. `executar()` usa `Listar(ctx)` para checar, de forma idempotente, se a sessão de histórico (`"Histórico Athena"`) já existe, varrendo todas as sessões e comparando título.
+
+Em `cmd/migrar-historico/main.go:50`, troque:
+
+```go
+	existentes, err := sessoes.Listar(ctx)
+```
+
+por:
+
+```go
+	// Busca em vez de listar tudo: Listar() saiu (Fase 7A, Task 11) e
+	// ListarPaginado com filtro de título é mais barato que paginar o banco
+	// inteiro só pra achar uma sessão com nome conhecido.
+	existentes, err := sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: tituloSessaoHistorico})
+```
+
+O laço logo abaixo (`for _, s := range existentes { if s.Titulo == tituloSessaoHistorico {...} }`) não muda — ele continua fazendo a comparação exata dentro do conjunto (agora menor) que a busca traz. `ILIKE` é substring/case-insensitive, então o filtro pode trazer falso-positivo largo em teoria; a comparação exata que já existia é o que resolve isso, sem precisar mudar a lógica de decisão.
+
+Confirme que compila:
+
+```bash
+cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go build ./...
+```
+
+Esperado: sem erro em `cmd/migrar-historico`. (`rest.go` ainda vai falhar — isso é esperado até a Task 12, e é o único erro que deve sobrar.)
 
 - [ ] **Passo 4: Rodar e ver passar**
 
@@ -2554,12 +2583,12 @@ func (r *SessaoRepositorio) AtualizarResumo(ctx context.Context, id uuid.UUID, r
 cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go test ./internal/armazenamento/postgres/ -v
 ```
 
-Esperado: os quatro testes novos passando. `go build ./...` ainda falha em `rest.go` — é esperado e a Task 12 resolve.
+Esperado: os quatro testes novos passando. `go build ./...` ainda falha **só** em `rest.go` — é esperado e a Task 12 resolve.
 
 - [ ] **Passo 5: Commit**
 
 ```bash
-git add internal/armazenamento/postgres/sessao.go internal/armazenamento/postgres/sessao_test.go
+git add internal/armazenamento/postgres/sessao.go internal/armazenamento/postgres/sessao_test.go cmd/migrar-historico/main.go
 git commit -m "feat(banco): paginacao keyset, busca por titulo e gravacao de resumo na sessao"
 ```
 
