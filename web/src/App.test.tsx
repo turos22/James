@@ -124,9 +124,9 @@ describe("App: continuidade da sessão através da reconexão", () => {
     });
 
     const campo = document.querySelector("input") as HTMLInputElement | null;
-    // O painel só existe com o orbe aberto; quando ele está fechado não há
-    // campo, e este caso vira o teste anterior. Aqui exercitamos a fila pelo
-    // próprio ClienteWS, que é onde ela vive.
+    // A aba inicial é a James, e o campo de texto vive na aba Mensagens —
+    // não há input no DOM aqui. Exercitamos a fila pelo próprio ClienteWS,
+    // que é onde ela vive.
     expect(campo).toBeNull();
 
     act(() => vi.advanceTimersByTime(1000));

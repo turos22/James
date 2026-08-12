@@ -1,14 +1,11 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { Atividade } from "./abas/atividade";
-import { Conversa } from "./abas/conversa";
+import { AbaDashboard } from "./abas/dashboard";
+import { AbaJames } from "./abas/james";
+import { AbaMensagens } from "./abas/mensagens";
 import { Memoria } from "./abas/memoria";
-import { Sessoes } from "./abas/sessoes";
-import { Tela } from "./abas/tela";
 import { estadoInicial, reduzir } from "./estado/turno";
 import { ClienteWS, type EstadoConexao } from "./lib/ws";
-import { Orbe } from "./shell/orbe";
-import { Trilha, type IdAba } from "./trilha";
-import { Visualizador } from "./visualizador";
+import { Aplicativo } from "./shell/aplicativo";
 
 function urlWS(): string {
   const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -16,8 +13,6 @@ function urlWS(): string {
 }
 
 export default function App() {
-  const [aberto, setAberto] = useState(false);
-  const [aba, setAba] = useState<IdAba>("conversa");
   const [conexao, setConexao] = useState<EstadoConexao>("conectando");
   const [tentativa, setTentativa] = useState(0);
   const [saidaVerTela, setSaidaVerTela] = useState<string | null>(null);
@@ -52,9 +47,7 @@ export default function App() {
       //
       // Sai daqui e não de um efeito: ClienteWS publica "conectado" dentro
       // do onopen ANTES de descarregar a fila, então este envio entra na
-      // frente da mensagem que esperou a queda. É a ordem que importa — a
-      // mensagem enfileirada precisa cair na sessão retomada, não criar
-      // outra.
+      // frente da mensagem que esperou a queda. É a ordem que importa.
       if (jaConectouRef.current && sessaoAtualRef.current) {
         cliente.enviar("retomar", crypto.randomUUID(), { sessao_id: sessaoAtualRef.current });
       }
@@ -97,34 +90,28 @@ export default function App() {
     despachar({ tipo: "aprovacao_decidida" });
   };
 
-  const retomar = (id: string) => {
-    clienteRef.current?.enviar("retomar", crypto.randomUUID(), { sessao_id: id });
-    setAba("conversa");
-  };
+  // Provisório: a Task 14 liga isto ao sessionStorage e ao comando
+  // nova_sessao. Deixar sem efeito aqui manteria o botão mentindo.
+  const novaSessao = () => {};
 
   return (
-    <div className="h-screen w-screen text-white">
-      <Orbe analisador={null} />
-
-      {aberto && (
-        <div className="flex h-full flex-col-reverse rounded-xl bg-black/70 backdrop-blur md:flex-row">
-          <Trilha ativa={aba} aoTrocar={setAba} />
-
-          <main className="min-w-0 flex-1 p-2">
-            {aba === "conversa" && (
-              <Conversa estado={estado} conexao={conexao} tentativa={tentativa} aoEnviar={enviar} />
-            )}
-            {aba === "tela" && <Tela saida={saidaVerTela} />}
-            {aba === "atividade" && <Atividade estado={estado} />}
-            {aba === "memoria" && <Memoria />}
-            {aba === "sessoes" && <Sessoes sessaoAtual={estado.sessaoAtual} aoRetomar={retomar} />}
-          </main>
-
-          <aside className="min-w-0 flex-1 border-l border-white/10">
-            <Visualizador estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} />
-          </aside>
-        </div>
-      )}
-    </div>
+    <Aplicativo
+      aprovacoesPendentes={estado.aprovacao ? 1 : 0}
+      paineis={{
+        james: <AbaJames estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} analisador={null} />,
+        mensagens: (
+          <AbaMensagens
+            estado={estado}
+            conexao={conexao}
+            tentativa={tentativa}
+            aoEnviar={enviar}
+            aoNovaSessao={novaSessao}
+          />
+        ),
+        memoria: <Memoria />,
+        historico: <p className="p-8 text-sm text-app-muted">Histórico chega na Task 13.</p>,
+        dashboard: <AbaDashboard />,
+      }}
+    />
   );
 }
