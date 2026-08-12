@@ -91,4 +91,29 @@ describe("Aba James", () => {
 
     expect(screen.queryByText(/DISPLAY1/)).toBeNull();
   });
+
+  // App.tsx só atualiza saidaVerTela quando dados.saida é não-vazio
+  // (ferramenta_concluida: `if (dados.nome === "ver_tela" && dados.saida)
+  // setSaidaVerTela(...)`) — um ver_tela que FALHA chega com saida="" e o
+  // estado antigo fica parado. Sem checar ultima.estado aqui, essa captura
+  // velha passaria por atual e o erro do turno ficaria invisível: a tela
+  // mostra dado desatualizado como se fosse fresco, e o card "✗ + f.erro"
+  // (que só existe na view "ferramenta") nunca aparece.
+  it("mostra o erro em vez da captura velha quando ver_tela falha", () => {
+    const estado = comEstado({
+      ferramentas: [{ nome: "ver_tela", estado: "erro", erro: "device desconectado", iniciadaEm: Date.now() }],
+    });
+
+    render(
+      <AbaJames
+        estado={estado}
+        saidaVerTela="superficie: DISPLAY1 (captura de um turno anterior)"
+        aoDecidir={vi.fn()}
+        analisador={null}
+      />,
+    );
+
+    expect(screen.queryByText(/DISPLAY1/)).toBeNull();
+    expect(screen.getByText("device desconectado")).toBeTruthy();
+  });
 });
