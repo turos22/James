@@ -2577,6 +2577,8 @@ cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go build ./...
 
 Esperado: sem erro em `cmd/migrar-historico`. (`rest.go` ainda vai falhar — isso é esperado até a Task 12, e é o único erro que deve sobrar.)
 
+**Um QUARTO chamador, achado só na execução real desta task**: `go build` não pega arquivo `_test.go`, e `cmd/migrar-historico/main_test.go` tem **três** usos de `sessoes.Listar(...)` (`TestExecutarMigraMensagensEMapeiaPapel`, `TestExecutarEIdempotente`, `TestExecutarFalhaNoMeioNaoDeixaSessaoParcial`) — só `go vet ./...`/`go test ./...` na raiz acusam. Mesmo padrão exato do `main.go`: listam e depois comparam `s.Titulo == tituloSessaoHistorico` num loop. Aplique a mesma troca nos três pontos — `sessoes.Listar(context.Background())` vira `sessoes.ListarPaginado(context.Background(), postgres.FiltroSessoes{Busca: tituloSessaoHistorico})`, preservando se a linha original descartava o erro (`_`) ou não. O loop de comparação exata não muda em nenhum dos três. Depois, `go vet ./...` não deve apontar mais nada em `cmd/migrar-historico`.
+
 - [ ] **Passo 4: Rodar e ver passar**
 
 ```bash
