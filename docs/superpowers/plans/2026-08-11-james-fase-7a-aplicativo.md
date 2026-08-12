@@ -2156,9 +2156,13 @@ Substitua **todo** o manipulador de `audio_pronto` por:
         const analisado = criarAudioAnalisado(`/api/audio/${dados.id}`);
         audio = analisado.audio;
         analisadorDoAudio = analisado.analisador;
-      } catch {
+      } catch (erro) {
         // Web Audio indisponível (WebView antigo, política restritiva): o
-        // áudio ainda deve tocar, só o orbe fica em repouso.
+        // áudio ainda deve tocar, só o orbe fica em repouso. console.warn
+        // (não silencioso) segue o padrão de ws.ts: um catch mudo aqui
+        // esconderia um bug de programação real atrás do mesmo rótulo de
+        // "navegador não suporta".
+        console.warn("Web Audio indisponível, orbe fica em repouso:", erro);
         audio = new Audio(`/api/audio/${dados.id}`);
       }
 
