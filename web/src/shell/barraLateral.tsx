@@ -31,6 +31,16 @@ interface Props {
   aprovacoesPendentes: number;
 }
 
+// nomeAcessivel é o que o leitor de tela anuncia ao focar o botão. Hoje o
+// estado do turno guarda no máximo uma aprovação por vez, mas a prop é um
+// número livre — pluralizar custa uma linha e evita "2 aprovação pendente"
+// se isso mudar.
+function nomeAcessivel(rotulo: string, pendentes: number): string {
+  if (pendentes <= 0) return rotulo;
+  const plural = pendentes === 1 ? "aprovação pendente" : "aprovações pendentes";
+  return `${rotulo}, ${pendentes} ${plural}`;
+}
+
 export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props) {
   const [expandida, setExpandida] = useState(true);
 
@@ -69,16 +79,26 @@ export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props
                 type="button"
                 onClick={() => aoSelecionar(id)}
                 aria-current={estaAtiva ? "page" : undefined}
-                aria-label={rotulo}
-                className={`group relative flex w-full items-center rounded-lg text-left transition-colors ${
+                // A contagem entra AQUI, no nome do próprio botão, e não num
+                // aria-label do badge: aria-label no botão substitui todo o
+                // conteúdo descendente no cálculo do nome acessível, então
+                // rótulo posto no <span> de dentro nunca seria anunciado.
+                aria-label={nomeAcessivel(rotulo, pendentes)}
+                // title é a pista para quem ENXERGA e não reconhece o ícone
+                // com a barra recolhida — ali o rótulo textual não existe.
+                // Não interfere no nome acessível, que o aria-label já fixa.
+                title={rotulo}
+                className={`flex w-full items-center rounded-lg text-left transition-colors ${
                   expandida ? "gap-3 px-3 py-2" : "justify-center px-0 py-2"
                 } ${estaAtiva ? "bg-app-blue text-app-blue-foreground" : "text-app-icon hover:bg-app-hover"}`}
               >
                 <span className="relative grid size-5 shrink-0 place-items-center">
                   <Icone className="size-5" />
                   {pendentes > 0 && (
+                    // Puramente decorativo: o texto equivalente já está no
+                    // nome do botão.
                     <span
-                      aria-label={`${pendentes} aprovação pendente`}
+                      aria-hidden="true"
                       className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-amber-500 text-[10px] font-semibold text-black"
                     >
                       {pendentes}
