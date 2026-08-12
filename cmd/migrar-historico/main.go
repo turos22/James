@@ -47,7 +47,10 @@ func main() {
 func executar(ctx context.Context, caminhoSQLite string, pool *pgxpool.Pool) error {
 	sessoes := postgres.NovoSessaoRepositorio(pool)
 
-	existentes, err := sessoes.Listar(ctx)
+	// Busca em vez de listar tudo: Listar() saiu (Fase 7A, Task 11) e
+	// ListarPaginado com filtro de título é mais barato que paginar o banco
+	// inteiro só pra achar uma sessão com nome conhecido.
+	existentes, err := sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: tituloSessaoHistorico})
 	if err != nil {
 		return fmt.Errorf("erro ao checar sessões existentes: %w", err)
 	}

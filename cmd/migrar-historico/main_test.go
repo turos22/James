@@ -66,7 +66,7 @@ func TestExecutarMigraMensagensEMapeiaPapel(t *testing.T) {
 	}
 
 	sessoes := postgres.NovoSessaoRepositorio(pool)
-	lista, err := sessoes.Listar(context.Background())
+	lista, err := sessoes.ListarPaginado(context.Background(), postgres.FiltroSessoes{Busca: tituloSessaoHistorico})
 	if err != nil {
 		t.Fatalf("erro ao listar sessões: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestExecutarEIdempotente(t *testing.T) {
 	}
 
 	sessoes := postgres.NovoSessaoRepositorio(pool)
-	lista, _ := sessoes.Listar(context.Background())
+	lista, _ := sessoes.ListarPaginado(context.Background(), postgres.FiltroSessoes{Busca: tituloSessaoHistorico})
 	total := 0
 	for _, s := range lista {
 		if s.Titulo == tituloSessaoHistorico {
@@ -151,7 +151,7 @@ func TestExecutarFalhaNoMeioNaoDeixaSessaoParcial(t *testing.T) {
 	}
 
 	sessoes := postgres.NovoSessaoRepositorio(pool)
-	lista, err := sessoes.Listar(context.Background())
+	lista, err := sessoes.ListarPaginado(context.Background(), postgres.FiltroSessoes{Busca: tituloSessaoHistorico})
 	if err != nil {
 		t.Fatalf("erro ao listar sessões: %v", err)
 	}
