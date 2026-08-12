@@ -44,6 +44,12 @@ type chamadasJanela interface {
 	// conseguir descobrir a tela — o chamador trata isso como "sem
 	// clamp", não como falha (câmbio de tela é melhor-esforço).
 	TamanhoTelaAtual(ctx context.Context) (largura, altura int)
+	Minimizar(ctx context.Context)
+	// AlternarMaximizado alterna entre maximizado e restaurado — é o que o
+	// círculo verde do design faz, e é a única operação que o Wails expõe
+	// (não há "maximizar" e "restaurar" separados).
+	AlternarMaximizado(ctx context.Context)
+	Fechar(ctx context.Context)
 }
 
 type chamadasJanelaWails struct{}
@@ -75,6 +81,18 @@ func (chamadasJanelaWails) TamanhoTelaAtual(ctx context.Context) (int, int) {
 		}
 	}
 	return telas[0].Size.Width, telas[0].Size.Height
+}
+
+func (chamadasJanelaWails) Minimizar(ctx context.Context) {
+	wailsruntime.WindowMinimise(ctx)
+}
+
+func (chamadasJanelaWails) AlternarMaximizado(ctx context.Context) {
+	wailsruntime.WindowToggleMaximise(ctx)
+}
+
+func (chamadasJanelaWails) Fechar(ctx context.Context) {
+	wailsruntime.Quit(ctx)
 }
 
 func iniciarServidorControle(ctx context.Context, chamadas chamadasJanela) {
@@ -120,6 +138,20 @@ func montarMuxControle(ctx context.Context, chamadas chamadasJanela) *http.Serve
 			return
 		}
 		chamadas.DefinirPosicao(ctx, x, y)
+	})
+	mux.HandleFunc("POST /minimizar", func(w http.ResponseWriter, r *http.Request) {
+		chamadas.Minimizar(ctx)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /maximizar", func(w http.ResponseWriter, r *http.Request) {
+		chamadas.AlternarMaximizado(ctx)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /fechar", func(w http.ResponseWriter, r *http.Request) {
+		// Responde ANTES de fechar: Quit derruba o processo, e o cliente
+		// ficaria com um fetch pendurado até o timeout.
+		w.WriteHeader(http.StatusNoContent)
+		go chamadas.Fechar(ctx)
 	})
 	return mux
 }

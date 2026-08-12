@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type chamadasJanelaFalsa struct {
@@ -36,6 +38,14 @@ func (c *chamadasJanelaFalsa) DefinirPosicao(_ context.Context, x, y int) {
 func (c *chamadasJanelaFalsa) TamanhoTelaAtual(_ context.Context) (int, int) {
 	return c.telaLargura, c.telaAltura
 }
+
+// Minimizar, AlternarMaximizado e Fechar não são exercitados pelos testes
+// de ancoragem/roteamento acima (esses cobrem /redimensionar e /posicao);
+// existem só pra chamadasJanelaFalsa continuar satisfazendo chamadasJanela
+// depois que a interface ganhou os controles de janela.
+func (c *chamadasJanelaFalsa) Minimizar(_ context.Context)          {}
+func (c *chamadasJanelaFalsa) AlternarMaximizado(_ context.Context) {}
+func (c *chamadasJanelaFalsa) Fechar(_ context.Context)             {}
 
 func TestPostRedimensionarAncoraNoCantoInferiorDireitoAtual(t *testing.T) {
 	// Bolinha 100x100 em (700,700) — canto inferior-direito em (800,800).
@@ -193,5 +203,55 @@ func TestCalcularRedimensionamentoAncoradoNaoDeixaSairDaTelaPelaDireita(t *testi
 	}
 	if x < 0 {
 		t.Errorf("x = %d, não deveria ficar negativo", x)
+	}
+}
+
+// espiaoJanela registra o que foi chamado, para o teste conferir o
+// roteamento sem uma janela nativa de verdade. fechou é canal, e não bool,
+// pelo motivo explicado acima — checagem síncrona falharia sempre.
+type espiaoJanela struct {
+	chamadasJanela
+	minimizou bool
+	alternou  bool
+	fechou    chan struct{}
+}
+
+func (e *espiaoJanela) Minimizar(ctx context.Context)          { e.minimizou = true }
+func (e *espiaoJanela) AlternarMaximizado(ctx context.Context) { e.alternou = true }
+func (e *espiaoJanela) Fechar(ctx context.Context)             { close(e.fechou) }
+
+func TestControlesDeJanelaRoteiam(t *testing.T) {
+	casos := []struct {
+		rota     string
+		conferir func(*espiaoJanela) bool
+	}{
+		{"/minimizar", func(e *espiaoJanela) bool { return e.minimizou }},
+		{"/maximizar", func(e *espiaoJanela) bool { return e.alternou }},
+		{"/fechar", func(e *espiaoJanela) bool {
+			select {
+			case <-e.fechou:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
+	}
+
+	for _, caso := range casos {
+		t.Run(caso.rota, func(t *testing.T) {
+			espiao := &espiaoJanela{fechou: make(chan struct{})}
+			mux := montarMuxControle(context.Background(), espiao)
+
+			req := httptest.NewRequest(http.MethodPost, caso.rota, nil)
+			gravador := httptest.NewRecorder()
+			mux.ServeHTTP(gravador, req)
+
+			if gravador.Code != http.StatusOK && gravador.Code != http.StatusNoContent {
+				t.Fatalf("status %d para %s", gravador.Code, caso.rota)
+			}
+			if !caso.conferir(espiao) {
+				t.Fatalf("%s não chamou a função da janela", caso.rota)
+			}
+		})
 	}
 }
