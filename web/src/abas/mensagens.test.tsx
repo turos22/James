@@ -94,6 +94,34 @@ describe("Aba Mensagens", () => {
     expect(aoNovaSessao).toHaveBeenCalled();
   });
 
+  // O mockup de referência (painel-de-controle-james/messages-panel.tsx:86)
+  // já tinha essa guarda; a primeira versão deste componente a perdeu na
+  // tradução. Sem ela, confirmar um candidato de IME (japonês/chinês/
+  // coreano) com Enter dispara o envio com texto parcial de composição.
+  it("não envia durante composição de IME", () => {
+    const aoEnviar = vi.fn();
+    render(
+      <AbaMensagens estado={comMensagens()} conexao="conectado" tentativa={0} aoEnviar={aoEnviar} aoNovaSessao={vi.fn()} />,
+    );
+
+    const campo = screen.getByPlaceholderText("Escreva para o James…") as HTMLInputElement;
+    fireEvent.change(campo, { target: { value: "候補" } });
+    fireEvent.keyDown(campo, { key: "Enter", isComposing: true });
+
+    expect(aoEnviar).not.toHaveBeenCalled();
+  });
+
+  // conversa.tsx, memoria.tsx e sessoes.tsx já usam role="status" no mesmo
+  // tipo de aviso — sem ele, quem usa leitor de tela só percebe a queda de
+  // conexão quando o campo já está desabilitado.
+  it("o indicador de conexão é um role=status", () => {
+    render(
+      <AbaMensagens estado={comMensagens()} conexao="reconectando" tentativa={2} aoEnviar={vi.fn()} aoNovaSessao={vi.fn()} />,
+    );
+
+    expect(screen.getByRole("status").textContent).toBe("Reconectando… (tentativa 2)");
+  });
+
   // jsdom não faz layout de verdade: scrollHeight/clientHeight/scrollTop
   // precisam ser simulados na mão para exercitar as duas metades do
   // auto-scroll condicional (gruda vs. não gruda).

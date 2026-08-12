@@ -77,7 +77,10 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-serif text-app-text">James</p>
-          <p className={`text-xs ${conexao === "conectado" ? "text-emerald-400" : "text-amber-400"}`}>
+          <p
+            role="status"
+            className={`text-xs ${conexao === "conectado" ? "text-emerald-400" : "text-amber-400"}`}
+          >
             {textoConexao(conexao, tentativa)}
           </p>
         </div>
@@ -115,7 +118,12 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
             disabled={bloqueado}
             onChange={(e) => setRascunho(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // isComposing/keyCode 229: confirmar um candidato de IME
+              // (japonês/chinês/coreano) também dispara Enter. Sem esta
+              // guarda o texto parcial de composição seria enviado. O
+              // mockup de referência já tinha isto — copiar sem checar
+              // perdeu a proteção.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
                 enviar();
               }
