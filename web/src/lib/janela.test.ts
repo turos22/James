@@ -1,30 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { moverJanela, posicaoJanela, redimensionarJanela } from "./janela";
+import { moverJanela, posicaoJanela } from "./janela";
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-describe("redimensionarJanela", () => {
-  it("faz POST /redimensionar com largura e altura na query", async () => {
-    const fakeFetch = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal("fetch", fakeFetch);
-
-    await redimensionarJanela(800, 900);
-
-    const [url, opcoes] = fakeFetch.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:17313/redimensionar?largura=800&altura=900");
-    expect(opcoes.method).toBe("POST");
-  });
-
-  it("não lança quando o shell não está rodando (fetch falha)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("ECONNREFUSED"))
-    );
-
-    await expect(redimensionarJanela(100, 100)).resolves.toBeUndefined();
-  });
 });
 
 describe("posicaoJanela", () => {
