@@ -941,6 +941,34 @@ describe("Aba Mensagens", () => {
 
     expect(aoNovaSessao).toHaveBeenCalled();
   });
+
+  // O mockup de referência (painel-de-controle-james/messages-panel.tsx:86)
+  // já tinha essa guarda; a primeira versão deste componente a perdeu na
+  // tradução. Sem ela, confirmar um candidato de IME (japonês/chinês/
+  // coreano) com Enter dispara o envio com texto parcial de composição.
+  it("não envia durante composição de IME", () => {
+    const aoEnviar = vi.fn();
+    render(
+      <AbaMensagens estado={comMensagens()} conexao="conectado" tentativa={0} aoEnviar={aoEnviar} aoNovaSessao={vi.fn()} />,
+    );
+
+    const campo = screen.getByPlaceholderText("Escreva para o James…") as HTMLInputElement;
+    fireEvent.change(campo, { target: { value: "候補" } });
+    fireEvent.keyDown(campo, { key: "Enter", isComposing: true });
+
+    expect(aoEnviar).not.toHaveBeenCalled();
+  });
+
+  // conversa.tsx, memoria.tsx e sessoes.tsx já usam role="status" no mesmo
+  // tipo de aviso — sem ele, quem usa leitor de tela só percebe a queda de
+  // conexão quando o campo já está desabilitado.
+  it("o indicador de conexão é um role=status", () => {
+    render(
+      <AbaMensagens estado={comMensagens()} conexao="reconectando" tentativa={2} aoEnviar={vi.fn()} aoNovaSessao={vi.fn()} />,
+    );
+
+    expect(screen.getByRole("status").textContent).toBe("Reconectando… (tentativa 2)");
+  });
 });
 ```
 
@@ -1036,7 +1064,10 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-serif text-app-text">James</p>
-          <p className={`text-xs ${conexao === "conectado" ? "text-emerald-400" : "text-amber-400"}`}>
+          <p
+            role="status"
+            className={`text-xs ${conexao === "conectado" ? "text-emerald-400" : "text-amber-400"}`}
+          >
             {textoConexao(conexao, tentativa)}
           </p>
         </div>
@@ -1074,7 +1105,12 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
             disabled={bloqueado}
             onChange={(e) => setRascunho(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // isComposing/keyCode 229: confirmar um candidato de IME
+              // (japonês/chinês/coreano) também dispara Enter. Sem esta
+              // guarda o texto parcial de composição seria enviado. O
+              // mockup de referência já tinha isto — copiar sem checar
+              // perdeu a proteção.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault();
                 enviar();
               }
@@ -1105,7 +1141,7 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
 npm test --prefix web -- abas/mensagens
 ```
 
-Esperado: 6 testes passando.
+Esperado: 8 testes passando (6 originais + IME + role=status).
 
 - [ ] **Passo 5: Commit**
 
