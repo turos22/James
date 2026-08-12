@@ -1401,21 +1401,24 @@ git commit -m "feat(web): shell de aplicativo substitui a bolinha, trilha e visu
 
 - [ ] **Passo 1: Escrever o teste que falha**
 
-Abra `shell/controle_test.go` e **acrescente** (o arquivo já tem testes de ancoragem e roteamento — não os apague):
+Abra `shell/controle_test.go` e **acrescente** (o arquivo já tem testes de ancoragem e roteamento — não os apague).
+
+O handler de `/fechar` responde 204 e só **depois** chama `Fechar` numa goroutine (Passo 4) — de propósito, porque `Quit` mataria o processo antes do cliente receber a resposta, senão. Isso significa que checar um `bool` logo depois de `ServeHTTP` retornar é uma corrida real: a goroutine spawnada não tem nenhum ponto de trabalho bloqueante, então nada força o scheduler do Go a rodá-la antes da asserção — o teste falharia **de forma determinística**, não ocasional. Por isso `fechou` é canal, não bool, e a checagem de `/fechar` espera nele com um teto curto de tempo.
 
 ```go
 // espiaoJanela registra o que foi chamado, para o teste conferir o
-// roteamento sem uma janela nativa de verdade.
+// roteamento sem uma janela nativa de verdade. fechou é canal, e não bool,
+// pelo motivo explicado acima — checagem síncrona falharia sempre.
 type espiaoJanela struct {
 	chamadasJanela
-	minimizou  bool
-	alternou   bool
-	fechou     bool
+	minimizou bool
+	alternou  bool
+	fechou    chan struct{}
 }
 
 func (e *espiaoJanela) Minimizar(ctx context.Context)          { e.minimizou = true }
 func (e *espiaoJanela) AlternarMaximizado(ctx context.Context) { e.alternou = true }
-func (e *espiaoJanela) Fechar(ctx context.Context)             { e.fechou = true }
+func (e *espiaoJanela) Fechar(ctx context.Context)             { close(e.fechou) }
 
 func TestControlesDeJanelaRoteiam(t *testing.T) {
 	casos := []struct {
@@ -1424,12 +1427,19 @@ func TestControlesDeJanelaRoteiam(t *testing.T) {
 	}{
 		{"/minimizar", func(e *espiaoJanela) bool { return e.minimizou }},
 		{"/maximizar", func(e *espiaoJanela) bool { return e.alternou }},
-		{"/fechar", func(e *espiaoJanela) bool { return e.fechou }},
+		{"/fechar", func(e *espiaoJanela) bool {
+			select {
+			case <-e.fechou:
+				return true
+			case <-time.After(200 * time.Millisecond):
+				return false
+			}
+		}},
 	}
 
 	for _, caso := range casos {
 		t.Run(caso.rota, func(t *testing.T) {
-			espiao := &espiaoJanela{}
+			espiao := &espiaoJanela{fechou: make(chan struct{})}
 			mux := montarMuxControle(context.Background(), espiao)
 
 			req := httptest.NewRequest(http.MethodPost, caso.rota, nil)
@@ -1447,7 +1457,17 @@ func TestControlesDeJanelaRoteiam(t *testing.T) {
 }
 ```
 
-Se `controle_test.go` ainda não importa `net/http` e `net/http/httptest`, acrescente aos imports.
+`controle_test.go` hoje só importa `net/http/httptest`, não `net/http` puro nem `time` — acrescente os dois aos imports.
+
+**Um segundo furo, achado no mesmo passo:** `chamadasJanelaFalsa` — a struct concreta que os testes antigos de `/redimensionar` e `/posicao` já usam — precisa implementar os três métodos novos da interface `chamadasJanela` para o pacote continuar compilando (é struct concreta, não composição por embedding como `espiaoJanela`; Go exige todos os métodos da interface). Acrescente, junto dos métodos que ela já tem:
+
+```go
+func (c *chamadasJanelaFalsa) Minimizar(_ context.Context)          {}
+func (c *chamadasJanelaFalsa) AlternarMaximizado(_ context.Context) {}
+func (c *chamadasJanelaFalsa) Fechar(_ context.Context)             {}
+```
+
+No-op: os testes antigos não exercitam esses três métodos, só precisam que a struct compile contra a interface maior.
 
 - [ ] **Passo 2: Rodar e ver falhar**
 
