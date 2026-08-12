@@ -591,6 +591,31 @@ describe("Aba James", () => {
 
     expect(screen.queryByText(/DISPLAY1/)).toBeNull();
   });
+
+  // App.tsx só atualiza saidaVerTela quando dados.saida é não-vazio
+  // (ferramenta_concluida: `if (dados.nome === "ver_tela" && dados.saida)
+  // setSaidaVerTela(...)`) — um ver_tela que FALHA chega com saida="" e o
+  // estado antigo fica parado. Sem checar ultima.estado aqui, essa captura
+  // velha passaria por atual e o erro do turno ficaria invisível: a tela
+  // mostra dado desatualizado como se fosse fresco, e o card "✗ + f.erro"
+  // (que só existe na view "ferramenta") nunca aparece.
+  it("mostra o erro em vez da captura velha quando ver_tela falha", () => {
+    const estado = comEstado({
+      ferramentas: [{ nome: "ver_tela", estado: "erro", erro: "device desconectado", iniciadaEm: Date.now() }],
+    });
+
+    render(
+      <AbaJames
+        estado={estado}
+        saidaVerTela="superficie: DISPLAY1 (captura de um turno anterior)"
+        aoDecidir={vi.fn()}
+        analisador={null}
+      />,
+    );
+
+    expect(screen.queryByText(/DISPLAY1/)).toBeNull();
+    expect(screen.getByText("device desconectado")).toBeTruthy();
+  });
 });
 ```
 
@@ -625,12 +650,19 @@ export type ConteudoPainel = "aprovacao" | "ferramenta" | "tela" | "repouso";
 // Precedência: aprovação pendente vence tudo, porque é a única coisa que
 // bloqueia o turno esperando o humano. Depois vale a recência — a leitura de
 // tela só aparece enquanto ver_tela for a ferramenta mais recente.
+//
+// ultima.estado !== "erro" importa: App.tsx só atualiza saidaVerTela quando
+// o evento ferramenta_concluida chega com saida não-vazia. Um ver_tela que
+// FALHA manda saida="" e o estado antigo (de um turno anterior, às vezes)
+// fica parado. Sem esta checagem, a captura velha passaria por atual e o
+// erro do turno ficaria invisível — a view "ferramenta", que é a única que
+// mostra f.erro, nunca seria escolhida.
 export function escolherConteudo(estado: EstadoTurno, saidaVerTela: string | null): ConteudoPainel {
   if (estado.aprovacao) return "aprovacao";
 
   const ultima = estado.ferramentas[estado.ferramentas.length - 1];
   if (!ultima) return "repouso";
-  if (ultima.nome === "ver_tela" && saidaVerTela) return "tela";
+  if (ultima.nome === "ver_tela" && ultima.estado !== "erro" && saidaVerTela) return "tela";
   return "ferramenta";
 }
 
@@ -708,6 +740,9 @@ function LeituraDeTela({ saida }: { saida: string }) {
   return (
     <div className="space-y-2">
       {superficie && <p className="text-xs text-app-muted">{superficie}</p>}
+      <div className="rounded border border-dashed border-white/20 p-3 text-[11px] opacity-50">
+        A imagem capturada não é entregue ao cliente nesta fase — só a lista de elementos.
+      </div>
       <ul className="max-h-64 overflow-y-auto rounded-lg bg-white/5 p-3 font-mono text-[11px] leading-relaxed text-app-text">
         {elementos.map((e, i) => (
           <li key={i}>{e}</li>
