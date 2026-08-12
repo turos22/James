@@ -748,10 +748,51 @@ npm test --prefix web -- abas/james
 
 Esperado: 6 testes passando.
 
+- [ ] **Passo 7.5: Destravar o build — `App.tsx` ainda chama a API antiga do orbe**
+
+`vitest` não faz checagem de tipo (roda em esbuild/swc), então o passo anterior passa mesmo com o build quebrado. Rode:
+
+```bash
+npm run build --prefix web
+```
+
+Esperado, **antes** deste passo: FALHA —
+
+```
+src/App.tsx(107,13): error TS2322: Type '{ aberto: boolean; aoAlternar: Dispatch<SetStateAction<boolean>>; }' is not assignable to type 'IntrinsicAttributes & Props'.
+  Property 'aberto' does not exist on type 'IntrinsicAttributes & Props'.
+```
+
+`App.tsx:107` ainda tem `<Orbe aberto={aberto} aoAlternar={setAberto} />` — a chamada da bolinha antiga (abrir/fechar painel). O novo `Orbe` do Passo 6 tem interface diferente (`{ analisador: AnalyserNode | null }`), sem `aberto`/`aoAlternar`.
+
+**A recomposição inteira de `App.tsx` é da Task 5, não desta.** Aqui o conserto é cirúrgico: troque **só essa linha**, nada mais no arquivo. Em `web/src/App.tsx:107`:
+
+```tsx
+      <Orbe analisador={null} />
+```
+
+`null` porque a Task 9 é quem liga o áudio real ao analisador — até lá, o orbe placeholder não anima mesmo. Não mexa em `aberto`, `setAberto` nem em qualquer outra linha de `App.tsx`: eles continuam em uso por outras partes do arquivo até a Task 5 reescrever o componente inteiro.
+
+Rode de novo:
+
+```bash
+npm run build --prefix web
+```
+
+Esperado agora: build concluído sem erro.
+
+Rode a suíte inteira uma última vez:
+
+```bash
+npm test --prefix web
+```
+
+Esperado: todos os arquivos passando (o total sobe em relação ao que havia antes da Task 3, e cai em 2 pela remoção de `orbe.test.tsx`).
+
 - [ ] **Passo 8: Commit**
 
 ```bash
-git add web/src/abas/james.tsx web/src/abas/james.test.tsx web/src/lib/verTela.ts web/src/lib/verTela.test.ts web/src/shell/orbe.tsx
+git add web/src/abas/james.tsx web/src/abas/james.test.tsx web/src/lib/verTela.ts web/src/lib/verTela.test.ts web/src/shell/orbe.tsx web/src/App.tsx
 git rm --cached web/src/shell/orbe.css web/src/shell/orbe.test.tsx 2>/dev/null || true
 git add -A web/src/shell
 git commit -m "feat(web): aba James com aprovacao, atividade com duracao e leitura de tela"
