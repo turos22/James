@@ -4,6 +4,7 @@ import { AbaJames } from "./abas/james";
 import { AbaMensagens } from "./abas/mensagens";
 import { Memoria } from "./abas/memoria";
 import { estadoInicial, reduzir } from "./estado/turno";
+import { criarAudioAnalisado, despertarAudio } from "./lib/audio";
 import { ClienteWS, type EstadoConexao } from "./lib/ws";
 import { Aplicativo } from "./shell/aplicativo";
 
@@ -16,6 +17,7 @@ export default function App() {
   const [conexao, setConexao] = useState<EstadoConexao>("conectando");
   const [tentativa, setTentativa] = useState(0);
   const [saidaVerTela, setSaidaVerTela] = useState<string | null>(null);
+  const [analisador, setAnalisador] = useState<AnalyserNode | null>(null);
   const [estado, despachar] = useReducer(reduzir, estadoInicial);
   const clienteRef = useRef<ClienteWS | null>(null);
   // Espelho de estado.sessaoAtual só para leitura dentro do efeito de
@@ -69,11 +71,28 @@ export default function App() {
       const excluirAudio = () => {
         fetch(`/api/audio/${dados.id}`, { method: "DELETE" }).catch(() => {});
       };
-      const audio = new Audio(`/api/audio/${dados.id}`);
-      audio.addEventListener("ended", excluirAudio);
+
+      let audio: HTMLAudioElement;
+      let analisadorDoAudio: AnalyserNode | null = null;
+      try {
+        const analisado = criarAudioAnalisado(`/api/audio/${dados.id}`);
+        audio = analisado.audio;
+        analisadorDoAudio = analisado.analisador;
+      } catch {
+        // Web Audio indisponível (WebView antigo, política restritiva): o
+        // áudio ainda deve tocar, só o orbe fica em repouso.
+        audio = new Audio(`/api/audio/${dados.id}`);
+      }
+
+      setAnalisador(analisadorDoAudio);
+      const encerrar = () => {
+        setAnalisador(null);
+        excluirAudio();
+      };
+      audio.addEventListener("ended", encerrar);
       // Autoplay pode ser bloqueado sem gesto recente do usuário — se falhar,
       // o áudio só não toca, mas o arquivo ainda precisa sair do disco.
-      audio.play().catch(excluirAudio);
+      audio.play().catch(encerrar);
     });
 
     return () => cliente.fechar();
@@ -95,23 +114,25 @@ export default function App() {
   const novaSessao = () => {};
 
   return (
-    <Aplicativo
-      aprovacoesPendentes={estado.aprovacao ? 1 : 0}
-      paineis={{
-        james: <AbaJames estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} analisador={null} />,
-        mensagens: (
-          <AbaMensagens
-            estado={estado}
-            conexao={conexao}
-            tentativa={tentativa}
-            aoEnviar={enviar}
-            aoNovaSessao={novaSessao}
-          />
-        ),
-        memoria: <Memoria />,
-        historico: <p className="p-8 text-sm text-app-muted">Histórico chega na Task 13.</p>,
-        dashboard: <AbaDashboard />,
-      }}
-    />
+    <div className="contents" onClick={despertarAudio}>
+      <Aplicativo
+        aprovacoesPendentes={estado.aprovacao ? 1 : 0}
+        paineis={{
+          james: <AbaJames estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} analisador={analisador} />,
+          mensagens: (
+            <AbaMensagens
+              estado={estado}
+              conexao={conexao}
+              tentativa={tentativa}
+              aoEnviar={enviar}
+              aoNovaSessao={novaSessao}
+            />
+          ),
+          memoria: <Memoria />,
+          historico: <p className="p-8 text-sm text-app-muted">Histórico chega na Task 13.</p>,
+          dashboard: <AbaDashboard />,
+        }}
+      />
+    </div>
   );
 }
