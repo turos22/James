@@ -2174,16 +2174,28 @@ Substitua **todo** o manipulador de `audio_pronto` por:
     });
 ```
 
-Troque `analisador={null}` por `analisador={analisador}` na montagem da `AbaJames`.
-
-E envolva o `Aplicativo` num despertador do contexto:
+E substitua **todo** o `return` final por (o texto anterior deste plano tinha `paineis={{ /* ...igual... */ }}` — um vácuo real; a versão abaixo é o `App.tsx` completo depois da Task 5, com `analisador={null}` trocado por `analisador={analisador}` e tudo envolvido no despertador do contexto de áudio):
 
 ```tsx
   return (
     <div className="contents" onClick={despertarAudio}>
       <Aplicativo
         aprovacoesPendentes={estado.aprovacao ? 1 : 0}
-        paineis={{ /* ...igual... */ }}
+        paineis={{
+          james: <AbaJames estado={estado} saidaVerTela={saidaVerTela} aoDecidir={decidir} analisador={analisador} />,
+          mensagens: (
+            <AbaMensagens
+              estado={estado}
+              conexao={conexao}
+              tentativa={tentativa}
+              aoEnviar={enviar}
+              aoNovaSessao={novaSessao}
+            />
+          ),
+          memoria: <Memoria />,
+          historico: <p className="p-8 text-sm text-app-muted">Histórico chega na Task 13.</p>,
+          dashboard: <AbaDashboard />,
+        }}
       />
     </div>
   );
