@@ -14,6 +14,9 @@ type Sessao struct {
 	Titulo       string
 	CriadaEm     time.Time
 	AtualizadaEm time.Time
+	Resumo       string
+	// ResumidoAte é nil quando nada foi resumido ainda.
+	ResumidoAte *int64
 }
 
 type SessaoRepositorio struct {
@@ -35,8 +38,8 @@ func (r *SessaoRepositorio) Criar(ctx context.Context, titulo string) (Sessao, e
 func (r *SessaoRepositorio) BuscarPorID(ctx context.Context, id uuid.UUID) (Sessao, error) {
 	var s Sessao
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, titulo, criada_em, atualizada_em FROM sessoes WHERE id=$1`, id,
-	).Scan(&s.ID, &s.Titulo, &s.CriadaEm, &s.AtualizadaEm)
+		`SELECT id, titulo, criada_em, atualizada_em, resumo, resumido_ate FROM sessoes WHERE id=$1`, id,
+	).Scan(&s.ID, &s.Titulo, &s.CriadaEm, &s.AtualizadaEm, &s.Resumo, &s.ResumidoAte)
 	if err != nil {
 		return Sessao{}, fmt.Errorf("erro ao buscar sessão %s: %w", id, err)
 	}
