@@ -2720,6 +2720,20 @@ cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go vet ./... && go tes
 
 Esperado: pacote verde.
 
+**Um terceiro furo, achado na execução real desta task**: `internal/api` é **um pacote só**, e `ws_test.go:847,1077` e `dispositivo_test.go:382` também chamam `s.Sessoes.Listar(ctx)` — mesmo padrão exato do 2º/4º chamador que a Task 11 já consertou (listam tudo, comparam `sess.Titulo == textoUnico` num loop, onde `textoUnico` é a marca única do teste). Como estão no mesmo pacote do teste desta task, nem os testes novos do Passo 1 compilam sem isso. Troque nas três linhas:
+
+```go
+	todas, err := s.Sessoes.Listar(ctx)
+```
+
+por:
+
+```go
+	todas, err := s.Sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: textoUnico})
+```
+
+O loop de comparação exata (`if sess.Titulo == textoUnico`) não muda em nenhum dos três pontos. Confirme que `postgres` já está importado nos dois arquivos (deve estar, ambos já usam tipos de `postgres` em outros lugares).
+
 - [ ] **Passo 5: Atualizar o cliente do front**
 
 Em `web/src/lib/api.ts`, acrescente os campos novos à interface `Sessao` e troque `listarSessoes`:
@@ -2747,7 +2761,13 @@ export async function listarSessoes(pagina: PaginaSessoes = {}): Promise<Sessao[
   if (pagina.antes) parametros.set("antes", pagina.antes);
   if (pagina.busca) parametros.set("busca", pagina.busca);
 
-  const resp = await fetch(`/api/sessoes?${parametros}`);
+  // web/src/lib/api.test.ts:18 (pré-existente, não citado neste plano antes
+  // desta correção) espera literalmente "/api/sessoes", sem "?", na chamada
+  // sem argumentos. `fetch(`/api/sessoes?${parametros}`)` sempre grudava um
+  // "?" mesmo com URLSearchParams vazio — só concatena quando há query de
+  // verdade.
+  const query = parametros.toString();
+  const resp = await fetch(`/api/sessoes${query ? `?${query}` : ""}`);
   if (!resp.ok) throw new Error(`erro ao listar sessões: ${resp.status}`);
   return resp.json();
 }
@@ -2792,10 +2812,12 @@ cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && npm run build --prefix
 
 Esperado: limpo, sem os três `TS2345`.
 
+Antes de commitar, confirme que `go vet ./... && go test ./internal/api/...` está limpo (o terceiro furo, acima, faz parte do mesmo pacote) e que `npm test --prefix web` está 100% verde (o quarto furo — `api.test.ts:18` — vive no mesmo pacote do Passo 5).
+
 - [ ] **Passo 6: Commit**
 
 ```bash
-git add internal/api/rest.go internal/api/rest_test.go web/src/lib/api.ts web/src/abas/sessoes.test.tsx
+git add internal/api/rest.go internal/api/rest_test.go internal/api/ws_test.go internal/api/dispositivo_test.go web/src/lib/api.ts web/src/abas/sessoes.test.tsx
 git commit -m "feat(api): GET /api/sessoes com limite, cursor keyset e busca no servidor"
 ```
 
