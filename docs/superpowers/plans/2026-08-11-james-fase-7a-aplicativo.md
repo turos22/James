@@ -2837,7 +2837,7 @@ Crie `web/src/abas/historico.test.tsx`:
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AbaHistorico } from "./historico";
 
 vi.mock("../lib/api", () => ({
@@ -2845,6 +2845,15 @@ vi.mock("../lib/api", () => ({
 }));
 
 import { listarSessoes } from "../lib/api";
+
+// Sem isto, mock.calls acumula entre os `it`s (o projeto não liga
+// clearMocks/resetMocks em lugar nenhum — nem vite.config.ts, nem
+// vitest.setup.ts) e o teste "carrega mais páginas pelo cursor" indexaria
+// mock.calls[1] esperando a 2ª chamada DESTE teste, quando na prática seria
+// a 2ª chamada do ARQUIVO inteiro.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 const HOJE = new Date();
 const ONTEM = new Date(HOJE.getTime() - 24 * 60 * 60 * 1000);
@@ -2913,6 +2922,11 @@ describe("Aba Histórico", () => {
 
     await waitFor(() => expect(screen.getByText("conversa 50")).toBeTruthy());
     // A segunda chamada tem que levar o cursor da última linha da primeira.
+    // mock.calls[1] só é a 2ª chamada DESTE teste porque o beforeEach abaixo
+    // limpa o mock a cada `it` — sem ele, é a 2ª chamada do ARQUIVO inteiro
+    // (o projeto não liga clearMocks/resetMocks em lugar nenhum), e o índice
+    // pega a chamada errada. Achado rodando a suíte inteira: passava isolado,
+    // falhava 5/5 no arquivo completo — determinístico, não flake.
     expect(vi.mocked(listarSessoes).mock.calls[1][0]?.antes).toBe(primeira[49].AtualizadaEm);
   });
 
