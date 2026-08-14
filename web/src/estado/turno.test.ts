@@ -198,6 +198,18 @@ describe("estado do turno", () => {
     expect(estado.mensagens).toEqual([{ papel: "usuario", texto: "oi" }]);
   });
 
+  it("sessao_retomada vazia zera a conversa", () => {
+    const cheio = reduzir(estadoInicial, {
+      tipo: "sessao_retomada",
+      dados: { sessao_id: "11111111-1111-1111-1111-111111111111", mensagens: [{ papel: "usuario", texto: "oi" }] },
+    });
+
+    const zerado = reduzir(cheio, { tipo: "sessao_retomada", dados: { sessao_id: "", mensagens: [] } });
+
+    expect(zerado.mensagens).toHaveLength(0);
+    expect(zerado.sessaoAtual).toBe("");
+  });
+
   it("é puro: não muta o estado recebido", () => {
     const antes = estadoInicial;
     reduzir(antes, { tipo: "envio_local", texto: "oi" });

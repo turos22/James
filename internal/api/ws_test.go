@@ -1100,3 +1100,87 @@ func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 		t.Error("a sessão nova devia ter gravado a mensagem enviada depois da recusa")
 	}
 }
+
+// R3: cliente e servidor discordando sobre qual é a sessão não gera erro
+// nenhum — a conversa simplesmente continua na sessão errada. Por isso este
+// teste confere o id que voltou do SERVIDOR em dois turnos, e não o estado
+// da tela.
+func TestNovaSessaoFazOServidorEsquecerASessao(t *testing.T) {
+	servidor := servidorWSDeTeste(t)
+	defer servidor.Close()
+
+	conexao, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(servidor.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar: %v", err)
+	}
+	defer conexao.Close()
+
+	primeira := sessaoDoTurno(t, conexao, "primeira mensagem")
+	if primeira == "" {
+		t.Fatal("primeiro turno não devolveu sessão")
+	}
+
+	if err := conexao.WriteJSON(Envelope{Tipo: "nova_sessao", ID: uuid.NewString(), Dados: json.RawMessage(`{}`)}); err != nil {
+		t.Fatalf("erro ao pedir sessão nova: %v", err)
+	}
+	// O servidor confirma com sessao_retomada vazio antes de o próximo
+	// turno começar — sem esperar, a mensagem seguinte poderia chegar antes
+	// da limpeza e o teste passaria por acidente.
+	confirmacao := lerAteEvento(t, conexao, "sessao_retomada")
+	var payload payloadSessaoRetomada
+	if err := json.Unmarshal(confirmacao.Dados, &payload); err != nil {
+		t.Fatalf("payload ilegível: %v", err)
+	}
+	if payload.SessaoID != "" {
+		t.Fatalf("sessão nova devia vir sem id, veio %q", payload.SessaoID)
+	}
+	if len(payload.Mensagens) != 0 {
+		t.Fatalf("sessão nova devia vir sem mensagens, vieram %d", len(payload.Mensagens))
+	}
+
+	segunda := sessaoDoTurno(t, conexao, "segunda mensagem")
+	if segunda == "" {
+		t.Fatal("segundo turno não devolveu sessão")
+	}
+	if segunda == primeira {
+		t.Fatalf("o servidor continuou na sessão velha: %s", segunda)
+	}
+
+	primeiroUUID, _ := uuid.Parse(primeira)
+	segundoUUID, _ := uuid.Parse(segunda)
+	t.Cleanup(func() {
+		apagarSessaoDeTeste(t, primeiroUUID)
+		apagarSessaoDeTeste(t, segundoUUID)
+	})
+}
+
+// sessaoDoTurno manda uma mensagem e devolve o sessao_id do resposta_final.
+func sessaoDoTurno(t *testing.T, conexao *websocket.Conn, texto string) string {
+	t.Helper()
+	dados, _ := json.Marshal(map[string]string{"texto": texto})
+	if err := conexao.WriteJSON(Envelope{Tipo: "mensagem", ID: uuid.NewString(), Dados: dados}); err != nil {
+		t.Fatalf("erro ao enviar mensagem: %v", err)
+	}
+	evento := lerAteEvento(t, conexao, "resposta_final")
+	var payload payloadRespostaFinal
+	if err := json.Unmarshal(evento.Dados, &payload); err != nil {
+		t.Fatalf("payload ilegível: %v", err)
+	}
+	return payload.SessaoID
+}
+
+// lerAteEvento consome envelopes até achar o tipo pedido, ignorando os
+// intermediários (ferramenta_iniciada, audio_pronto e afins).
+func lerAteEvento(t *testing.T, conexao *websocket.Conn, tipo string) Envelope {
+	t.Helper()
+	conexao.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		var envelope Envelope
+		if err := conexao.ReadJSON(&envelope); err != nil {
+			t.Fatalf("erro ao ler esperando %q: %v", tipo, err)
+		}
+		if envelope.Tipo == tipo {
+			return envelope
+		}
+	}
+}

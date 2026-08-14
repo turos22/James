@@ -91,6 +91,8 @@ func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 				mensagens <- envelope
 			case "retomar":
 				mensagens <- envelope
+			case "nova_sessao":
+				mensagens <- envelope
 			}
 		}
 	}()
@@ -99,6 +101,8 @@ func (s *Servidor) ws(w http.ResponseWriter, r *http.Request) {
 		switch envelope.Tipo {
 		case "retomar":
 			s.tratarRetomar(r.Context(), cliente, envelope, &sessaoID, &historico)
+		case "nova_sessao":
+			s.tratarNovaSessao(cliente, envelope, &sessaoID, &historico)
 		default:
 			s.tratarMensagem(r.Context(), cliente, envelope, &sessaoID, &historico)
 		}
@@ -199,6 +203,33 @@ func (s *Servidor) tratarRetomar(ctx context.Context, cliente *conexaoCliente, e
 	cliente.Enviar("sessao_retomada", envelope.ID, payloadSessaoRetomada{
 		SessaoID:  sessao.String(),
 		Mensagens: mensagensExibiveis(*historico),
+	})
+}
+
+// tratarNovaSessao esquece a conversa corrente NO SERVIDOR. Roda no laço
+// sequencial, junto com "mensagem" e "retomar", porque mexe em sessaoID e
+// historico — o mesmo motivo que mantém "mensagem" fora da goroutine de
+// leitura.
+//
+// Zerar só no cliente não bastaria: sessaoID e historico são variáveis
+// locais deste handler, então o turno seguinte continuaria gravando na
+// sessão velha, sem erro nenhum. É a mesma classe de bug que a auditoria da
+// Fase 6 achou no retomar.
+//
+// Responde com sessao_retomada vazio em vez de inventar um evento novo: o
+// cliente já sabe tratar esse evento, e a semântica é a mesma — "esta é a
+// conversa em que você está agora". Nenhuma sessão é criada aqui; ela nasce
+// no Postgres no primeiro turno, como processarTurno já faz quando sessaoID
+// é uuid.Nil.
+func (s *Servidor) tratarNovaSessao(cliente *conexaoCliente, envelope Envelope, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
+	*sessaoID = uuid.Nil
+	*historico = nil
+	cliente.Enviar("sessao_retomada", envelope.ID, payloadSessaoRetomada{
+		SessaoID: "",
+		// Slice vazio e não nil: map/slice nil viram `null` no JSON, e o
+		// tipo TypeScript promete array. Já mordeu neste projeto, no card
+		// de aprovação com argumentos nil.
+		Mensagens: []mensagemDoHistorico{},
 	})
 }
 
