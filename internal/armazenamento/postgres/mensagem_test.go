@@ -139,3 +139,98 @@ func TestListarRecentesPorSessaoDivergeDeListarPorSessaoQuandoEstoraLimite(t *te
 		t.Fatal("ListarPorSessao e ListarRecentesPorSessao vieram iguais — deviam divergir quando a sessão estoura o limite")
 	}
 }
+
+func TestIDDeCorteEListarNaoResumidas(t *testing.T) {
+	pool := abrirPoolMigrado(t)
+	ctx := context.Background()
+	sessoes := NovoSessaoRepositorio(pool)
+	mensagens := NovoMensagemRepositorio(pool)
+
+	sessao, err := sessoes.Criar(ctx, "conversa de dez mensagens")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+
+	var ids []int64
+	for i := 0; i < 10; i++ {
+		m, err := mensagens.Salvar(ctx, sessao.ID, "usuario", fmt.Sprintf("mensagem %d", i), nil)
+		if err != nil {
+			t.Fatalf("erro ao salvar: %v", err)
+		}
+		ids = append(ids, m.ID)
+	}
+
+	// Janela de 4: as 4 últimas ficam dentro, o corte é o id da 7ª (índice 6).
+	corte, err := mensagens.IDDeCorte(ctx, sessao.ID, 4)
+	if err != nil {
+		t.Fatalf("erro no corte: %v", err)
+	}
+	if corte != ids[6] {
+		t.Fatalf("corte errado: esperava %d, veio %d", ids[6], corte)
+	}
+
+	// Nada resumido ainda: tudo abaixo do corte é candidato.
+	fora, err := mensagens.ListarNaoResumidas(ctx, sessao.ID, corte, 0)
+	if err != nil {
+		t.Fatalf("erro ao listar não resumidas: %v", err)
+	}
+	if len(fora) != 6 {
+		t.Fatalf("esperava 6 mensagens fora da janela, vieram %d", len(fora))
+	}
+	if fora[0].ID != ids[0] {
+		t.Fatalf("ordem errada: primeira devia ser %d, veio %d", ids[0], fora[0].ID)
+	}
+
+	// Já resumido até a terceira: sobram três.
+	restantes, err := mensagens.ListarNaoResumidas(ctx, sessao.ID, corte, ids[2])
+	if err != nil {
+		t.Fatalf("erro ao listar restantes: %v", err)
+	}
+	if len(restantes) != 3 {
+		t.Fatalf("esperava 3 restantes, vieram %d", len(restantes))
+	}
+
+	// Nada novo: já cobre tudo que está fora da janela.
+	nenhuma, err := mensagens.ListarNaoResumidas(ctx, sessao.ID, corte, ids[5])
+	if err != nil {
+		t.Fatalf("erro: %v", err)
+	}
+	if len(nenhuma) != 0 {
+		t.Fatalf("esperava nenhuma, vieram %d", len(nenhuma))
+	}
+}
+
+// R4: numa sessão retomada com mais de 200 mensagens o histórico em memória
+// é só a cauda, e contar sobre ele resumiria o trecho errado — em silêncio.
+// A ancoragem por id do Postgres é o que salva, e é isto que este teste
+// prova: o corte não depende de quantas mensagens o processo tem em mãos.
+func TestIDDeCorteIgnoraOQueOProcessoTemEmMemoria(t *testing.T) {
+	pool := abrirPoolMigrado(t)
+	ctx := context.Background()
+	sessoes := NovoSessaoRepositorio(pool)
+	mensagens := NovoMensagemRepositorio(pool)
+
+	sessao, err := sessoes.Criar(ctx, "conversa de 250 mensagens")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+	var ids []int64
+	for i := 0; i < 250; i++ {
+		m, err := mensagens.Salvar(ctx, sessao.ID, "usuario", fmt.Sprintf("m%d", i), nil)
+		if err != nil {
+			t.Fatalf("erro ao salvar: %v", err)
+		}
+		ids = append(ids, m.ID)
+	}
+
+	// A retomada carregaria só as 200 mais recentes. O corte para uma
+	// janela de 10 tem que apontar para a 241ª da SESSÃO (índice 240), não
+	// para a 241ª daquele recorte.
+	corte, err := mensagens.IDDeCorte(ctx, sessao.ID, 10)
+	if err != nil {
+		t.Fatalf("erro no corte: %v", err)
+	}
+	if corte != ids[240] {
+		t.Fatalf("corte ancorou no recorte em vez da sessão: esperava %d, veio %d", ids[240], corte)
+	}
+}

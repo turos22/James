@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -110,4 +112,59 @@ func (r *MensagemRepositorio) ListarRecentesPorSessao(ctx context.Context, sessa
 	}
 
 	return mensagens, nil
+}
+
+// IDDeCorte devolve o id da mensagem mais ANTIGA que ainda cabe na janela,
+// dado o tamanho dela. Tudo com id menor está fora da janela e é candidato
+// a resumo.
+//
+// Ordenação por id, não por criada_em: id é BIGSERIAL, monotônico e sem
+// empate. criada_em tem DEFAULT now() e duas mensagens do mesmo turno podem
+// cair no mesmo instante — ordem instável ali produziria resumo com buraco
+// ou com repetição, sem erro nenhum.
+//
+// Devolve 0 quando a janela cobre a sessão inteira (não há nada fora dela).
+func (r *MensagemRepositorio) IDDeCorte(ctx context.Context, sessaoID uuid.UUID, tamanhoJanela int) (int64, error) {
+	if tamanhoJanela <= 0 {
+		return 0, nil
+	}
+	var id int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT id FROM mensagens WHERE sessao_id=$1 ORDER BY id DESC OFFSET $2 LIMIT 1`,
+		sessaoID, tamanhoJanela-1,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("erro ao calcular corte da sessão %s: %w", sessaoID, err)
+	}
+	return id, nil
+}
+
+// ListarNaoResumidas devolve, em ordem crescente de id, as mensagens da
+// sessão que estão FORA da janela (id < corte) e que o resumo ainda não
+// cobre (id > resumidoAte). resumidoAte igual a 0 significa "nada resumido".
+func (r *MensagemRepositorio) ListarNaoResumidas(ctx context.Context, sessaoID uuid.UUID, corte, resumidoAte int64) ([]Mensagem, error) {
+	if corte <= 0 {
+		return nil, nil
+	}
+	linhas, err := r.pool.Query(ctx,
+		`SELECT id, sessao_id, papel, conteudo, chamadas, criada_em FROM mensagens
+		 WHERE sessao_id=$1 AND id < $2 AND id > $3 ORDER BY id ASC`,
+		sessaoID, corte, resumidoAte)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar mensagens não resumidas da sessão %s: %w", sessaoID, err)
+	}
+	defer linhas.Close()
+
+	var mensagens []Mensagem
+	for linhas.Next() {
+		var m Mensagem
+		if err := linhas.Scan(&m.ID, &m.SessaoID, &m.Papel, &m.Conteudo, &m.Chamadas, &m.CriadaEm); err != nil {
+			return nil, err
+		}
+		mensagens = append(mensagens, m)
+	}
+	return mensagens, linhas.Err()
 }
