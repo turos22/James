@@ -1119,6 +1119,14 @@ func TestNovaSessaoFazOServidorEsquecerASessao(t *testing.T) {
 	if primeira == "" {
 		t.Fatal("primeiro turno não devolveu sessão")
 	}
+	// Cleanup registrado assim que o id existe, não no fim do teste: se
+	// qualquer Fatalf abaixo disparar antes (inclusive o que testa a classe
+	// de bug que esta task existe pra pegar), a sessão fica órfã no banco de
+	// trabalho — mesma dor já documentada em
+	// TestRetomarTrazACaudaDaConversaQuandoEstouraOLimite (1775 sessões na
+	// auditoria).
+	primeiroUUID, _ := uuid.Parse(primeira)
+	t.Cleanup(func() { apagarSessaoDeTeste(t, primeiroUUID) })
 
 	if err := conexao.WriteJSON(Envelope{Tipo: "nova_sessao", ID: uuid.NewString(), Dados: json.RawMessage(`{}`)}); err != nil {
 		t.Fatalf("erro ao pedir sessão nova: %v", err)
@@ -1142,16 +1150,12 @@ func TestNovaSessaoFazOServidorEsquecerASessao(t *testing.T) {
 	if segunda == "" {
 		t.Fatal("segundo turno não devolveu sessão")
 	}
+	segundoUUID, _ := uuid.Parse(segunda)
+	t.Cleanup(func() { apagarSessaoDeTeste(t, segundoUUID) })
+
 	if segunda == primeira {
 		t.Fatalf("o servidor continuou na sessão velha: %s", segunda)
 	}
-
-	primeiroUUID, _ := uuid.Parse(primeira)
-	segundoUUID, _ := uuid.Parse(segunda)
-	t.Cleanup(func() {
-		apagarSessaoDeTeste(t, primeiroUUID)
-		apagarSessaoDeTeste(t, segundoUUID)
-	})
 }
 
 // sessaoDoTurno manda uma mensagem e devolve o sessao_id do resposta_final.
