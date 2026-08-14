@@ -3849,6 +3849,70 @@ git add internal/armazenamento/postgres/mensagem.go internal/armazenamento/postg
 git commit -m "feat(banco): corte da janela e listagem de mensagens ainda nao resumidas"
 ```
 
+- [ ] **Passo 6: Índice para a query nova, achado pela revisão de qualidade**
+
+`IDDeCorte`/`ListarNaoResumidas` ordenam e filtram por `id`, não por `criada_em` — e o único índice que existe em `mensagens` é `idx_mensagens_sessao (sessao_id, criada_em)` (`0001_inicial.sql`), que não cobre a query nova. Medido com `EXPLAIN ANALYZE` contra uma sessão de 100 mil mensagens: sem índice, `IDDeCorte` varre a sessão inteira (9,8ms, 1116 buffers); com o índice certo, vira `Index Only Scan Backward` direto (0,045ms, 5 buffers) — ~200x mais rápido. O custo cresce com o **tamanho total da sessão**, não com o tamanho da janela pedida — o oposto do que a feature deveria garantir, e essa é justamente a query que o resumo rolante (Task 17/18) vai chamar toda vez que checar se há trabalho a fazer.
+
+Crie `internal/armazenamento/migracoes/0003_indice_mensagens_id.sql`:
+
+```sql
+-- Índice para IDDeCorte/ListarNaoResumidas (Fase 7A, Task 16): a query
+-- ordena e filtra por id, não por criada_em, e sem este índice o Postgres
+-- varre a sessão inteira em vez de só a janela pedida — ~200x mais lento
+-- numa sessão de 100 mil mensagens, medido com EXPLAIN ANALYZE antes desta
+-- migração existir.
+--
+-- CREATE INDEX simples, não CONCURRENTLY: AplicarMigracoes roda cada
+-- migração dentro de uma transação (internal/armazenamento/postgres/
+-- migrar.go), e Postgres recusa CONCURRENTLY dentro de transação. Trava
+-- escrita em `mensagens` brevemente ao aplicar — aceitável no tamanho atual
+-- do banco de trabalho.
+CREATE INDEX idx_mensagens_sessao_id ON mensagens (sessao_id, id);
+```
+
+Acrescente a `internal/armazenamento/postgres/migrar_test.go`, no mesmo padrão de `TestMigracao0002PreservaSessaoExistente` (Task 10) — a migração precisa ser segura em banco que já tem dados:
+
+```go
+// A 0003 roda em banco de trabalho já populado. Reaplicar (via
+// AplicarMigracoes, idempotente) não pode falhar, e o índice precisa
+// existir depois — é isso que garante que IDDeCorte/ListarNaoResumidas não
+// voltem a fazer scan completo da sessão.
+func TestMigracao0003CriaIndiceEmBancoPopulado(t *testing.T) {
+	pool := abrirPoolMigrado(t)
+	ctx := context.Background()
+
+	if err := AplicarMigracoes(ctx, pool); err != nil {
+		t.Fatalf("erro ao reaplicar migrações: %v", err)
+	}
+
+	var existe bool
+	err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='mensagens' AND indexname='idx_mensagens_sessao_id')`,
+	).Scan(&existe)
+	if err != nil {
+		t.Fatalf("erro ao checar o índice: %v", err)
+	}
+	if !existe {
+		t.Fatal("idx_mensagens_sessao_id não existe depois da migração")
+	}
+}
+```
+
+```bash
+cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go test ./internal/armazenamento/postgres/ -run TestMigracao0003 -v
+```
+
+Esperado: passa. Rode também a suíte inteira do pacote de novo, para confirmar que o índice novo não muda nenhum resultado dos testes já existentes (só a velocidade):
+
+```bash
+go test ./internal/armazenamento/postgres/ -v
+```
+
+```bash
+git add internal/armazenamento/migracoes/0003_indice_mensagens_id.sql internal/armazenamento/postgres/migrar_test.go
+git commit -m "perf(banco): indice sessao_id+id, IDDeCorte parava de varrer a sessao inteira"
+```
+
 ---
 
 ## Task 17: O resumidor
