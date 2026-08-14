@@ -1,0 +1,3 @@
+# Artefatos do Playwright — regeneráveis a cada rodada, não pertencem ao repo.
+playwright-report/
+test-results/
