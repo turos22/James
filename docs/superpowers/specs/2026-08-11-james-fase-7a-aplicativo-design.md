@@ -372,6 +372,31 @@ O orbe reagindo ao áudio **não é verificável por teste automatizado com conf
 | **CA13** | As abas Memória e DashBoard existem na barra lateral: Memória lista as notas como hoje; DashBoard mostra um texto dizendo que a medição de custo e uso chega na Fase 7B — **sem gráfico de exemplo e sem número de mentira** |
 | **CA14** | Suíte Go verde contra Postgres real; suíte vitest verde; Playwright verde |
 
+### 12.1 Resultado da verificação ao vivo
+
+Feita em 2026-08-14 contra `jamesd` real (`npm run build --prefix web` +
+`go run ./cmd/jamesd`), Postgres real no Docker, chamadas reais ao Gemini e
+TTS real. Sem device Python nem shell Wails abertos — ver limitações.
+Detalhe completo, com os comandos e valores reais observados, está no
+handoff: `docs/superpowers/HANDOFF-fase-7a-execucao.md`.
+
+| # | Resultado |
+|---|---|
+| CA1 | **Passa, parcial.** Shell sem bolinha, cinco abas, recolher/expandir do menu confirmados no navegador. Não reabri o executável Wails nesta rodada |
+| CA2 | **Parcial.** Confirmado que os círculos não aparecem fora do Wails. Os círculos de verdade (minimizar/maximizar/fechar/redimensionar) não foram clicados nesta verificação — exige mão humana, sem ferramenta de automação de GUI do Windows neste ambiente |
+| CA3 | **Parcial.** Áudio real tocou de ponta a ponta (TTS real, `206 Partial Content`), provando a cadeia até o `AnalyserNode`. A deformação visual do orbe não foi vista (captura de tela indisponível neste ambiente) |
+| CA4 | **Passa.** Aprovação real de `executar_comando_sistema`, arquivo apagado do disco de verdade, contador zerou depois |
+| CA5 | **Passa.** Nome, estado (✓) e duração real (20,8s) registrados na mesma chamada do CA4 |
+| CA6 | **Passa.** `online` → `Reconectando… (tentativa 2)` → `online`, processo do `jamesd` morto e religado de verdade |
+| CA7 | **Não exercitado ao vivo.** Coberto por teste de unidade (Task 4); precisa de evento concorrente chegando com o usuário rolado pra cima, cenário não montado nesta rodada |
+| CA8 | **Passa**, as três pernas (F5, queda de rede, janela nova), cada uma com `sessao_id` do Postgres conferido |
+| CA9 | **Passa.** `sessao_id` novo confirmado por `SELECT` direto no Postgres, não só na tela |
+| CA10 | **Não exercitado no orçamento de produção.** Mecanismo provado pela suíte de integração (Task 18) com orçamento artificial de 40 tokens; uma conversa real de 8000 tokens não foi tentada (custaria dezenas de chamadas reais ao Gemini) |
+| CA11 | **Coberto por teste automatizado**, não forçado ao vivo (não há como fazer o Gemini falhar sob demanda sem mock); nada quebrou nos vários turnos reais desta verificação |
+| CA12 | **Passa.** Só 50 de N+ sessões renderizadas (`document.querySelectorAll('main ul li button').length === 50`), agrupamento "Hoje", busca no servidor filtrou corretamente |
+| CA13 | **Passa.** Memória listou nota real do vault; DashBoard sem número inventado |
+| CA14 | **Passa.** `go vet`/`go test ./...` limpos contra Postgres real; vitest 106/106; Playwright 5/5 |
+
 ---
 
 ## 13. Ordem de implementação
