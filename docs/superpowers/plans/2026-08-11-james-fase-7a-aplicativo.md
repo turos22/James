@@ -2660,6 +2660,8 @@ func TestListarSessoesRejeitaCursorInvalido(t *testing.T) {
 }
 ```
 
+Acrescente `"fmt"` aos imports de `rest_test.go` — o arquivo hoje não importa `fmt`, e o teste acima usa `fmt.Sprintf`. `uuid` e `postgres` já estão importados.
+
 - [ ] **Passo 2: Rodar e ver falhar**
 
 ```bash
@@ -2751,10 +2753,49 @@ export async function listarSessoes(pagina: PaginaSessoes = {}): Promise<Sessao[
 }
 ```
 
+- [ ] **Passo 5.5: `web/src/abas/sessoes.tsx` ainda existe — testei e `Sessao` com campos novos quebra o build dele**
+
+`abas/sessoes.tsx` só morre na Task 13, não nesta. Ele importa `Sessao` de `lib/api.ts`, e `sessoes.test.tsx` constrói fixtures à mão (`SESSOES`) sem os campos `Resumo`/`ResumidoAte`. Testei isolado antes de escrever este passo: com a interface `Sessao` do Passo 5, `npx tsc --noEmit` acusa
+
+```
+src/abas/sessoes.test.tsx(18,48): error TS2345: ... missing the following properties from type 'Sessao': Resumo, ResumidoAte
+```
+
+nas três chamadas de `mockResolvedValue(SESSOES)`. Em `web/src/abas/sessoes.test.tsx`, acrescente os dois campos aos dois objetos do array `SESSOES`:
+
+```ts
+const SESSOES = [
+  {
+    ID: "11111111-1111-1111-1111-111111111111",
+    Titulo: "abre a calculadora",
+    CriadaEm: "2026-08-08T22:00:00Z",
+    AtualizadaEm: "2026-08-08T22:05:00Z",
+    Resumo: "",
+    ResumidoAte: null,
+  },
+  {
+    ID: "22222222-2222-2222-2222-222222222222",
+    Titulo: "pesquisa sobre Go",
+    CriadaEm: "2026-08-07T10:00:00Z",
+    AtualizadaEm: "2026-08-07T10:30:00Z",
+    Resumo: "",
+    ResumidoAte: null,
+  },
+];
+```
+
+Só isso — o componente `sessoes.tsx` em si não referencia `Resumo`/`ResumidoAte`, então não precisa mudar. Este arquivo inteiro morre na Task 13; o patch é temporário de propósito, não vale mais esforço que isso.
+
+```bash
+cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && npm run build --prefix web
+```
+
+Esperado: limpo, sem os três `TS2345`.
+
 - [ ] **Passo 6: Commit**
 
 ```bash
-git add internal/api/rest.go internal/api/rest_test.go web/src/lib/api.ts
+git add internal/api/rest.go internal/api/rest_test.go web/src/lib/api.ts web/src/abas/sessoes.test.tsx
 git commit -m "feat(api): GET /api/sessoes com limite, cursor keyset e busca no servidor"
 ```
 
