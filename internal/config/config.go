@@ -27,6 +27,7 @@ type Config struct {
 
 	OrcamentoTokens  int
 	OrcamentoNotas   int
+	OrcamentoResumo  int
 	MemoriaDiretorio string
 
 	TimeoutAprovacaoSegundos int
@@ -62,6 +63,7 @@ type arquivoToml struct {
 	Memoria struct {
 		OrcamentoTokens  int    `toml:"orcamento_tokens"`
 		OrcamentoNotas   int    `toml:"orcamento_notas"`
+		OrcamentoResumo  int    `toml:"orcamento_resumo"`
 		DiretorioMemoria string `toml:"diretorio_memoria"`
 	} `toml:"memoria"`
 	Permissao struct {
@@ -119,6 +121,7 @@ func Carregar(caminhoToml string) (*Config, error) {
 
 		OrcamentoTokens:  intOuDefault(arq.Memoria.OrcamentoTokens, 8000),
 		OrcamentoNotas:   intOuDefault(arq.Memoria.OrcamentoNotas, 2000),
+		OrcamentoResumo:  intOuDefault(arq.Memoria.OrcamentoResumo, 1000),
 		MemoriaDiretorio: valorOuDefault(arq.Memoria.DiretorioMemoria, "Vault/Memoria"),
 
 		TimeoutAprovacaoSegundos: intOuDefault(arq.Permissao.TimeoutAprovacaoSegundos, 300),

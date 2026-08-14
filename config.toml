@@ -17,6 +17,9 @@ orcamento_tokens = 8000
 # histórico ficou grande, e conversa nenhuma deve encolher porque a memória
 # cresceu.
 orcamento_notas = 2000
+# Teto do resumo rolante da sessão. Sem teto, o resumo cresce a cada rodada
+# e passa a comer a janela de conversa que ele deveria proteger.
+orcamento_resumo = 1000
 diretorio_memoria = "Vault/Memoria"
 
 [permissao]
