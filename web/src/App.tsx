@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { AbaDashboard } from "./abas/dashboard";
+import { AbaHistorico } from "./abas/historico";
 import { AbaJames } from "./abas/james";
 import { AbaMensagens } from "./abas/mensagens";
 import { Memoria } from "./abas/memoria";
@@ -117,6 +118,10 @@ export default function App() {
   // nova_sessao. Deixar sem efeito aqui manteria o botão mentindo.
   const novaSessao = () => {};
 
+  const retomar = (id: string) => {
+    clienteRef.current?.enviar("retomar", crypto.randomUUID(), { sessao_id: id });
+  };
+
   return (
     <div className="contents" onClick={despertarAudio}>
       <Aplicativo
@@ -133,7 +138,7 @@ export default function App() {
             />
           ),
           memoria: <Memoria />,
-          historico: <p className="p-8 text-sm text-app-muted">Histórico chega na Task 13.</p>,
+          historico: <AbaHistorico sessaoAtual={estado.sessaoAtual} aoRetomar={retomar} />,
           dashboard: <AbaDashboard />,
         }}
       />
