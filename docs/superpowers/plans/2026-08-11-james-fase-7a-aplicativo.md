@@ -4045,6 +4045,39 @@ func TestResumidorCortaOResumoNoOrcamento(t *testing.T) {
 		t.Fatalf("resumo passou do orçamento: %d tokens", EstimarTokens(novo))
 	}
 }
+
+// PapelFerramenta nunca tem Texto — só Resultados (loop.go grava
+// Mensagem{Papel: PapelFerramenta, Resultados: resultados}, sem campo
+// Texto). E PapelModelo quando só chama ferramenta, sem texto de
+// acompanhamento (comum em function calling), também fica com Texto vazio,
+// só Chamadas preenchido. Sem isso, o resumo esquece que qualquer
+// ferramenta rodou — que é boa parte do que o James faz.
+func TestResumidorIncluiChamadasEResultadosDeFerramenta(t *testing.T) {
+	provider := &providerDeResumo{resposta: "resumo novo"}
+	resumidor := Resumidor{Provider: provider, OrcamentoTokens: 1000}
+
+	if _, err := resumidor.Resumir(context.Background(), "", []agente.Mensagem{
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{
+			{ID: "1", Nome: "criar_arquivo", Args: map[string]any{"caminho": "/home/x/rel.pdf"}},
+		}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{
+			{ID: "1", Nome: "criar_arquivo", Saida: "arquivo criado em /home/x/rel.pdf"},
+		}},
+	}); err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+
+	var texto string
+	for _, m := range provider.recebido.Mensagens {
+		texto += m.Texto
+	}
+	if !strings.Contains(texto, "criar_arquivo") {
+		t.Fatalf("chamada de ferramenta não chegou ao provider: %q", texto)
+	}
+	if !strings.Contains(texto, "arquivo criado em /home/x/rel.pdf") {
+		t.Fatalf("resultado da ferramenta não chegou ao provider: %q", texto)
+	}
+}
 ```
 
 - [ ] **Passo 2: Rodar e ver falhar**
@@ -4115,10 +4148,25 @@ func (r Resumidor) Resumir(ctx context.Context, resumoAtual string, novas []agen
 	}
 	corpo.WriteString("\nTRECHO QUE SAIU DA JANELA:\n")
 	for _, m := range novas {
-		if m.Texto == "" {
-			continue
+		// Uma mensagem pode ter Texto, Chamadas e Resultados em qualquer
+		// combinação (PapelModelo com function calling sem texto de
+		// acompanhamento fica só com Chamadas; PapelFerramenta nunca tem
+		// Texto, só Resultados) — por isso os três são escritos
+		// independentemente, não com um "continue" que descartaria a
+		// mensagem inteira quando Texto estiver vazio.
+		if m.Texto != "" {
+			fmt.Fprintf(&corpo, "%s: %s\n", m.Papel, m.Texto)
 		}
-		fmt.Fprintf(&corpo, "%s: %s\n", m.Papel, m.Texto)
+		for _, c := range m.Chamadas {
+			fmt.Fprintf(&corpo, "%s chamou %s(%v)\n", m.Papel, c.Nome, c.Args)
+		}
+		for _, res := range m.Resultados {
+			if res.Erro != "" {
+				fmt.Fprintf(&corpo, "%s falhou: %s\n", res.Nome, res.Erro)
+			} else {
+				fmt.Fprintf(&corpo, "%s devolveu: %s\n", res.Nome, res.Saida)
+			}
+		}
 	}
 
 	resposta, err := r.Provider.Gerar(ctx, agente.Requisicao{
@@ -4163,7 +4211,7 @@ func isInicioDeRuna(b byte) bool {
 cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && go test ./internal/memoria/ -v
 ```
 
-Esperado: os cinco testes novos passando, e os antigos do pacote intactos.
+Esperado: os seis testes novos passando, e os antigos do pacote intactos.
 
 - [ ] **Passo 5: Acrescentar o orçamento à configuração**
 
