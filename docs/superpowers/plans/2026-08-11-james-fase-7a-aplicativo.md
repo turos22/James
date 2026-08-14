@@ -2838,7 +2838,7 @@ Crie `web/src/abas/historico.test.tsx`:
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AbaHistorico } from "./historico";
+import { AbaHistorico, preview } from "./historico";
 
 vi.mock("../lib/api", () => ({
   listarSessoes: vi.fn(),
@@ -2938,6 +2938,51 @@ describe("Aba Histórico", () => {
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
   });
+
+  // Sem guarda de geração: busca e "carregar mais" digitados/clicados perto
+  // um do outro competem, e se a rede devolver fora de ordem (paginação
+  // atrasada resolve DEPOIS da busca nova), o append da paginação grudaria
+  // resultado do termo velho em cima da lista do termo novo — misturando
+  // duas buscas na tela, sem erro nenhum visível pro usuário.
+  it("descarta resposta antiga quando busca nova chega antes da paginação pendente", async () => {
+    const primeira = Array.from({ length: 50 }, (_, i) => sessao(String(i), `conversa ${i}`, HOJE));
+    let resolverPaginacao: (v: unknown) => void = () => {};
+    const paginacaoPendente = new Promise((resolve) => {
+      resolverPaginacao = resolve;
+    });
+
+    vi.mocked(listarSessoes)
+      .mockResolvedValueOnce(primeira) // carga inicial
+      .mockImplementationOnce(() => paginacaoPendente as ReturnType<typeof listarSessoes>) // "carregar mais", fica pendente
+      .mockResolvedValueOnce([sessao("nova", "resultado da busca nova", HOJE)]); // busca nova, resolve rápido
+
+    render(<AbaHistorico sessaoAtual={null} aoRetomar={vi.fn()} />);
+    await waitFor(() => screen.getByText("conversa 0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
+    await waitFor(() => expect(listarSessoes).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByPlaceholderText("Buscar conversas…"), { target: { value: "nova" } });
+    await waitFor(() => expect(screen.getByText("resultado da busca nova")).toBeTruthy());
+
+    // A paginação atrasada só resolve DEPOIS da busca nova já ter atualizado a tela.
+    resolverPaginacao([{ ...primeira[0], ID: "atrasada", Titulo: "pagina atrasada" }]);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(screen.queryByText("pagina atrasada")).toBeNull();
+    expect(screen.getByText("resultado da busca nova")).toBeTruthy();
+  });
+});
+
+describe("preview", () => {
+  it("não corta um emoji ao meio quando o título passa de 80 caracteres", () => {
+    // Cada emoji fora do BMP ocupa 2 code units UTF-16 — um slice ingênuo em
+    // string partiria o 40º emoji ao meio e produziria par substituto solto.
+    const tituloLongo = "🎉".repeat(85);
+    const resultado = preview(tituloLongo);
+    expect(Array.from(resultado.replace("…", "")).length).toBe(80);
+    expect(resultado.includes("�")).toBe(false);
+  });
 });
 ```
 
@@ -2954,7 +2999,7 @@ Esperado: FALHA com `Failed to resolve import "./historico"`.
 Crie `web/src/abas/historico.tsx`:
 
 ```tsx
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, Hourglass, Search } from "lucide-react";
 import { listarSessoes, type Sessao } from "../lib/api";
 
@@ -2976,10 +3021,14 @@ export function rotuloDoDia(iso: string, agora = new Date()): string {
 }
 
 // O título é a primeira mensagem inteira do usuário (ws.go: Criar(ctx, texto)),
-// sem truncar na origem. O corte é aqui, na exibição.
-function preview(titulo: string): string {
+// sem truncar na origem. O corte é aqui, na exibição. Array.from (não
+// slice/length direto) porque títulos vêm de mensagem livre do usuário e
+// podem ter emoji fora do BMP (2 code units UTF-16 cada) — slice ingênuo
+// partiria um desses ao meio e renderizaria par substituto solto.
+export function preview(titulo: string): string {
   const limpo = titulo.trim().replace(/\s+/g, " ");
-  return limpo.length > 80 ? `${limpo.slice(0, 80)}…` : limpo || "(sem título)";
+  const caracteres = Array.from(limpo);
+  return caracteres.length > 80 ? `${caracteres.slice(0, 80).join("")}…` : limpo || "(sem título)";
 }
 
 export function AbaHistorico({ sessaoAtual, aoRetomar }: Props) {
@@ -2988,19 +3037,29 @@ export function AbaHistorico({ sessaoAtual, aoRetomar }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [acabou, setAcabou] = useState(false);
   const [falha, setFalha] = useState("");
+  // Descarta resposta desatualizada quando busca e paginação correm ao
+  // mesmo tempo e a rede devolve fora de ordem: cada carregar() incrementa
+  // a geração, e só a resposta da geração mais recente atualiza o estado.
+  // Sem isso, uma paginação atrasada (termo velho) que resolve DEPOIS de
+  // uma busca nova grudaria resultado do termo velho em cima da lista do
+  // termo novo — sem erro nenhum visível pro usuário.
+  const geracaoRef = useRef(0);
 
   const carregar = useCallback(
     async (termo: string, cursor?: string) => {
+      const geracao = ++geracaoRef.current;
       setCarregando(true);
       setFalha("");
       try {
         const pagina = await listarSessoes({ limite: POR_PAGINA, busca: termo || undefined, antes: cursor });
+        if (geracao !== geracaoRef.current) return;
         setSessoes((anteriores) => (cursor ? [...anteriores, ...pagina] : pagina));
         setAcabou(pagina.length < POR_PAGINA);
       } catch (e) {
+        if (geracao !== geracaoRef.current) return;
         setFalha((e as Error).message);
       } finally {
-        setCarregando(false);
+        if (geracao === geracaoRef.current) setCarregando(false);
       }
     },
     [],
