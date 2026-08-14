@@ -27,11 +27,19 @@ export default function App() {
   // derivado, não uma segunda fonte de verdade: quem decide qual é a sessão
   // continua sendo o redutor.
   const sessaoAtualRef = useRef<string | null>(sessaoGuardada());
-  const jaConectouRef = useRef(false);
 
+  // Só espelha/persiste quando há sessão de verdade. No mount,
+  // estado.sessaoAtual começa null (estadoInicial) — sem esta guarda, esse
+  // null sobrescreveria (antes mesmo da conexão WS abrir) o valor que
+  // sessaoAtualRef acabou de carregar do sessionStorage num F5, e a sessão
+  // persistida nunca seria retomada. novaSessao() já limpa o ref e o
+  // storage diretamente quando o usuário pede sessão nova — este efeito não
+  // precisa (e não deve) fazer isso de novo.
   useEffect(() => {
-    sessaoAtualRef.current = estado.sessaoAtual;
-    if (estado.sessaoAtual) guardarSessao(estado.sessaoAtual);
+    if (estado.sessaoAtual) {
+      sessaoAtualRef.current = estado.sessaoAtual;
+      guardarSessao(estado.sessaoAtual);
+    }
   }, [estado.sessaoAtual]);
 
   useEffect(() => {
@@ -61,7 +69,6 @@ export default function App() {
       if (sessaoAtualRef.current) {
         cliente.enviar("retomar", crypto.randomUUID(), { sessao_id: sessaoAtualRef.current });
       }
-      jaConectouRef.current = true;
     });
 
     cliente.on("resposta_final", (dados) => despachar({ tipo: "resposta_final", dados }));

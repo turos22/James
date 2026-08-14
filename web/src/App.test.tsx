@@ -1,6 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { guardarSessao } from "./lib/sessao";
 
 // SocketFalso espelha o de lib/ws.test.ts: o ClienteWS real roda por cima
 // dele, então o que estes testes exercitam é a fiação de App.tsx com a
@@ -137,5 +138,17 @@ describe("App: continuidade da sessão através da reconexão", () => {
     act(() => segundo.abrir());
 
     expect(segundo.envelopes()[0].tipo).toBe("retomar");
+  });
+
+  it("retoma a sessão guardada em sessionStorage na primeira conexão (F5)", () => {
+    guardarSessao(SESSAO);
+    render(<App />);
+    const primeiro = SocketFalso.instancias[0];
+
+    act(() => primeiro.abrir());
+
+    expect(primeiro.envelopes()).toEqual([
+      { tipo: "retomar", id: expect.any(String), dados: { sessao_id: SESSAO } },
+    ]);
   });
 });
