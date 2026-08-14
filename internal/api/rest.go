@@ -34,6 +34,10 @@ type Servidor struct {
 
 	Loop    *agente.Loop
 	Memoria memoria.Janela
+	// Resumidor é opcional: nil desliga o resumo rolante e a janela volta a
+	// simplesmente truncar, que é o comportamento anterior à Fase 7A. Isso
+	// mantém todo teste que monta Servidor à mão funcionando sem alteração.
+	Resumidor *memoria.Resumidor
 	// Notas é a memória durável (Fase 4). Ponteiro e opcional de propósito:
 	// nil significa "sem memória", e é o que mantém todo teste anterior
 	// funcionando sem alteração.

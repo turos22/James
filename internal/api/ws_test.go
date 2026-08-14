@@ -20,6 +20,7 @@ import (
 	"james/internal/dispositivo"
 	"james/internal/ferramentas"
 	"james/internal/memoria"
+	"james/internal/permissao"
 )
 
 type providerFixo struct{ texto string }
@@ -1187,4 +1188,110 @@ func lerAteEvento(t *testing.T, conexao *websocket.Conn, tipo string) Envelope {
 			return envelope
 		}
 	}
+}
+
+// CA10: conversa que ultrapassa o orçamento produz resumo, e o James
+// continua sabendo do começo.
+func TestTurnoQueTransbordaGravaOResumo(t *testing.T) {
+	s := servidorDeTeste(t)
+	ctx := context.Background()
+
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "a capital é essa"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
+
+	// Orçamento minúsculo: qualquer conversa transborda na segunda mensagem.
+	s.Memoria = memoria.Janela{OrcamentoTokens: 40}
+	s.Resumidor = &memoria.Resumidor{
+		Provider:        &providerDeResumoFixo{texto: "o Arthur perguntou das capitais"},
+		OrcamentoTokens: 1000,
+	}
+
+	sessao, err := s.Sessoes.Criar(ctx, "conversa que transborda")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+	t.Cleanup(func() { apagarSessaoDeTeste(t, sessao.ID) })
+
+	sessaoID := sessao.ID
+	historico := []agente.Mensagem{}
+	for i := 0; i < 6; i++ {
+		if _, _, err := s.processarTurno(
+			ctx, permissao.Privilegiado, &sessaoID, &historico,
+			strings.Repeat("qual a capital do estado vizinho ", 3),
+			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
+		); err != nil {
+			t.Fatalf("turno %d falhou: %v", i, err)
+		}
+	}
+
+	recarregada, err := s.Sessoes.BuscarPorID(ctx, sessaoID)
+	if err != nil {
+		t.Fatalf("erro ao recarregar sessão: %v", err)
+	}
+	if recarregada.Resumo == "" {
+		t.Fatal("a conversa transbordou e nenhum resumo foi gravado")
+	}
+	if recarregada.ResumidoAte == nil || *recarregada.ResumidoAte == 0 {
+		t.Fatalf("resumido_ate não avançou: %v", recarregada.ResumidoAte)
+	}
+}
+
+// CA11 / D10: resumidor quebrado degrada para o comportamento de hoje
+// (janela truncada), nunca derruba o turno.
+func TestFalhaDoResumidorNaoDerrubaOTurno(t *testing.T) {
+	s := servidorDeTeste(t)
+	ctx := context.Background()
+
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "a capital é essa"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
+
+	s.Memoria = memoria.Janela{OrcamentoTokens: 40}
+	s.Resumidor = &memoria.Resumidor{
+		Provider:        &providerDeResumoQueFalha{},
+		OrcamentoTokens: 1000,
+	}
+
+	sessao, err := s.Sessoes.Criar(ctx, "conversa com resumidor quebrado")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+	t.Cleanup(func() { apagarSessaoDeTeste(t, sessao.ID) })
+
+	sessaoID := sessao.ID
+	historico := []agente.Mensagem{}
+	for i := 0; i < 4; i++ {
+		if _, _, err := s.processarTurno(
+			ctx, permissao.Privilegiado, &sessaoID, &historico,
+			strings.Repeat("mensagem comprida o suficiente para transbordar ", 3),
+			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
+		); err != nil {
+			t.Fatalf("o resumidor quebrado derrubou o turno %d: %v", i, err)
+		}
+	}
+}
+
+type providerDeResumoFixo struct{ texto string }
+
+func (p *providerDeResumoFixo) Gerar(context.Context, agente.Requisicao) (agente.Resposta, error) {
+	return agente.Resposta{Texto: p.texto}, nil
+}
+
+func (p *providerDeResumoFixo) GerarStream(ctx context.Context, req agente.Requisicao, emitir func(string)) (agente.Resposta, error) {
+	return p.Gerar(ctx, req)
+}
+
+type providerDeResumoQueFalha struct{}
+
+func (p *providerDeResumoQueFalha) Gerar(context.Context, agente.Requisicao) (agente.Resposta, error) {
+	return agente.Resposta{}, errors.New("cota do resumidor estourada")
+}
+
+func (p *providerDeResumoQueFalha) GerarStream(ctx context.Context, req agente.Requisicao, emitir func(string)) (agente.Resposta, error) {
+	return p.Gerar(ctx, req)
 }

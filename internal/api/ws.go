@@ -253,6 +253,16 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	janela := s.Memoria.Montar(*historico)
 	entrada := agente.Mensagem{Papel: agente.PapelUsuario, Texto: texto}
 
+	// Resumo rolante (§7 da spec). len(janela) < len(*historico) é o gatilho
+	// de transbordo: Montar devolve um sufixo, então encolher significa que
+	// descartou. Não é preciso mudar a assinatura de Montar para saber isso.
+	//
+	// O resumidor lê do Postgres, não das mensagens descartadas:
+	// agente.Mensagem não carrega id, e depois de uma retomada o histórico em
+	// memória é só a cauda de 200 registros — contar sobre ele resumiria o
+	// trecho errado, em silêncio (R4).
+	resumoDaSessao := s.atualizarResumo(ctx, *sessaoID, len(janela) < len(*historico), len(janela))
+
 	// A memória durável entra pelo system prompt, não pela janela: nota não é
 	// conversa e não pode competir com recência por orçamento. Ler a cada
 	// turno (e não no boot) é o que faz a nota recém-escrita valer já no turno
@@ -266,6 +276,13 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 		} else if bloco != "" {
 			sistemaPrompt = sistemaPrompt + "\n\n" + bloco
 		}
+	}
+
+	// Depois do bloco do Vault, pelo mesmo motivo que ele não entra na
+	// janela: resumo não é conversa e não pode competir com recência por
+	// orçamento.
+	if resumoDaSessao != "" {
+		sistemaPrompt = sistemaPrompt + "\n\nRESUMO DA CONVERSA ATÉ AQUI:\n" + resumoDaSessao
 	}
 
 	loop := *s.Loop
@@ -287,6 +304,65 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 
 	audioID := s.gerarAudioDaResposta(ctx, resp.Texto)
 	return resp, audioID, nil
+}
+
+// atualizarResumo devolve o resumo da sessão, atualizando-o antes se a
+// janela transbordou. Melhor-esforço em toda linha: resumo quebrado degrada
+// para janela truncada — o comportamento anterior a esta fase — e nunca
+// derruba o turno (D10).
+func (s *Servidor) atualizarResumo(ctx context.Context, sessaoID uuid.UUID, transbordou bool, tamanhoJanela int) string {
+	if s.Resumidor == nil || sessaoID == uuid.Nil {
+		return ""
+	}
+
+	sessao, err := s.Sessoes.BuscarPorID(ctx, sessaoID)
+	if err != nil {
+		slog.Warn("erro ao ler o resumo da sessão, seguindo sem ele", "erro", err)
+		return ""
+	}
+	if !transbordou {
+		return sessao.Resumo
+	}
+
+	corte, err := s.Mensagens.IDDeCorte(ctx, sessaoID, tamanhoJanela)
+	if err != nil || corte == 0 {
+		if err != nil {
+			slog.Warn("erro ao calcular o corte da janela, seguindo sem resumir", "erro", err)
+		}
+		return sessao.Resumo
+	}
+
+	var resumidoAte int64
+	if sessao.ResumidoAte != nil {
+		resumidoAte = *sessao.ResumidoAte
+	}
+
+	novas, err := s.Mensagens.ListarNaoResumidas(ctx, sessaoID, corte, resumidoAte)
+	if err != nil {
+		slog.Warn("erro ao ler as mensagens fora da janela, seguindo sem resumir", "erro", err)
+		return sessao.Resumo
+	}
+	if len(novas) == 0 {
+		return sessao.Resumo
+	}
+
+	comoMensagens, err := reconstruirHistorico(novas)
+	if err != nil {
+		slog.Warn("erro ao reconstruir as mensagens a resumir, seguindo sem resumir", "erro", err)
+		return sessao.Resumo
+	}
+
+	atualizado, err := s.Resumidor.Resumir(ctx, sessao.Resumo, comoMensagens)
+	if err != nil {
+		slog.Warn("erro ao resumir a conversa, seguindo com a janela truncada", "erro", err)
+		return sessao.Resumo
+	}
+
+	ultimo := novas[len(novas)-1].ID
+	if err := s.Sessoes.AtualizarResumo(ctx, sessaoID, atualizado, ultimo); err != nil {
+		slog.Warn("erro ao gravar o resumo, seguindo com ele só neste turno", "erro", err)
+	}
+	return atualizado
 }
 
 // gerarAudioDaResposta é melhor-esforço: se o Sintetizador não estiver

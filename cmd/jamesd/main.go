@@ -114,7 +114,11 @@ func executar() error {
 			MaxIteracoes:    cfg.MaxIteracoes,
 			TimeoutProvider: time.Duration(cfg.TimeoutSegundos) * time.Second,
 		},
-		Memoria:             memoria.Janela{OrcamentoTokens: cfg.OrcamentoTokens},
+		Memoria: memoria.Janela{OrcamentoTokens: cfg.OrcamentoTokens},
+		Resumidor: &memoria.Resumidor{
+			Provider:        provider,
+			OrcamentoTokens: cfg.OrcamentoResumo,
+		},
 		Notas:               vaultMemoria,
 		SistemaPrompt:       string(sistemaPrompt),
 		Clientes:            api.NovoClientesHub(),
