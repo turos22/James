@@ -9,8 +9,22 @@ vi.mock("../lib/api", () => ({
 import { listarSessoes } from "../lib/api";
 
 const SESSOES = [
-  { ID: "11111111-1111-1111-1111-111111111111", Titulo: "abre a calculadora", CriadaEm: "2026-08-08T22:00:00Z", AtualizadaEm: "2026-08-08T22:05:00Z" },
-  { ID: "22222222-2222-2222-2222-222222222222", Titulo: "pesquisa sobre Go", CriadaEm: "2026-08-07T10:00:00Z", AtualizadaEm: "2026-08-07T10:30:00Z" },
+  {
+    ID: "11111111-1111-1111-1111-111111111111",
+    Titulo: "abre a calculadora",
+    CriadaEm: "2026-08-08T22:00:00Z",
+    AtualizadaEm: "2026-08-08T22:05:00Z",
+    Resumo: "",
+    ResumidoAte: null,
+  },
+  {
+    ID: "22222222-2222-2222-2222-222222222222",
+    Titulo: "pesquisa sobre Go",
+    CriadaEm: "2026-08-07T10:00:00Z",
+    AtualizadaEm: "2026-08-07T10:30:00Z",
+    Resumo: "",
+    ResumidoAte: null,
+  },
 ];
 
 describe("Aba Sessões", () => {

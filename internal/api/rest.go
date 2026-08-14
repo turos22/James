@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,9 +76,34 @@ func (s *Servidor) saude(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Servidor) listarSessoes(w http.ResponseWriter, r *http.Request) {
-	sessoes, err := s.Sessoes.Listar(r.Context())
+	filtro := postgres.FiltroSessoes{Busca: r.URL.Query().Get("busca")}
+
+	if bruto := r.URL.Query().Get("limite"); bruto != "" {
+		limite, err := strconv.Atoi(bruto)
+		if err != nil {
+			http.Error(w, "limite inválido", http.StatusBadRequest)
+			return
+		}
+		filtro.Limite = limite
+	}
+
+	// O cursor vem em RFC 3339, que é o formato em que atualizada_em sai
+	// deste mesmo endpoint — o cliente devolve o que recebeu, sem converter.
+	if bruto := r.URL.Query().Get("antes"); bruto != "" {
+		antes, err := time.Parse(time.RFC3339Nano, bruto)
+		if err != nil {
+			http.Error(w, "cursor inválido", http.StatusBadRequest)
+			return
+		}
+		filtro.Antes = &antes
+	}
+
+	sessoes, err := s.Sessoes.ListarPaginado(r.Context(), filtro)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Erro cru aqui carregaria host, banco e usuário para uma tela que
+		// o celular abre pela VPN — mesma regra de mensagemDeErroDoTurno.
+		slog.Error("erro ao listar sessões", "erro", err)
+		http.Error(w, "não consegui listar as conversas", http.StatusInternalServerError)
 		return
 	}
 	responderJSON(w, http.StatusOK, sessoes)

@@ -3,6 +3,15 @@ export interface Sessao {
   Titulo: string;
   CriadaEm: string;
   AtualizadaEm: string;
+  Resumo: string;
+  ResumidoAte: number | null;
+}
+
+export interface PaginaSessoes {
+  limite?: number;
+  // Cursor keyset: o AtualizadaEm do último item da página anterior.
+  antes?: string;
+  busca?: string;
 }
 
 export interface MensagemAPI {
@@ -13,8 +22,17 @@ export interface MensagemAPI {
   CriadaEm: string;
 }
 
-export async function listarSessoes(): Promise<Sessao[]> {
-  const resp = await fetch("/api/sessoes");
+export async function listarSessoes(pagina: PaginaSessoes = {}): Promise<Sessao[]> {
+  const parametros = new URLSearchParams();
+  if (pagina.limite) parametros.set("limite", String(pagina.limite));
+  if (pagina.antes) parametros.set("antes", pagina.antes);
+  if (pagina.busca) parametros.set("busca", pagina.busca);
+
+  // web/src/lib/api.test.ts:18 (pré-existente) espera literalmente
+  // "/api/sessoes", sem "?", na chamada sem argumentos. Só concatena
+  // "?query" quando há parâmetro de verdade.
+  const query = parametros.toString();
+  const resp = await fetch(`/api/sessoes${query ? `?${query}` : ""}`);
   if (!resp.ok) throw new Error(`erro ao listar sessões: ${resp.status}`);
   return resp.json();
 }

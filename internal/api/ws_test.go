@@ -844,7 +844,7 @@ func TestRespostaFinalCarregaSessaoIDDaSessaoCriada(t *testing.T) {
 		t.Fatal("sessao_id veio vazio em resposta_final")
 	}
 
-	todas, err := s.Sessoes.Listar(ctx)
+	todas, err := s.Sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: textoUnico})
 	if err != nil {
 		t.Fatalf("erro ao listar sessões: %v", err)
 	}
@@ -1074,7 +1074,7 @@ func TestWSRetomarSessaoInexistenteDevolveErro(t *testing.T) {
 		t.Fatal("esperava receber um envelope resposta_final")
 	}
 
-	todas, err := s.Sessoes.Listar(ctx)
+	todas, err := s.Sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: textoUnico})
 	if err != nil {
 		t.Fatalf("erro ao listar sessões: %v", err)
 	}

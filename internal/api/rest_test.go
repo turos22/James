@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -315,6 +316,57 @@ func TestGetMemoriaDevolveNotas(t *testing.T) {
 	}
 	if len(corpo.Notas) != 1 || corpo.Notas[0].Assunto != "projetos" {
 		t.Errorf("notas vieram erradas: %+v", corpo.Notas)
+	}
+}
+
+func TestListarSessoesAceitaLimiteCursorEBusca(t *testing.T) {
+	s := servidorDeTeste(t)
+	ctx := context.Background()
+
+	// Marca única no título: a suíte escreve no banco de trabalho, que já
+	// tem mais de mil sessões de execuções anteriores. Sem a marca, a busca
+	// pegaria lixo das outras rodadas.
+	marca := uuid.NewString()
+	for i := 0; i < 4; i++ {
+		if _, err := s.Sessoes.Criar(ctx, fmt.Sprintf("%s item %d", marca, i)); err != nil {
+			t.Fatalf("erro ao criar sessão: %v", err)
+		}
+	}
+
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/api/sessoes?limite=2&busca=" + marca)
+	if err != nil {
+		t.Fatalf("erro na requisição: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var pagina []postgres.Sessao
+	if err := json.NewDecoder(resp.Body).Decode(&pagina); err != nil {
+		t.Fatalf("json ilegível: %v", err)
+	}
+	if len(pagina) != 2 {
+		t.Fatalf("limite não foi respeitado: vieram %d", len(pagina))
+	}
+}
+
+func TestListarSessoesRejeitaCursorInvalido(t *testing.T) {
+	s := servidorDeTeste(t)
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/api/sessoes?antes=ontem")
+	if err != nil {
+		t.Fatalf("erro na requisição: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("cursor inválido devia dar 400, deu %d", resp.StatusCode)
 	}
 }
 

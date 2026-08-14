@@ -379,7 +379,7 @@ func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
 		t.Fatal("sessao_id veio vazio em resposta_final originada de entrada_voz")
 	}
 
-	todas, err := s.Sessoes.Listar(ctx)
+	todas, err := s.Sessoes.ListarPaginado(ctx, postgres.FiltroSessoes{Busca: textoUnico})
 	if err != nil {
 		t.Fatalf("erro ao listar sessões: %v", err)
 	}
