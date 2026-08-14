@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AbaHistorico } from "./historico";
+import { AbaHistorico, preview } from "./historico";
 
 vi.mock("../lib/api", () => ({
   listarSessoes: vi.fn(),
@@ -96,5 +96,50 @@ describe("Aba Histórico", () => {
 
     await waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
+  });
+
+  // Sem guarda de geração: busca e "carregar mais" digitados/clicados perto
+  // um do outro competem, e se a rede devolver fora de ordem (paginação
+  // atrasada resolve DEPOIS da busca nova), o append da paginação grudaria
+  // resultado do termo velho em cima da lista do termo novo — misturando
+  // duas buscas na tela, sem erro nenhum visível pro usuário.
+  it("descarta resposta antiga quando busca nova chega antes da paginação pendente", async () => {
+    const primeira = Array.from({ length: 50 }, (_, i) => sessao(String(i), `conversa ${i}`, HOJE));
+    let resolverPaginacao: (v: unknown) => void = () => {};
+    const paginacaoPendente = new Promise((resolve) => {
+      resolverPaginacao = resolve;
+    });
+
+    vi.mocked(listarSessoes)
+      .mockResolvedValueOnce(primeira) // carga inicial
+      .mockImplementationOnce(() => paginacaoPendente as ReturnType<typeof listarSessoes>) // "carregar mais", fica pendente
+      .mockResolvedValueOnce([sessao("nova", "resultado da busca nova", HOJE)]); // busca nova, resolve rápido
+
+    render(<AbaHistorico sessaoAtual={null} aoRetomar={vi.fn()} />);
+    await waitFor(() => screen.getByText("conversa 0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
+    await waitFor(() => expect(listarSessoes).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByPlaceholderText("Buscar conversas…"), { target: { value: "nova" } });
+    await waitFor(() => expect(screen.getByText("resultado da busca nova")).toBeTruthy());
+
+    // A paginação atrasada só resolve DEPOIS da busca nova já ter atualizado a tela.
+    resolverPaginacao([{ ...primeira[0], ID: "atrasada", Titulo: "pagina atrasada" }]);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(screen.queryByText("pagina atrasada")).toBeNull();
+    expect(screen.getByText("resultado da busca nova")).toBeTruthy();
+  });
+});
+
+describe("preview", () => {
+  it("não corta um emoji ao meio quando o título passa de 80 caracteres", () => {
+    // Cada emoji fora do BMP ocupa 2 code units UTF-16 — um slice ingênuo em
+    // string partiria o 40º emoji ao meio e produziria par substituto solto.
+    const tituloLongo = "🎉".repeat(85);
+    const resultado = preview(tituloLongo);
+    expect(Array.from(resultado.replace("…", "")).length).toBe(80);
+    expect(resultado.includes("�")).toBe(false);
   });
 });

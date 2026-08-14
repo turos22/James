@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, Hourglass, Search } from "lucide-react";
 import { listarSessoes, type Sessao } from "../lib/api";
 
@@ -20,10 +20,14 @@ export function rotuloDoDia(iso: string, agora = new Date()): string {
 }
 
 // O título é a primeira mensagem inteira do usuário (ws.go: Criar(ctx, texto)),
-// sem truncar na origem. O corte é aqui, na exibição.
-function preview(titulo: string): string {
+// sem truncar na origem. O corte é aqui, na exibição. Array.from (não
+// slice/length direto) porque títulos vêm de mensagem livre do usuário e
+// podem ter emoji fora do BMP (2 code units UTF-16 cada) — slice ingênuo
+// partiria um desses ao meio e renderizaria par substituto solto.
+export function preview(titulo: string): string {
   const limpo = titulo.trim().replace(/\s+/g, " ");
-  return limpo.length > 80 ? `${limpo.slice(0, 80)}…` : limpo || "(sem título)";
+  const caracteres = Array.from(limpo);
+  return caracteres.length > 80 ? `${caracteres.slice(0, 80).join("")}…` : limpo || "(sem título)";
 }
 
 export function AbaHistorico({ sessaoAtual, aoRetomar }: Props) {
@@ -32,19 +36,29 @@ export function AbaHistorico({ sessaoAtual, aoRetomar }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [acabou, setAcabou] = useState(false);
   const [falha, setFalha] = useState("");
+  // Descarta resposta desatualizada quando busca e paginação correm ao
+  // mesmo tempo e a rede devolve fora de ordem: cada carregar() incrementa
+  // a geração, e só a resposta da geração mais recente atualiza o estado.
+  // Sem isso, uma paginação atrasada (termo velho) que resolve DEPOIS de
+  // uma busca nova grudaria resultado do termo velho em cima da lista do
+  // termo novo — sem erro nenhum visível pro usuário.
+  const geracaoRef = useRef(0);
 
   const carregar = useCallback(
     async (termo: string, cursor?: string) => {
+      const geracao = ++geracaoRef.current;
       setCarregando(true);
       setFalha("");
       try {
         const pagina = await listarSessoes({ limite: POR_PAGINA, busca: termo || undefined, antes: cursor });
+        if (geracao !== geracaoRef.current) return;
         setSessoes((anteriores) => (cursor ? [...anteriores, ...pagina] : pagina));
         setAcabou(pagina.length < POR_PAGINA);
       } catch (e) {
+        if (geracao !== geracaoRef.current) return;
         setFalha((e as Error).message);
       } finally {
-        setCarregando(false);
+        if (geracao === geracaoRef.current) setCarregando(false);
       }
     },
     [],
