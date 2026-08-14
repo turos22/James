@@ -115,3 +115,36 @@ func TestResumidorCortaOResumoNoOrcamento(t *testing.T) {
 		t.Fatalf("resumo passou do orçamento: %d tokens", EstimarTokens(novo))
 	}
 }
+
+// PapelFerramenta nunca tem Texto — só Resultados (loop.go grava
+// Mensagem{Papel: PapelFerramenta, Resultados: resultados}, sem campo
+// Texto). E PapelModelo quando só chama ferramenta, sem texto de
+// acompanhamento (comum em function calling), também fica com Texto vazio,
+// só Chamadas preenchido. Sem isso, o resumo esquece que qualquer
+// ferramenta rodou — que é boa parte do que o James faz.
+func TestResumidorIncluiChamadasEResultadosDeFerramenta(t *testing.T) {
+	provider := &providerDeResumo{resposta: "resumo novo"}
+	resumidor := Resumidor{Provider: provider, OrcamentoTokens: 1000}
+
+	if _, err := resumidor.Resumir(context.Background(), "", []agente.Mensagem{
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{
+			{ID: "1", Nome: "criar_arquivo", Args: map[string]any{"caminho": "/home/x/rel.pdf"}},
+		}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{
+			{ID: "1", Nome: "criar_arquivo", Saida: "arquivo criado em /home/x/rel.pdf"},
+		}},
+	}); err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+
+	var texto string
+	for _, m := range provider.recebido.Mensagens {
+		texto += m.Texto
+	}
+	if !strings.Contains(texto, "criar_arquivo") {
+		t.Fatalf("chamada de ferramenta não chegou ao provider: %q", texto)
+	}
+	if !strings.Contains(texto, "arquivo criado em /home/x/rel.pdf") {
+		t.Fatalf("resultado da ferramenta não chegou ao provider: %q", texto)
+	}
+}
