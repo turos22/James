@@ -4277,6 +4277,14 @@ func TestTurnoQueTransbordaGravaOResumo(t *testing.T) {
 	s := servidorDeTeste(t)
 	ctx := context.Background()
 
+	// servidorDeTeste não monta Loop — processarTurno faz `loop := *s.Loop`
+	// e sem isso é nil pointer. providerFixo já existe neste arquivo.
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "a capital é essa"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
+
 	// Orçamento minúsculo: qualquer conversa transborda na segunda mensagem.
 	s.Memoria = memoria.Janela{OrcamentoTokens: 40}
 	s.Resumidor = &memoria.Resumidor{
@@ -4319,6 +4327,12 @@ func TestTurnoQueTransbordaGravaOResumo(t *testing.T) {
 func TestFalhaDoResumidorNaoDerrubaOTurno(t *testing.T) {
 	s := servidorDeTeste(t)
 	ctx := context.Background()
+
+	s.Loop = &agente.Loop{
+		Provider:     &providerFixo{texto: "a capital é essa"},
+		Ferramentas:  ferramentas.NovoRegistro(),
+		MaxIteracoes: 5,
+	}
 
 	s.Memoria = memoria.Janela{OrcamentoTokens: 40}
 	s.Resumidor = &memoria.Resumidor{
