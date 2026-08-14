@@ -4610,15 +4610,35 @@ Em `web/package.json`, acrescente aos scripts:
 
 Crie `web/e2e/james.spec.ts`:
 
+> Esta versão já incorpora 3 correções encontradas rodando contra o `jamesd`
+> real (não achadas em teoria — cada uma reproduzida e investigada até a
+> causa raiz antes de corrigir): (1) `text=/pong/i` sem escopo casava com a
+> própria bolha do usuário (que contém a substring "pong" na pergunta) e
+> passava em ~200ms sem nunca esperar a resposta real do Gemini — corrigido
+> escopando à bolha do assistente (`.justify-start`, a classe que
+> `mensagens.tsx` usa pra distinguir bolha de modelo de bolha de usuário).
+> (2) `"ul li button"` sem escopo casava com o primeiro botão da barra
+> lateral (que também é `<nav><ul><li><button>`, e vem antes do `<main>` no
+> DOM), nunca com um item do histórico — corrigido escopando a `"main ul li
+> button"`. (3) O Postgres desta suíte é o banco real do `jamesd`, não um
+> container descartável por rodada — acumula sessões de execuções
+> anteriores e de outras suítes (`internal/api/rest_test.go` inclusive), e
+> `getByRole(..., { name })` casa por SUBSTRING por padrão, então um título
+> de histórico antigo já colidiu com o clique no botão "Mensagens" da barra
+> lateral — corrigido escopando todo clique de navegação a
+> `nav[aria-label="Navegação principal"]`, e dando ao texto de mensagem de
+> teste uma marca única por execução (`Date.now()`), pra não colidir com a
+> mesma sessão de uma rodada anterior da própria suíte.
+
 ```ts
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // ARMADILHA JÁ DOCUMENTADA NESTE PROJETO: input controlado do React só
 // atualiza estado quando o onChange sintético dispara. `fill` e `type` do
 // Playwright NÃO o disparam — o campo mostra o texto, o estado do React
 // continua vazio, e a conclusão errada é "o app está quebrado". Já custou
 // tempo duas vezes aqui.
-async function digitarEmInputControlado(seletor: string, texto: string, page: import("@playwright/test").Page) {
+async function digitarEmInputControlado(seletor: string, texto: string, page: Page) {
   await page.locator(seletor).evaluate((elemento, valor) => {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
     setter.call(elemento, valor);
@@ -4626,65 +4646,97 @@ async function digitarEmInputControlado(seletor: string, texto: string, page: im
   }, texto);
 }
 
+// O Postgres desta suíte é o banco de verdade do jamesd (não um container
+// descartável por rodada), e acumula sessão de execuções anteriores e de
+// outras suítes (ex.: internal/api/rest_test.go). Dois efeitos colaterais
+// documentados por experiência real rodando isto:
+//   1. getByRole(..., { name }) faz correspondência por SUBSTRING por
+//      padrão — um item de histórico antigo com título tipo "sessão pra
+//      mensagens via REST 15:32" já colidiu com getByRole("button", { name:
+//      "Mensagens" }) tentando clicar no botão da barra lateral. Por isso
+//      todo clique de navegação lateral abaixo é escopado ao <nav> — a
+//      barra lateral nunca compartilha árvore com o conteúdo do histórico.
+//   2. Texto de mensagem fixo ("primeira conversa") colide com a MESMA
+//      sessão criada numa rodada anterior da própria suíte, e
+//      getByText(...) estoura "strict mode violation" com 2+ matches. Por
+//      isso o texto de teste leva uma marca única por execução.
+function navegacao(page: Page) {
+  return page.getByRole("navigation", { name: "Navegação principal" });
+}
+
+const marca = `${Date.now()}`;
+
 test.describe("James como aplicativo", () => {
   test("abre direto no shell, sem bolinha", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("navigation", { name: "Navegação principal" })).toBeVisible();
+    await expect(navegacao(page)).toBeVisible();
     await expect(page.getByLabel("Visualização de áudio do James")).toBeVisible();
   });
 
   test("troca de aba pela barra lateral", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Histórico" }).click();
+    await navegacao(page).getByRole("button", { name: "Histórico" }).click();
     await expect(page.getByPlaceholder("Buscar conversas…")).toBeVisible();
 
-    await page.getByRole("button", { name: "DashBoard" }).click();
+    await navegacao(page).getByRole("button", { name: "DashBoard" }).click();
     await expect(page.getByText(/Fase 7B/)).toBeVisible();
 
-    await page.getByRole("button", { name: "Mensagens" }).click();
+    await navegacao(page).getByRole("button", { name: "Mensagens" }).click();
     await expect(page.getByPlaceholder("Escreva para o James…")).toBeVisible();
   });
 
   test("envia mensagem e recebe resposta", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Mensagens" }).click();
+    await navegacao(page).getByRole("button", { name: "Mensagens" }).click();
     await expect(page.getByText("online")).toBeVisible();
 
-    await digitarEmInputControlado('input[placeholder="Escreva para o James…"]', "diga apenas: pong", page);
+    const pergunta = `diga apenas: pong ${marca}`;
+    await digitarEmInputControlado('input[placeholder="Escreva para o James…"]', pergunta, page);
     await page.getByLabel("Enviar mensagem").click();
 
-    await expect(page.getByText("diga apenas: pong")).toBeVisible();
+    await expect(page.getByText(pergunta)).toBeVisible();
     // Chamada real ao Gemini: dá folga de tempo.
-    await expect(page.locator("text=/pong/i").last()).toBeVisible({ timeout: 25_000 });
+    // Mira especificamente na bolha do ASSISTENTE (wrapper "justify-start").
+    // A mensagem do próprio usuário ("diga apenas: pong ...") também contém
+    // a substring "pong" — um locator genérico text=/pong/i casaria com a
+    // bolha do usuário e passaria de imediato, sem nunca esperar a resposta
+    // real do Gemini. Já aconteceu aqui: o teste passava em ~200ms.
+    await expect(page.locator(".justify-start", { hasText: /pong/i }).last()).toBeVisible({ timeout: 25_000 });
   });
 
   test("abre sessão nova e o histórico registra as duas", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Mensagens" }).click();
+    await navegacao(page).getByRole("button", { name: "Mensagens" }).click();
 
-    await digitarEmInputControlado('input[placeholder="Escreva para o James…"]', "primeira conversa", page);
+    const textoPrimeira = `primeira conversa ${marca}`;
+    await digitarEmInputControlado('input[placeholder="Escreva para o James…"]', textoPrimeira, page);
     await page.getByLabel("Enviar mensagem").click();
-    await expect(page.getByText("primeira conversa")).toBeVisible();
+    await expect(page.getByText(textoPrimeira)).toBeVisible();
 
     await page.getByRole("button", { name: "Nova sessão" }).click();
-    await expect(page.getByText("primeira conversa")).toHaveCount(0);
+    await expect(page.getByText(textoPrimeira)).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Histórico" }).click();
-    await expect(page.getByText("primeira conversa")).toBeVisible({ timeout: 10_000 });
+    await navegacao(page).getByRole("button", { name: "Histórico" }).click();
+    await expect(page.getByText(textoPrimeira)).toBeVisible({ timeout: 10_000 });
   });
 
   test("retoma uma conversa pelo histórico", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Histórico" }).click();
+    await navegacao(page).getByRole("button", { name: "Histórico" }).click();
 
-    const primeira = page.locator("ul li button").first();
+    // Escopado em "main": a barra lateral TAMBÉM é <nav><ul><li><button>,
+    // e vem antes do <main> no DOM. "ul li button" sem escopo casava com o
+    // primeiro botão da navegação ("James"), não com um item do histórico —
+    // já aconteceu aqui e travava esperando um "span span" que nunca existe
+    // na barra lateral.
+    const primeira = page.locator("main ul li button").first();
     await expect(primeira).toBeVisible({ timeout: 10_000 });
     const titulo = (await primeira.locator("span span").first().textContent()) ?? "";
 
     await primeira.click();
-    await page.getByRole("button", { name: "Mensagens" }).click();
+    await navegacao(page).getByRole("button", { name: "Mensagens" }).click();
 
     await expect(page.getByText(titulo.replace(/…$/, "").slice(0, 30), { exact: false })).toBeVisible();
   });
