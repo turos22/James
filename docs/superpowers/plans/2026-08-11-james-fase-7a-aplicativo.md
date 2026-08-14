@@ -3347,16 +3347,27 @@ Troque a inicialização do espelho de sessão, para que ele já nasça com o qu
   const sessaoAtualRef = useRef<string | null>(sessaoGuardada());
 ```
 
-No efeito que espelha `estado.sessaoAtual`, passe a persistir junto:
+**`jaConectouRef` sai por inteiro** — nem a declaração, nem a linha que o seta. A condição de reemissão perde o `jaConectouRef.current &&`, o que já deixa a variável sem nenhum leitor; escrever num `useRef` que ninguém lê é estado morto, não uma decisão deliberada.
+
+No efeito que espelha `estado.sessaoAtual`, **a ordem de efeitos importa e o texto ingênuo tem um bug**: no mount, `estado.sessaoAtual` ainda é `null` (vem de `estadoInicial`, em `estado/turno.ts` — o redutor nunca volta a pôr `null` ali sozinho, só `novaSessao()` limpa direto). Sem guarda, este efeito roda **antes** do efeito de conexão (ordem de declaração) e sobrescreve com `null` o valor que `sessaoAtualRef` acabou de carregar do `sessionStorage` — a sessão persistida de um F5 nunca seria retomada, porque quando a conexão WS abre de verdade (sempre assíncrono), o ref já foi clobbed. É o objetivo central desta task falhando exatamente no caminho que nenhum teste do plano original exercitava:
 
 ```tsx
+  // Só espelha/persiste quando há sessão de verdade. No mount,
+  // estado.sessaoAtual começa null (estadoInicial) — sem esta guarda, esse
+  // null sobrescreveria (antes mesmo da conexão WS abrir) o valor que
+  // sessaoAtualRef acabou de carregar do sessionStorage num F5, e a sessão
+  // persistida nunca seria retomada. novaSessao() já limpa o ref e o
+  // storage diretamente quando o usuário pede sessão nova — este efeito não
+  // precisa (e não deve) fazer isso de novo.
   useEffect(() => {
-    sessaoAtualRef.current = estado.sessaoAtual;
-    if (estado.sessaoAtual) guardarSessao(estado.sessaoAtual);
+    if (estado.sessaoAtual) {
+      sessaoAtualRef.current = estado.sessaoAtual;
+      guardarSessao(estado.sessaoAtual);
+    }
   }, [estado.sessaoAtual]);
 ```
 
-No `aoMudarEstado`, troque a condição de reemissão. Antes ela só disparava em RE-conexão (`jaConectouRef`); agora a primeira conexão também retoma, quando há sessão guardada de um F5:
+No `aoMudarEstado`, a condição de reemissão perde o `jaConectouRef.current &&` — agora a primeira conexão também retoma, quando há sessão guardada de um F5:
 
 ```tsx
       // Retoma tanto na reconexão (sessão viva no redutor) quanto na
@@ -3366,8 +3377,9 @@ No `aoMudarEstado`, troque a condição de reemissão. Antes ela só disparava e
       if (sessaoAtualRef.current) {
         cliente.enviar("retomar", crypto.randomUUID(), { sessao_id: sessaoAtualRef.current });
       }
-      jaConectouRef.current = true;
 ```
+
+(Sem a linha `jaConectouRef.current = true;` no fim — a variável não existe mais.)
 
 E implemente o botão de sessão nova, no lugar do `novaSessao` vazio:
 
@@ -3395,6 +3407,30 @@ beforeEach(() => {
   // Sem esta limpeza, um caso vaza sessão para o próximo.
   sessionStorage.clear();
 });
+```
+
+- [ ] **Passo 6.5: Teste de regressão para o bug do efeito-espelho**
+
+Nenhum teste do Passo 1 ou dos 4 casos que já existiam em `App.test.tsx` exercita "primeira conexão com sessão já guardada de um F5" — que é o caminho que o efeito-espelho sem guarda quebrava (ver comentário do Passo 5). Acrescente ao import de `App.test.tsx`:
+
+```tsx
+import { guardarSessao } from "./lib/sessao";
+```
+
+E acrescente este teste ao `describe("App: continuidade da sessão através da reconexão", ...)`, junto dos outros quatro:
+
+```tsx
+  it("retoma a sessão guardada em sessionStorage na primeira conexão (F5)", () => {
+    guardarSessao(SESSAO);
+    render(<App />);
+    const primeiro = SocketFalso.instancias[0];
+
+    act(() => primeiro.abrir());
+
+    expect(primeiro.envelopes()).toEqual([
+      { tipo: "retomar", id: expect.any(String), dados: { sessao_id: SESSAO } },
+    ]);
+  });
 ```
 
 - [ ] **Passo 7: Rodar a suíte**
