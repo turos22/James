@@ -1,0 +1,12 @@
+-- Índice para IDDeCorte/ListarNaoResumidas (Fase 7A, Task 16): a query
+-- ordena e filtra por id, não por criada_em, e sem este índice o Postgres
+-- varre a sessão inteira em vez de só a janela pedida — ~200x mais lento
+-- numa sessão de 100 mil mensagens, medido com EXPLAIN ANALYZE antes desta
+-- migração existir.
+--
+-- CREATE INDEX simples, não CONCURRENTLY: AplicarMigracoes roda cada
+-- migração dentro de uma transação (internal/armazenamento/postgres/
+-- migrar.go), e Postgres recusa CONCURRENTLY dentro de transação. Trava
+-- escrita em `mensagens` brevemente ao aplicar — aceitável no tamanho atual
+-- do banco de trabalho.
+CREATE INDEX idx_mensagens_sessao_id ON mensagens (sessao_id, id);

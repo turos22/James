@@ -68,3 +68,27 @@ func TestMigracao0002PreservaSessaoExistente(t *testing.T) {
 		t.Fatalf("resumido_ate devia nascer NULL, veio %d", *resumidoAte)
 	}
 }
+
+// A 0003 roda em banco de trabalho já populado. Reaplicar (via
+// AplicarMigracoes, idempotente) não pode falhar, e o índice precisa
+// existir depois — é isso que garante que IDDeCorte/ListarNaoResumidas não
+// voltem a fazer scan completo da sessão.
+func TestMigracao0003CriaIndiceEmBancoPopulado(t *testing.T) {
+	pool := abrirPoolMigrado(t)
+	ctx := context.Background()
+
+	if err := AplicarMigracoes(ctx, pool); err != nil {
+		t.Fatalf("erro ao reaplicar migrações: %v", err)
+	}
+
+	var existe bool
+	err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='mensagens' AND indexname='idx_mensagens_sessao_id')`,
+	).Scan(&existe)
+	if err != nil {
+		t.Fatalf("erro ao checar o índice: %v", err)
+	}
+	if !existe {
+		t.Fatal("idx_mensagens_sessao_id não existe depois da migração")
+	}
+}
