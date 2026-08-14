@@ -47,6 +47,9 @@ beforeEach(() => {
   SocketFalso.instancias = [];
   vi.stubGlobal("WebSocket", SocketFalso as unknown as typeof WebSocket);
   vi.useFakeTimers();
+  // A sessão agora vive em sessionStorage, que o jsdom mantém entre testes.
+  // Sem esta limpeza, um caso vaza sessão para o próximo.
+  sessionStorage.clear();
 });
 
 afterEach(() => {

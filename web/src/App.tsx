@@ -6,6 +6,7 @@ import { AbaMensagens } from "./abas/mensagens";
 import { Memoria } from "./abas/memoria";
 import { estadoInicial, reduzir } from "./estado/turno";
 import { criarAudioAnalisado, despertarAudio } from "./lib/audio";
+import { guardarSessao, limparSessao, sessaoGuardada } from "./lib/sessao";
 import { ClienteWS, type EstadoConexao } from "./lib/ws";
 import { Aplicativo } from "./shell/aplicativo";
 
@@ -25,11 +26,12 @@ export default function App() {
   // conexão, que roda uma vez e não enxerga estado novo pelo closure. É
   // derivado, não uma segunda fonte de verdade: quem decide qual é a sessão
   // continua sendo o redutor.
-  const sessaoAtualRef = useRef<string | null>(null);
+  const sessaoAtualRef = useRef<string | null>(sessaoGuardada());
   const jaConectouRef = useRef(false);
 
   useEffect(() => {
     sessaoAtualRef.current = estado.sessaoAtual;
+    if (estado.sessaoAtual) guardarSessao(estado.sessaoAtual);
   }, [estado.sessaoAtual]);
 
   useEffect(() => {
@@ -51,7 +53,12 @@ export default function App() {
       // Sai daqui e não de um efeito: ClienteWS publica "conectado" dentro
       // do onopen ANTES de descarregar a fila, então este envio entra na
       // frente da mensagem que esperou a queda. É a ordem que importa.
-      if (jaConectouRef.current && sessaoAtualRef.current) {
+      //
+      // Retoma tanto na reconexão (sessão viva no redutor) quanto na
+      // primeira conexão depois de um F5 (sessão veio do sessionStorage).
+      // O que NÃO retoma é janela nova: ali o sessionStorage está vazio, e
+      // a sessão nasce no servidor no primeiro turno.
+      if (sessaoAtualRef.current) {
         cliente.enviar("retomar", crypto.randomUUID(), { sessao_id: sessaoAtualRef.current });
       }
       jaConectouRef.current = true;
@@ -114,9 +121,13 @@ export default function App() {
     despachar({ tipo: "aprovacao_decidida" });
   };
 
-  // Provisório: a Task 14 liga isto ao sessionStorage e ao comando
-  // nova_sessao. Deixar sem efeito aqui manteria o botão mentindo.
-  const novaSessao = () => {};
+  const novaSessao = () => {
+    limparSessao();
+    sessaoAtualRef.current = null;
+    // Limpar só no cliente deixaria o servidor na conversa velha:
+    // sessaoID e historico são variáveis locais do handler em ws.go.
+    clienteRef.current?.enviar("nova_sessao", crypto.randomUUID(), {});
+  };
 
   const retomar = (id: string) => {
     clienteRef.current?.enviar("retomar", crypto.randomUUID(), { sessao_id: id });
