@@ -4569,6 +4569,7 @@ Prometido na Fase 6 e não entregue. Sem ele, toda verificação de front volta 
 - Criar: `web/playwright.config.ts`
 - Criar: `web/e2e/james.spec.ts`
 - Modificar: `web/package.json`
+- Modificar: `web/vite.config.ts`
 
 - [ ] **Passo 1: Instalar**
 
@@ -4743,6 +4744,43 @@ test.describe("James como aplicativo", () => {
 });
 ```
 
+- [ ] **Passo 3.1: Excluir `e2e/` do vitest**
+
+`web/vite.config.ts` configura `test` sem `exclude`, e o glob padrão do vitest
+(`**/*.{test,spec}.*`) casa com `e2e/james.spec.ts` — arquivo de Playwright,
+não de vitest. Sem essa exclusão, `npm test` (vitest) tenta carregar o
+arquivo, `test.describe` do Playwright reclama de ser chamado fora de
+configuração, e a suíte inteira sai com exit code 1 mesmo com todos os
+testes de verdade passando (achado real, reproduzido rodando `npx vitest
+run` depois de criar `e2e/james.spec.ts`: `Test Files 1 failed | 17 passed`,
+`exit 1`).
+
+Em `web/vite.config.ts`:
+
+```ts
+import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    exclude: [...configDefaults.exclude, "e2e/**"],
+  },
+});
+```
+
+Rode os dois comandos e confirme que cada um só vê os arquivos que deve:
+
+```bash
+cd "C:/Users/Arthur/SI/Projetos/Athena(Go)/meu-app-ts" && npm test --prefix web
+```
+
+Esperado: `Test Files  17 passed (17)`, exit 0 — `e2e/james.spec.ts` não aparece mais na lista.
+
 - [ ] **Passo 4: Subir o sistema e rodar**
 
 Em um terminal:
@@ -4762,7 +4800,7 @@ Esperado: 5 testes passando. Se o de retomada falhar por o banco estar vazio, ma
 - [ ] **Passo 5: Commit**
 
 ```bash
-git add web/playwright.config.ts web/e2e web/package.json web/package-lock.json
+git add web/playwright.config.ts web/e2e web/package.json web/package-lock.json web/vite.config.ts
 git commit -m "test(e2e): Playwright cobre shell, abas, envio, sessao nova e retomada"
 ```
 
