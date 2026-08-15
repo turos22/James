@@ -8,6 +8,7 @@ import {
   Sparkle,
   type LucideIcon,
 } from "lucide-react";
+import { arrastarJanela } from "../lib/janela";
 
 export type IdAba = "james" | "mensagens" | "memoria" | "historico" | "dashboard";
 
@@ -44,6 +45,17 @@ function nomeAcessivel(rotulo: string, pendentes: number): string {
 export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props) {
   const [expandida, setExpandida] = useState(true);
 
+  // A janela do Wails é frameless — sem isto, ela só se move pelo atalho
+  // do Windows (Win+seta) ou nem isso. O padding reservado (pt-11) e o
+  // resto desta faixa viram a "barra de título": arrasta como qualquer
+  // janela normal, exceto em cima de algo clicável (checado por
+  // e.target !== e.currentTarget — só dispara quando o clique caiu no
+  // próprio contêiner, não num filho como o botão de recolher).
+  const aoApertarNaAreaReservada = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    arrastarJanela(e);
+  };
+
   return (
     <nav
       aria-label="Navegação principal"
@@ -54,11 +66,17 @@ export function BarraLateral({ ativa, aoSelecionar, aprovacoesPendentes }: Props
       {/* pt-11 abre espaço para os controles de janela, que são posicionados
           por cima desta área pelo aplicativo.tsx */}
       <div
+        data-testid="area-arrastavel"
+        onMouseDown={aoApertarNaAreaReservada}
         className={`flex px-3 pt-11 pb-4 ${
           expandida ? "items-center justify-between gap-2" : "flex-col items-center gap-3"
         }`}
       >
-        {expandida && <span className="font-serif text-sm text-app-icon">James</span>}
+        {expandida && (
+          <span data-testid="rotulo-app" className="font-serif text-sm text-app-icon">
+            James
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setExpandida((v) => !v)}

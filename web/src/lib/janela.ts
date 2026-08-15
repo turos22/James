@@ -46,3 +46,58 @@ export function alternarMaximizado(): void {
 export function fecharJanela(): void {
   fetch(`${ENDERECO_CONTROLE_SHELL}/fechar`, { method: "POST" }).catch(() => {});
 }
+
+// calcularNovaPosicaoArrasto é a matemática pura do arraste: soma o
+// deslocamento do mouse (em coordenadas de TELA, não da página — é a
+// janela que se move, então clientX/Y não servem de referência) ao canto
+// onde a janela estava quando o botão desceu.
+export function calcularNovaPosicaoArrasto(
+  origemJanela: { x: number; y: number },
+  origemMouse: { x: number; y: number },
+  mouseAtual: { x: number; y: number },
+): { x: number; y: number } {
+  return {
+    x: origemJanela.x + (mouseAtual.x - origemMouse.x),
+    y: origemJanela.y + (mouseAtual.y - origemMouse.y),
+  };
+}
+
+// arrastarJanela inicia o arraste a partir de um mousedown na área de
+// chrome (ver barraLateral.tsx). O Wails 2.11 instalado aqui não expõe
+// WindowStartDrag (checado no pkg/runtime da versão vendorizada) — por
+// isso o arraste é feito na mão, reaproveitando moverJanela/posicaoJanela
+// que já existiam pro resize: escuta mousemove enquanto o botão estiver
+// apertado e reposiciona a cada frame.
+export function arrastarJanela(evento: Pick<MouseEvent, "screenX" | "screenY">): void {
+  const origemMouse = { x: evento.screenX, y: evento.screenY };
+  let origemJanela: { x: number; y: number } | null = null;
+  let quadroPendente = 0;
+  let posicaoPendente: { x: number; y: number } | null = null;
+
+  posicaoJanela().then((pos) => {
+    origemJanela = pos;
+  });
+
+  const aoMover = (e: MouseEvent) => {
+    if (!origemJanela) return;
+    posicaoPendente = calcularNovaPosicaoArrasto(origemJanela, origemMouse, { x: e.screenX, y: e.screenY });
+    // rAF em vez de mandar fetch a cada mousemove bruto: o evento dispara
+    // muito mais rápido do que a rede/o SO conseguem processar reposição,
+    // e enfileirar um fetch por evento faz a janela "arrastar atrasado".
+    if (!quadroPendente) {
+      quadroPendente = requestAnimationFrame(() => {
+        quadroPendente = 0;
+        if (posicaoPendente) moverJanela(posicaoPendente.x, posicaoPendente.y);
+      });
+    }
+  };
+
+  const aoSoltar = () => {
+    window.removeEventListener("mousemove", aoMover);
+    window.removeEventListener("mouseup", aoSoltar);
+    if (quadroPendente) cancelAnimationFrame(quadroPendente);
+  };
+
+  window.addEventListener("mousemove", aoMover);
+  window.addEventListener("mouseup", aoSoltar);
+}

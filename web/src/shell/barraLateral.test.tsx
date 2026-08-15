@@ -1,6 +1,17 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BarraLateral } from "./barraLateral";
+
+vi.mock("../lib/janela", () => ({ arrastarJanela: vi.fn() }));
+import { arrastarJanela } from "../lib/janela";
+
+// Sem isto, a chamada registrada num teste sobrevive pro próximo — este
+// arquivo não zera mocks globalmente (vitest.setup.ts não tem
+// clearMocks/resetMocks), e um `toHaveBeenCalledTimes`/`not.toHaveBeenCalled`
+// mais adiante mentiria contando a sobra do teste anterior.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("Barra lateral", () => {
   it("mostra as cinco abas", () => {
@@ -78,5 +89,29 @@ describe("Barra lateral", () => {
     render(<BarraLateral ativa="james" aoSelecionar={vi.fn()} aprovacoesPendentes={3} />);
 
     expect(screen.getByRole("button", { name: "Mensagens" })).toBeTruthy();
+  });
+
+  // A janela do Wails não tem moldura — a única forma de movê-la é
+  // arrastando alguma área da própria SPA. A faixa reservada (pt-11, ver
+  // comentário no componente) é onde os círculos de janela já vivem; o
+  // resto dela, e a área ao redor do rótulo "James", vira a pega da
+  // "barra de título" — do jeito que qualquer outra janela do Windows
+  // funciona.
+  it("arrasta a janela ao apertar o botão do mouse na área reservada, fora do rótulo e do botão de recolher", () => {
+    render(<BarraLateral ativa="james" aoSelecionar={vi.fn()} aprovacoesPendentes={0} />);
+
+    const areaReservada = screen.getByTestId("area-arrastavel");
+    fireEvent.mouseDown(areaReservada, { screenX: 40, screenY: 20 });
+
+    expect(arrastarJanela).toHaveBeenCalledTimes(1);
+  });
+
+  it("não arrasta ao apertar o mouse no rótulo James nem no botão de recolher", () => {
+    render(<BarraLateral ativa="james" aoSelecionar={vi.fn()} aprovacoesPendentes={0} />);
+
+    fireEvent.mouseDown(screen.getByTestId("rotulo-app"));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Recolher menu" }));
+
+    expect(arrastarJanela).not.toHaveBeenCalled();
   });
 });
