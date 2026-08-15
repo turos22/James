@@ -313,6 +313,37 @@ def test_falha_no_aviso_de_fechamento_nao_derruba_a_escuta():
     assert comandos == ["o comando mesmo assim"]
 
 
+def test_loga_o_que_reconheceu_mesmo_sem_a_wake_word(caplog):
+    """Pedido do Arthur: sem nenhuma linha no log enquanto ele fala e o James
+    não acorda, não dá pra saber se o microfone está vivo ou surdo — os logs
+    que já existiam só disparavam em cima da wake word ou do fim da janela de
+    comando, e ficavam mudos pra qualquer outra fala reconhecida."""
+    with caplog.at_level("INFO", logger="james_device.escuta"):
+        escuta.escutar(
+            fonte_audio=[b"a"],
+            reconhecedor=ReconhecedorFalso([("final", "que horas sao")]),
+            transcrever_comando=lambda audio: "",
+            ao_acordar=lambda: None,
+            ao_comando=lambda texto: None,
+        )
+    assert any("que horas sao" in registro.message for registro in caplog.records)
+
+
+def test_nao_loga_reconhecimento_parcial_pra_nao_encher_o_log(caplog):
+    """Parcial muda a cada bloco enquanto a pessoa ainda fala — logar cada um
+    encheria o console de linhas repetidas/incompletas pro mesmo trecho de
+    fala. Só o resultado final (a frase fechada) é logado."""
+    with caplog.at_level("INFO", logger="james_device.escuta"):
+        escuta.escutar(
+            fonte_audio=[b"a", b"b"],
+            reconhecedor=ReconhecedorFalso([("parcial", "que"), ("parcial", "que horas")]),
+            transcrever_comando=lambda audio: "",
+            ao_acordar=lambda: None,
+            ao_comando=lambda texto: None,
+        )
+    assert not any("que horas" in registro.message for registro in caplog.records)
+
+
 def test_reconhecedor_zerado_depois_da_janela():
     """A janela alimenta o reconhecedor pra ouvir a palavra de parada. Sem
     zerar depois, o texto do COMANDO fica no buffer e o laço de wake word

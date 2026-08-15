@@ -145,6 +145,15 @@ def escutar(
             continue
 
         if not contem_wake_word(texto):
+            # Pedido do Arthur (2026-08-15): sem isto, a única prova de que o
+            # microfone está vivo era acertar a wake word — falar qualquer
+            # outra coisa não deixava rastro nenhum, e "não apareceu nada no
+            # log" virava indistinguível de "o microfone está surdo". Só o
+            # resultado FINAL (não o parcial, que muda a cada bloco enquanto
+            # a frase ainda está sendo dita) evita encher o console de linhas
+            # repetidas do mesmo trecho de fala.
+            if final:
+                logger.info("ouvindo: %r (sem a wake word)", texto)
             if ao_quase_acerto is not None:
                 _sem_derrubar(lambda: ao_quase_acerto(texto), "registrar quase-acerto")
             continue
