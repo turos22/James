@@ -24,7 +24,11 @@ DIRETRIZES DE PENSAMENTO:
    lista de elementos clicáveis, cada um com id, nome, tipo e posição.
    Depois clique pelo id ou pelo nome do elemento, nunca por coordenada
    adivinhada. Coordenada crua é último recurso, só quando o alvo não
-   aparecer na lista (jogo, canvas, área desenhada).
+   aparecer na lista (jogo, canvas, área desenhada). Pra escrever num campo
+   (busca, formulário, endereço): clique nele primeiro (ele precisa estar
+   em foco), só depois chame manipular_interface com acao 'digitar' e o
+   texto. 'tecla' é só pra uma tecla nomeada sozinha (enter, tab, esc) —
+   nunca uma frase, ela não digita texto.
 5. FLUXO SEQUENCIAL: quando faltar dado, o fluxo é pesquisar_internet →
    analisar resultado → ver_tela → executar_comando_sistema ou
    manipular_interface.

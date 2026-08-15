@@ -72,6 +72,33 @@ def test_executar_acao_tecla_chama_pyautogui(monkeypatch):
     assert chamadas == ["enter"]
 
 
+def test_executar_acao_digitar_chama_pyautogui(monkeypatch):
+    # Achado ao vivo (2026-08-15): pedido pra "escrever Disney Plus na
+    # barra de pesquisa" nunca escrevia nada. manipular_interface só tinha
+    # click/clicar_elemento/tecla — e tecla chama pyautogui.press(), que só
+    # aceita UMA tecla nomeada por vez (enter, tab...), nunca uma frase.
+    # Não existia, em lugar nenhum do projeto, um caminho pra digitar texto
+    # livre. "tecla" continua existindo pra tecla nomeada sozinha; "digitar"
+    # é a ação nova pra frase.
+    chamadas = []
+    monkeypatch.setattr(tela.pyautogui, "write", lambda t, interval=0: chamadas.append(t))
+
+    resultado = tela.executar_acao({"acao": "digitar", "texto": "Disney Plus"})
+
+    assert resultado == {"saida": "digitei 'Disney Plus'"}
+    assert chamadas == ["Disney Plus"]
+
+
+def test_executar_acao_digitar_sem_texto_nao_chama_pyautogui(monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(tela.pyautogui, "write", lambda t, interval=0: chamadas.append(t))
+
+    resultado = tela.executar_acao({"acao": "digitar"})
+
+    assert "erro" in resultado
+    assert chamadas == []
+
+
 def test_executar_acao_desconhecida_devolve_erro():
     resultado = tela.executar_acao({"acao": "voar"})
     assert "erro" in resultado

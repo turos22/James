@@ -65,6 +65,19 @@ def executar_acao(dados: dict) -> dict:
             texto = dados.get("texto", "")
             pyautogui.press(texto)
             return {"saida": f"tecla {texto} pressionada"}
+        if acao == "digitar":
+            # Achado ao vivo (2026-08-15): "tecla" só aceita UMA tecla
+            # nomeada por vez (pyautogui.press espera algo tipo "enter",
+            # "tab" — uma frase inteira vira um nome de tecla inexistente).
+            # Não havia, em lugar nenhum, um jeito de digitar texto livre
+            # numa caixa — o modelo clicava na busca e não tinha ferramenta
+            # pra escrever nela. Mesma regra de foco que "tecla": vai pra
+            # janela em foco, não resolve superfície.
+            texto = dados.get("texto", "")
+            if not texto:
+                return {"erro": "parâmetro texto ausente ou vazio para a ação digitar"}
+            pyautogui.write(texto, interval=0.02)
+            return {"saida": f"digitei {texto!r}"}
         if acao == "ver_tela":
             return _ver_tela(dados)
         if acao == "clicar_elemento":

@@ -63,6 +63,28 @@ func TestManipularInterfaceRepassaCamposDeElementoESuperficie(t *testing.T) {
 	}
 }
 
+func TestManipularInterfaceRepassaTextoParaDigitar(t *testing.T) {
+	// Achado ao vivo (2026-08-15): "tecla" só aceita uma tecla nomeada
+	// (pyautogui.press), nunca uma frase — não havia como digitar texto
+	// livre numa caixa. "digitar" é a ação nova; este teste confere que o
+	// texto chega inteiro até a ponte, sem truncar nem perder na conversão.
+	ponte := &ponteFalsa{saida: "digitei 'Disney Plus'"}
+	m := NovoManipularInterface(ponte)
+
+	saida, err := m.Executar(context.Background(), map[string]any{
+		"acao": "digitar", "texto": "Disney Plus",
+	})
+	if err != nil {
+		t.Fatalf("Executar devolveu erro: %v", err)
+	}
+	if ponte.acaoRecebida.Acao != "digitar" || ponte.acaoRecebida.Texto != "Disney Plus" {
+		t.Errorf("acao repassada = %+v, queria Acao=digitar Texto=\"Disney Plus\"", ponte.acaoRecebida)
+	}
+	if saida != "digitei 'Disney Plus'" {
+		t.Errorf("saida = %q", saida)
+	}
+}
+
 func TestManipularInterfaceRejeitaAcaoAusente(t *testing.T) {
 	m := NovoManipularInterface(&ponteFalsa{})
 	if _, err := m.Executar(context.Background(), map[string]any{}); err == nil {
