@@ -39,4 +39,20 @@ describe("Orbe", () => {
 
     expect(() => render(<Orbe analisador={analisadorFalso} />)).not.toThrow();
   });
+
+  // Pedido do Arthur (2026-08-15): o orbe ficar "mais bonitinho" com a marca
+  // do James no centro.
+  it("mostra a logo do James centralizada, sem atrapalhar a acessibilidade do canvas", () => {
+    render(<Orbe analisador={null} />);
+
+    const logo = screen.getByTestId("logo-james");
+    // Decorativa: o rótulo de verdade do orbe continua sendo o aria-label
+    // do canvas ("Visualização de áudio do James"), não a logo por cima.
+    expect(logo.getAttribute("aria-hidden")).toBe("true");
+    // Não pode interceptar clique/gesto — o canvas segue sendo o alvo.
+    // getAttribute, não .className: em SVG, className é SVGAnimatedString,
+    // não uma string comum — .toContain nele mente (compara um objeto).
+    expect(logo.getAttribute("class")).toContain("pointer-events-none");
+    expect(screen.getByLabelText("Visualização de áudio do James")).toBeTruthy();
+  });
 });
