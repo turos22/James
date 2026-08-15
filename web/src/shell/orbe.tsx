@@ -27,23 +27,37 @@ interface Props {
   analisador: AnalyserNode | null;
 }
 
-// Marca do James (o "J" do design de referência, ver
-// docs/superpowers/referencias/painel-de-controle-james/public/icon.svg) —
-// só os traços, sem o retângulo de fundo do ícone original, porque o fundo
-// aqui já é o próprio orbe. Fixa por cima do canvas, não desenhada nele: não
-// precisa reagir ao áudio, e desenhar por cima do canvas a cada quadro só
-// custaria CPU à toa.
+// Marca do James, colorida — enviada pelo Arthur em
+// C:\Users\Arthur\Downloads\logo_james.png. Os cinco path abaixo não foram
+// desenhados à mão: vieram de contornar cada região de cor do PNG por
+// análise de imagem (OpenCV: máscara por cor → connectedComponents →
+// findContours → approxPolyDP), pra não arriscar inventar uma forma
+// parecida. viewBox bate com o tamanho do PNG original (441×566) de
+// propósito — os pontos já estão nesse espaço, sem precisar reescalar.
+// Fixa por cima do canvas, não desenhada nele: não precisa reagir ao áudio,
+// e redesenhar por cima do canvas a cada quadro custaria CPU à toa.
 function LogoJames() {
   return (
     <svg
       data-testid="logo-james"
       aria-hidden="true"
-      viewBox="0 0 180 180"
-      fill="currentColor"
-      className="pointer-events-none absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 text-white/80"
+      viewBox="0 0 441 566"
+      className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-11 -translate-x-1/2 -translate-y-1/2 opacity-90"
     >
-      <path d="M101.141 53H136.632C151.023 53 162.689 64.6662 162.689 79.0573V112.904H148.112V79.0573C148.112 78.7105 148.098 78.3662 148.072 78.0251L112.581 112.898C112.701 112.902 112.821 112.904 112.941 112.904H148.112V126.672H112.941C98.5504 126.672 86.5638 114.891 86.5638 100.5V66.7434H101.141V100.5C101.141 101.15 101.191 101.792 101.289 102.422L137.56 66.7816C137.255 66.7563 136.945 66.7434 136.632 66.7434H101.141V53Z" />
-      <path d="M65.2926 124.136L14 66.7372H34.6355L64.7495 100.436V66.7372H80.1365V118.47C80.1365 126.278 70.4953 129.958 65.2926 124.136Z" />
+      <path fill="#F0B60A" d="M156,42 L156,84 L159,87 L192,87 L193,72 L196,69 L370,68 L370,38 L158,37 Z" />
+      <path fill="#4283EB" d="M337,73 L337,277 L369,277 L371,275 L370,73 Z" />
+      <path
+        fill="#379E4F"
+        d="M370,280 L337,280 L337,346 L336,347 L336,359 L335,360 L335,365 L334,366 L334,373 L331,379 L331,383 L329,386 L328,391 L324,397 L323,402 L321,403 L321,405 L318,408 L318,410 L315,413 L309,422 L304,426 L304,427 L297,434 L296,436 L295,436 L292,439 L291,439 L290,441 L284,445 L284,449 L304,469 L304,470 L308,473 L309,473 L315,467 L316,467 L322,461 L322,460 L325,458 L325,457 L333,449 L333,448 L340,440 L341,437 L347,430 L347,428 L350,425 L354,416 L356,414 L356,412 L359,407 L359,405 L361,402 L361,400 L364,393 L364,390 L365,389 L366,383 L367,382 L367,377 L368,376 L369,365 L370,364 L370,351 L371,350 L371,281 Z"
+      />
+      <path
+        fill="#E23F2E"
+        d="M52,464 L55,469 L58,470 L64,475 L68,476 L72,480 L85,488 L104,497 L112,502 L115,502 L124,507 L132,509 L134,511 L137,511 L140,513 L143,513 L154,517 L163,518 L169,520 L174,520 L175,521 L185,521 L186,522 L219,521 L247,514 L252,511 L261,508 L269,503 L271,503 L283,495 L287,491 L289,491 L305,477 L305,475 L280,450 L260,466 L244,474 L242,476 L234,478 L228,481 L224,481 L220,483 L214,483 L208,485 L188,485 L187,484 L172,483 L141,474 L134,470 L125,467 L101,454 L83,442 L81,442 L74,436 L72,436 L69,439 L58,455 L57,458 Z"
+      />
+      <path
+        fill="#D0D1D0"
+        d="M298,109 L155,109 L155,141 L198,141 L201,144 L200,346 L192,369 L171,390 L148,398 L129,397 L92,382 L80,412 L119,428 L160,429 L194,414 L218,389 L233,350 L233,143 L239,141 L265,142 L266,333 L263,348 L250,377 L231,401 L202,430 L178,445 L207,443 L239,430 L257,417 L277,395 L292,366 L298,339 Z"
+      />
     </svg>
   );
 }

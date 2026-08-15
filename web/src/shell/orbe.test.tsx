@@ -55,4 +55,16 @@ describe("Orbe", () => {
     expect(logo.getAttribute("class")).toContain("pointer-events-none");
     expect(screen.getByLabelText("Visualização de áudio do James")).toBeTruthy();
   });
+
+  // A logo veio de C:\Users\Arthur\Downloads\logo_james.png, traçada por
+  // análise de imagem (contornos reais via OpenCV, não path desenhado à
+  // mão) em 5 regiões de cor: amarelo, azul, verde, vermelho e o "JJ" cinza.
+  // Essa contagem é a rede de segurança contra perder uma faixa de cor sem
+  // querer numa edição futura.
+  it("a logo tem as cinco regiões de cor extraídas do arquivo original", () => {
+    render(<Orbe analisador={null} />);
+
+    const logo = screen.getByTestId("logo-james");
+    expect(logo.querySelectorAll("path").length).toBe(5);
+  });
 });
