@@ -23,9 +23,10 @@ import vosk
 from playsound import playsound
 
 from james_device.conexao import ConexaoJames
+from james_device import gramatica
 from james_device.escuta import JANELA_PADRAO_SEGUNDOS, PALAVRA_PARADA_PADRAO, escutar
 from james_device.tela import executar_acao
-from james_device.wake import quase_acerto, registrar_quase_acerto
+from james_device.wake import VARIANTES_PADRAO, quase_acerto, registrar_quase_acerto
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -118,7 +119,15 @@ def escutar_e_enviar(conexao: ConexaoJames):
     # stderr no nível padrão e enterra qualquer log útil do device.
     vosk.SetLogLevel(-1)
     modelo = vosk.Model(CAMINHO_MODELO_VOSK)
-    reconhecedor = vosk.KaldiRecognizer(modelo, TAXA_AMOSTRAGEM)
+
+    # Gramática, e não decoder livre. Sem ela o Vosk decodifica contra o
+    # português inteiro e "james" perde para "gêmeos"/"times", que são
+    # hipóteses muito mais prováveis no modelo de linguagem — medido: 2
+    # acertos em 5 frases. Com a gramática o decoder só escolhe entre as
+    # variantes, a palavra de parada e "[unk]": 5 em 5. Ver gramatica.py.
+    reconhecedor = vosk.KaldiRecognizer(
+        modelo, TAXA_AMOSTRAGEM, gramatica.montar(VARIANTES_PADRAO, PALAVRA_PARADA)
+    )
 
     logger.info(
         "escuta ativa: wake word offline, janela de %.0fs, palavra de parada %r",

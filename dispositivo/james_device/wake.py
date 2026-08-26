@@ -14,45 +14,26 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Variantes com que o STT em português costuma transcrever "James".
+# Variantes com que o modelo do Vosk consegue transcrever "James".
 #
-# A lista foi ampliada quando a escuta passou a ser offline e contínua
-# (escuta.py). A régua de risco mudou junto: antes, a wake word ainda era
-# seguida da palavra "enviar" pra confirmar o comando; hoje ela abre uma
-# janela de tempo, e falso negativo custa a pessoa repetir a frase inteira
-# enquanto falso positivo custa uma janela de 8s que fecha sozinha sem
-# comando entendido. Perder ativação é o erro caro, então a lista pende pro
-# lado de reconhecer demais.
+# TRÊS, e não vinte. A lista chegou a ter vinte "variantes fonéticas"
+# plausíveis (jeimes, geimes, djeimes, tchaimes...) e DEZESSETE delas eram
+# peso morto: não existem no léxico do modelo, que tem vocabulário fechado.
+# Palavra fora do léxico é descartada da gramática em silêncio pelo Vosk —
+# nunca casa, e só dá falsa sensação de cobertura.
 #
-# O que continua FORA, de propósito: "games" e "gente" — palavras comuns na
-# fala do dia a dia, e o Arthur é desenvolvedor (fala "games" em contexto
-# normal). "gemeos" e "genese", que aparecem no log de calibração, não batem
-# em nada aqui porque a comparação é por palavra inteira.
+# O que de fato resolveu a detecção não foi a lista, foi a GRAMÁTICA
+# (gramatica.py): restringir o decoder a este vocabulário levou "james" de
+# 2/5 para 5/5 na medição com fala sintetizada.
+#
+# Para revalidar esta lista — obrigatório se o modelo for trocado — rode
+# tests/test_gramatica.py::test_wake_word_no_lexico_do_modelo. Ele falha
+# nomeando cada palavra que o modelo não consegue emitir. Não acrescente
+# variante aqui sem passar por ele: foi assim que as dezessete entraram.
 VARIANTES_PADRAO = [
-    # A grafia certa e os truncamentos
     "james",
-    "jame",
-    "jaims",
-    "jeims",
-    "jeim",
-    # Com a vogal aberta que o STT em português costuma escolher
-    "jeimes",
-    "jeime",
-    "jaimes",
     "jaime",
-    "jemes",
-    "jems",
-    # Com o "j" ouvido como "g" — o erro mais comum no log de calibração
-    "geimes",
-    "geime",
     "gemes",
-    "geims",
-    # Com africada, que o português brasileiro produz no "dj" inicial
-    "djeimes",
-    "djames",
-    "tchaimes",
-    "chaimes",
-    "xeimes",
 ]
 
 # Arquivo de calibração (D10 da spec da Fase 5). Fica fora do Vault de

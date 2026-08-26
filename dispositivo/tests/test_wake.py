@@ -14,25 +14,28 @@ def test_normalizar_remove_acento_e_caixa():
 
 @pytest.mark.parametrize(
     "ouvido",
-    ["james", "James", "Jeimes, tudo bem?", "ei jaimes", "JEIMS me ajuda"],
+    ["james", "James", "Jaime, tudo bem?", "ei jaime", "GEMES me ajuda"],
 )
 def test_reconhece_variantes_da_wake_word(ouvido):
     assert contem_wake_word(ouvido) is True
 
 
-@pytest.mark.parametrize("ouvido", ["jame", "jame abre a calculadora", "ei Jame"])
-def test_reconhece_jame_sem_o_s_final(ouvido):
-    # Calibração real de 2026-08-08: com o device rodando, o log de
-    # quase-acerto registrou "jame" duas vezes em menos de trinta segundos —
-    # o STT em pt-BR come o S final na fala normal do Arthur. Como o
-    # casamento é por palavra inteira (\bjames\b), "jame" não ativava nada e
-    # a escuta parecia morta, mesmo com microfone e reconhecimento sãos.
-    assert contem_wake_word(ouvido) is True
+@pytest.mark.parametrize("ouvido", ["jaime", "gemes abre a calculadora", "ei Jaime"])
+def test_reconhece_as_variantes_que_o_modelo_emite(ouvido):
+    # A lista encolheu de vinte para tres em 2026-08-26, por medicao e nao por
+    # gosto: o modelo do Vosk tem vocabulario fechado e so consegue emitir
+    # estas. As outras dezessete eram descartadas em silencio pelo proprio
+    # Vosk ao montar a gramatica - nunca casavam com nada.
+    #
+    # "jaime" e "gemes" ficam porque sao o que o decoder produz quando o
+    # Arthur fala "James": sao os vizinhos acusticos que EXISTEM no lexico.
+    assert contem_wake_word(ouvido)
 
 
 @pytest.mark.parametrize(
     "ouvido",
-    ["athena", "bom dia", "", "jazz", "gosto de games", "hyperjames", "ohjamesboy", "jaimesabe"],
+    ["athena", "bom dia", "", "jazz", "gosto de games", "hyperjames", "ohjamesboy",
+     "jaimesabe", "jame", "jeimes"],
 )
 def test_ignora_texto_sem_wake_word(ouvido):
     assert contem_wake_word(ouvido) is False

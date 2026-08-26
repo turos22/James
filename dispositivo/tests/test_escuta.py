@@ -196,7 +196,7 @@ def test_falha_ao_avisar_que_acordou_nao_derruba_a_escuta():
 
 @pytest.mark.parametrize(
     "ouvido",
-    ["james", "james abre o navegador", "ei james", "jeimes", "gemes", "jaimes", "jeims"],
+    ["james", "james abre o navegador", "ei james", "jaime", "gemes"],
 )
 def test_variantes_reais_acordam(ouvido):
     acordou = []
