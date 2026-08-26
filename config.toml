@@ -26,7 +26,11 @@ diretorio_memoria = "Vault/Memoria"
 timeout_aprovacao_segundos = 300
 
 [voz]
-voz_tts = "pt-BR-AntonioNeural"
+# Voz multilingual: fala português mantendo o timbre de origem. Escolhida
+# ouvindo as amostras — a única pt-BR masculina do edge-tts (AntonioNeural)
+# tem timbre mais claro e cadência mais rápida. Trocar aqui é a única
+# mudança necessária; o Sintetizador só repassa a string pro edge-tts.
+voz_tts = "en-US-AndrewMultilingualNeural"
 
 [ferramentas.terminal]
 # Comando que passar disso é morto e reportado como timeout.
