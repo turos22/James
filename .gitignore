@@ -38,9 +38,17 @@ Athena.db-wal
 Vault/Logs_Diarios/
 Vault/Memoria/
 
-# Áudio gerado pelo TTS. Os assets do agente de dispositivo
-# (entrada.mp3, faaah.wav, um_minuto.mp3) continuam versionados.
-audios/audio_jarvis.mp3
+# Áudio gerado pelo TTS: um arquivo por resposta falada, nome UUID. O front
+# apaga via DELETE /api/audio/{id} depois de tocar, mas quando o autoplay é
+# bloqueado ou a aba fecha antes, o arquivo fica — e são gravações das
+# conversas do Arthur. Ignorar o diretório inteiro em vez de nome a nome:
+# antes só `audios/audio_jarvis.mp3` estava listado, e qualquer resposta
+# gerada podia ser commitada por acidente.
+#
+# Regra do .gitignore que torna isto seguro: arquivo JÁ rastreado continua
+# rastreado, então os assets versionados (entrada.mp3, faaah.wav,
+# um_minuto.mp3 e os .wav de bordão) não saem do repositório.
+audios/*
 
 # Material de referência de terceiros (obsidian.py é insumo da Fase 4)
 arquivos do Gui/
