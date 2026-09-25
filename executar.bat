@@ -64,7 +64,33 @@ timeout /t 1 /nobreak >nul
 goto :aguardar_postgres
 
 :postgres_pronto
-echo   ok - james-postgres saudavel
+
+rem pg_isready roda DENTRO do container e por isso nao prova o que importa:
+rem que o jamesd, que conecta por TCP em 127.0.0.1:5434, vai chegar NESTE
+rem banco. Ja aconteceu de outro projeto (Final-project) subir um Postgres
+rem com restart=always que tomava a 5433 (porta antiga deste container); o container do James continua
+rem saudavel, so que sem publicar porta nenhuma, e o jamesd morre la na
+rem frente com "password authentication failed for user james" - erro que
+rem aponta para credencial quando o problema e porta. Perde-se meia hora.
+docker ps --filter name=james-postgres --format "{{.Ports}}" | findstr /C:"5434" >nul
+if errorlevel 1 (
+    echo   ERRO: o james-postgres esta de pe, mas NAO publica a porta 5434.
+    echo.
+    echo   Quem esta com a 5434 no momento:
+    docker ps --format "     {{.Names}}  ->  {{.Ports}}" | findstr /C:"5434"
+    echo.
+    echo   O jamesd conecta em 127.0.0.1:5434 e cairia nesse outro banco,
+    echo   falhando com erro de autenticacao que nao tem nada a ver com senha.
+    echo.
+    echo   Para resolver, uma das duas:
+    echo     1. Liberar a porta:  docker stop ^<container-acima^>
+    echo     2. Dar outra porta ao James: trocar em docker-compose.yml E a
+    echo        porta do DATABASE_URL no .env, e entao
+    echo        docker compose up -d --force-recreate
+    goto :falhou
+)
+
+echo   ok - james-postgres saudavel e publicando a 5434
 
 echo.
 echo [3/5] Compilando a SPA e o backend...

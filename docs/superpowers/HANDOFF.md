@@ -36,7 +36,10 @@ armazenamento, memória, TTS entregue ao cliente). Ainda não começado.
   `DATABASE_URL`) — só o Arthur edita esse arquivo. Nunca ler nem sugerir
   colar chave no chat.
 - **Postgres:** `docker-compose.yml`, container `james-postgres`, porta
-  **5433** no host (não 5432, pra não colidir com instalação nativa),
+  **5434** no host. Era 5433 (escolhida pra não colidir com a instalação
+  nativa na 5432), mas a 5433 é usada pelo Postgres do Final-project, que
+  sobe com `restart: always` e sempre chega antes — ver o comentário no
+  `docker-compose.yml`. Mudou em 2026-09-24,
   loopback only.
 - **Tailscale:** binário não está no PATH do Git Bash —
   `"/c/Program Files/Tailscale/tailscale.exe"`. PC = `desktop-dc358rs`,

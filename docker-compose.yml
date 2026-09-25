@@ -8,7 +8,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: james
     ports:
-      - "127.0.0.1:5433:5432"
+      # 5434, nao 5433. A 5433 foi escolhida na Fase 0 so pra nao colidir com
+      # um Postgres nativo na 5432 - mas ela tambem e usada pelo Postgres do
+      # Final-project, que sobe com restart=always e portanto SEMPRE chega
+      # antes deste. O sintoma era cruel: este container ficava saudavel mas
+      # sem publicar porta, o jamesd conectava na 5433 e caia no banco do
+      # outro projeto, falhando com "password authentication failed for user
+      # james" - erro que aponta pra credencial quando o problema e porta.
+      # Loopback continua sendo o ponto: nunca 0.0.0.0 (invariante I2).
+      - "127.0.0.1:5434:5432"
     volumes:
       - james_pgdata:/var/lib/postgresql/data
     healthcheck:
