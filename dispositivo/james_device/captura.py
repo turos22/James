@@ -12,12 +12,13 @@ diferentes, e uma tela sem árvore de acessibilidade ainda produz imagem útil.
 
 import io
 
-# Import de superficies ANTES de pyautogui é proposital: superficies ativa
+# Import de plataforma.windows ANTES de pyautogui é proposital: ele ativa
 # DPI awareness per-monitor como efeito colateral do import, e isso só
 # funciona se rodar antes do pyautogui setar seu próprio awareness (mais
 # fraco) primeiro. Sem isto, um consumidor que importe captura.py antes de
 # tela.py (ou sozinho) queima o awareness em definitivo — importar
 # superficies depois não recupera (ver tela.py).
+from james_device.plataforma import windows as _windows  # noqa: F401 — efeito de import: DPI awareness antes do pyautogui
 from james_device import superficies
 import pyautogui
 
