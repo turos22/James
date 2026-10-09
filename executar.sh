@@ -104,10 +104,21 @@ echo "  ok - james-device em segundo plano (log: $LOGS/device.log)"
 
 echo
 echo "[5/5] Abrindo a interface (Ctrl+C encerra tudo)..."
-if command -v wails >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1; then
-    (cd shell && wails dev -tags webkit2_41)
-else
-    echo "  shell Wails indisponivel (wails ou webkit2gtk4.1-devel ausente); abrindo no navegador."
+
+abrir_no_navegador() {
+    echo "  abrindo no navegador: http://127.0.0.1:8080"
     xdg-open http://127.0.0.1:8080 >/dev/null 2>&1 || true
     wait "$PID_JAMESD"
+}
+
+# O shell Wails é opcional: se faltar o CLI, o webkit, ou se o wails falhar,
+# o backend NÃO pode cair junto. Cai no navegador.
+if command -v wails >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1; then
+    (cd shell && wails dev -tags webkit2_41) || {
+        echo "  wails dev falhou (codigo $?); seguindo sem o shell nativo."
+        abrir_no_navegador
+    }
+else
+    echo "  shell Wails indisponivel (wails ou webkit2gtk4.1-devel ausente)."
+    abrir_no_navegador
 fi
