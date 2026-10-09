@@ -111,14 +111,26 @@ abrir_no_navegador() {
     wait "$PID_JAMESD"
 }
 
-# O shell Wails é opcional: se faltar o CLI, o webkit, ou se o wails falhar,
-# o backend NÃO pode cair junto. Cai no navegador.
-if command -v wails >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1; then
-    (cd shell && wails dev -tags webkit2_41) || {
-        echo "  wails dev falhou (codigo $?); seguindo sem o shell nativo."
+# O shell Wails é opcional: se faltar o webkit, se a compilação falhar ou se
+# ele cair, o backend NÃO pode cair junto. Cai no navegador.
+#
+# Compila com go build e não com o CLI do wails: o CLI v2.11.0 quebra com
+# Go 1.27 ("package context without types"), enquanto o go build com as tags
+# abaixo funciona. O shell é só uma janela que abre http://127.0.0.1:8080
+# (ver shell/frontend/index.html); o dev server do wails não faz falta.
+if pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
+    if go build -tags desktop,production,webkit2_41 -o "$LOGS/shell" ./shell; then
+        # cwd em shell/ de proposito, como no .bat (pushd shell). Janela
+        # fechada = saida limpa = o script termina e o trap derruba o resto.
+        if ! (cd shell && "../$LOGS/shell"); then
+            echo "  o shell nativo caiu; seguindo no navegador."
+            abrir_no_navegador
+        fi
+    else
+        echo "  a compilacao do shell falhou; seguindo sem o shell nativo."
         abrir_no_navegador
-    }
+    fi
 else
-    echo "  shell Wails indisponivel (wails ou webkit2gtk4.1-devel ausente)."
+    echo "  shell nativo indisponivel (webkit2gtk4.1-devel ausente)."
     abrir_no_navegador
 fi
