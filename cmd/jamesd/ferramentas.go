@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"time"
 
 	"james/internal/config"
@@ -18,6 +19,17 @@ func construirComandoSistema(cfg *config.Config) *ferramentas.ComandoSistema {
 	c.Timeout = time.Duration(cfg.TerminalTimeoutSegundos) * time.Second
 	c.MaxBytesSaida = cfg.TerminalMaxBytesSaida
 	return c
+}
+
+// registrarTerminal registra executar_comando_sistema só onde a plataforma
+// tem denylist própria (ferramentas.TerminalSuportado). Recebe o booleano
+// por parâmetro pro teste cobrir os dois lados em qualquer sistema.
+func registrarTerminal(registro ferramentas.Registro, cfg *config.Config, suportado bool) error {
+	if !suportado {
+		slog.Warn("terminal desligado neste sistema: denylist linux ausente")
+		return nil
+	}
+	return registro.Registrar(construirComandoSistema(cfg))
 }
 
 // construirBusca aplica timeout e limite de resultados vindos do config.toml
