@@ -1597,3 +1597,25 @@ Só depois da Task 0 (os `-devel` instalados). Responde B-d de vez.
 - `stop-process`/`spps` na denylist do Windows (spec §4.3): mudança separada.
 - `shell/shell.exe` versionado.
 - B2 (tela no Wayland) e Parte A (STT): a Parte A começa em `feat/stt-whisper` **depois** do merge desta branch em `main`.
+
+---
+
+## Registro de execução (2026-10-09)
+
+Tasks 0 a 12 executadas na `feat/fedora`, cada uma com o teste visto falhar antes. Desvios do plano:
+
+- **Task 3:** `TestPrefixoDeEncodingNaoVazaParaOClassificador` usava `NovoComandoSistema()`, que passou a depender da plataforma. Passou a montar `ComandoSistema{Classificador: ComandoPowerShellPrecisaConfirmacao}`.
+- **Task 5:** mutação feita de propósito (sem `Setpgid` e com `Process.Kill()`): `TestExecutarBashDeVerdadeTimeoutMataOGrupo` falhou com "o sleep em segundo plano sobreviveu ao timeout". Restaurado e verde.
+- **Extra (fora do plano):** `internal/higiene` falhou por falso positivo no `dispositivo/.venv` (SpeechRecognition embute a chave pública do Google). Teste novo `TestVarrerIgnoraVenvPython` e `.venv` na lista de ignorados.
+- **Extra:** `executar.sh` caía junto com o backend quando o `wails dev` falhava. Agora cai no navegador.
+
+Verificação ao vivo no Fedora (CA6, CA5, CA9 parcial):
+- SPA em `http://127.0.0.1:8080`, mensagens gravadas no Postgres (ids 5401/5402 e seguintes).
+- TTS: `.mp3` gerado e servido pelo `GET /api/audio/{id}` (206), depois descartado pelo `DELETE` (comportamento de `rest.go:203`).
+- Terminal bash: `echo` roda direto (exit 0, stdout no banco); `rm -r` abre cartão de aprovação, **negado** pelo Arthur-proxy, registrado como `ação negada pelo usuário`.
+- `manipular_interface` devolve `device: tela indisponível neste sistema (Linux)...` e o device segue vivo.
+- `pw-play` toca `entrada.mp3` e `faaah.wav` (exit 0).
+
+**B-d respondida:** `go build -tags desktop,production,webkit2_41 ./shell` compila e o binário sobe sem crash. O CLI `wails` (v2.11.0) falha com `internal error: package "context" without types` com Go 1.27.1, mesmo com os `-devel` instalados. É incompatibilidade do CLI, não do webkit.
+
+Pendente: CA3 (Windows), CA8 (voz ponta a ponta, precisa da voz do Arthur) e a decisão da Task 14 (como o `executar.sh` deve subir o shell nativo).
