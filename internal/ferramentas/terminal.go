@@ -102,7 +102,7 @@ func (c *ComandoSistema) ConfirmacaoNecessaria(args map[string]any) bool {
 	if !ok {
 		return true
 	}
-	return ComandoPrecisaConfirmacao(comando)
+	return ComandoPowerShellPrecisaConfirmacao(comando)
 }
 
 func (c *ComandoSistema) Executar(ctx context.Context, args map[string]any) (string, error) {

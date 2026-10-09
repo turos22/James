@@ -202,7 +202,7 @@ func TestPrefixoDeEncodingNaoVazaParaOClassificador(t *testing.T) {
 	// sistema, não com uma string inventada à mão.
 	comandoComoSeriaEnviado := "powershell -NoProfile -NonInteractive -EncodedCommand " +
 		codificarComando(prefixoUTF8+comandoCru)
-	if !ComandoPrecisaConfirmacao(comandoComoSeriaEnviado) {
+	if !ComandoPowerShellPrecisaConfirmacao(comandoComoSeriaEnviado) {
 		t.Fatal("premissa quebrou: a linha montada deveria exigir confirmação por causa do -EncodedCommand")
 	}
 
