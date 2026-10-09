@@ -295,3 +295,25 @@ func TestVarrerAcusaAWSKeyMesmoEmArquivoDeTeste(t *testing.T) {
 		t.Fatalf("padrões que não são connection-string continuam varrendo _test.go; esperava 1 achado, vieram %d: %+v", len(achados), achados)
 	}
 }
+
+// O venv do device (dispositivo/.venv) é dependência de terceiros, fora do
+// git. SpeechRecognition embute uma chave pública do Google e o urllib3 tem
+// exemplos de URL com senha: ambos são falso positivo.
+func TestVarrerIgnoraVenvPython(t *testing.T) {
+	raiz := t.TempDir()
+	pasta := filepath.Join(raiz, "dispositivo", ".venv", "lib")
+	if err := os.MkdirAll(pasta, 0o755); err != nil {
+		t.Fatalf("não consegui criar o venv: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pasta, "vendido.py"), []byte(chaveFalsa()), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf(".venv deveria ser ignorado, vieram %d achados: %+v", len(achados), achados)
+	}
+}
