@@ -84,7 +84,7 @@ func TestComandoSistemaConfirmacaoNecessaria(t *testing.T) {
 		{"argumento de tipo errado exige", map[string]any{"comando": 42}, true},
 	}
 
-	c := NovoComandoSistema()
+	c := &ComandoSistema{Classificador: ComandoPowerShellPrecisaConfirmacao}
 	for _, caso := range casos {
 		t.Run(caso.nome, func(t *testing.T) {
 			if got := c.ConfirmacaoNecessaria(caso.args); got != caso.querido {
@@ -211,5 +211,39 @@ func TestPrefixoDeEncodingNaoVazaParaOClassificador(t *testing.T) {
 	c := NovoComandoSistema()
 	if c.ConfirmacaoNecessaria(map[string]any{"comando": comandoCru}) {
 		t.Fatal("ConfirmacaoNecessaria exigiu confirmação pra Get-Process — o prefixo de encoding vazou pro classificador")
+	}
+}
+
+// TestComandoSistemaSemClassificadorExigeConfirmacao: fail closed. Uma
+// ComandoSistema montada sem política nunca pode executar direto.
+func TestComandoSistemaSemClassificadorExigeConfirmacao(t *testing.T) {
+	c := &ComandoSistema{}
+	if !c.ConfirmacaoNecessaria(map[string]any{"comando": "ls"}) {
+		t.Error("sem Classificador deveria exigir confirmação, não exigiu")
+	}
+}
+
+func TestComandoSistemaUsaOClassificadorInjetado(t *testing.T) {
+	var recebido string
+	c := &ComandoSistema{Classificador: func(comando string) bool {
+		recebido = comando
+		return false
+	}}
+	if c.ConfirmacaoNecessaria(map[string]any{"comando": "qualquer coisa"}) {
+		t.Error("classificador devolveu false, ConfirmacaoNecessaria devolveu true")
+	}
+	if recebido != "qualquer coisa" {
+		t.Errorf("classificador recebeu %q, queria o comando cru", recebido)
+	}
+}
+
+func TestComandoSistemaDescricaoNomeiaOShell(t *testing.T) {
+	c := &ComandoSistema{NomeShell: "bash no Fedora Linux"}
+	d := c.Declaracao()
+	if !strings.Contains(d.Descricao, "bash no Fedora Linux") {
+		t.Errorf("Descricao = %q, deveria nomear o shell", d.Descricao)
+	}
+	if !strings.Contains(d.Parametros["comando"].Descricao, "bash no Fedora Linux") {
+		t.Errorf("descrição do parâmetro = %q, deveria nomear o shell", d.Parametros["comando"].Descricao)
 	}
 }
