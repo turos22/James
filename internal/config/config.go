@@ -138,6 +138,12 @@ func Carregar(caminhoToml string) (*Config, error) {
 		VozTTS: valorOuDefault(arq.Voz.VozTTS, "pt-BR-AntonioNeural"),
 	}
 
+	// O config.toml é versionado e serve Windows e Fedora; o caminho do
+	// workspace do Claude Code é da máquina. Env não vazia vence.
+	if d := os.Getenv("JAMES_CLAUDE_CODE_DIRETORIO"); d != "" {
+		cfg.ClaudeCodeDiretorio = d
+	}
+
 	var faltando []string
 	if cfg.GeminiAPIKey == "" {
 		faltando = append(faltando, "GEMINI_API_KEY")

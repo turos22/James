@@ -196,3 +196,35 @@ func TestCarregarAplicaDefaultsDaMemoriaDuravel(t *testing.T) {
 		t.Errorf("MemoriaDiretorio = %q, queria %q", cfg.MemoriaDiretorio, "Vault/Memoria")
 	}
 }
+
+// O config.toml é versionado e compartilhado pelo Windows e pelo Fedora; o
+// caminho do workspace não é. A env vence o toml (spec 2026-10-09 D6).
+func TestCarregarEnvDoClaudeCodeVenceOToml(t *testing.T) {
+	caminho := escreverToml(t, t.TempDir(), "[ferramentas.claude_code]\ndiretorio = \"C:\\\\no\\\\windows\"\n")
+	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("JAMES_CLAUDE_CODE_DIRETORIO", "/home/arthur/workspace")
+
+	cfg, err := Carregar(caminho)
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.ClaudeCodeDiretorio != "/home/arthur/workspace" {
+		t.Errorf("ClaudeCodeDiretorio = %q, queria o da env", cfg.ClaudeCodeDiretorio)
+	}
+}
+
+func TestCarregarEnvVaziaDoClaudeCodeNaoApagaOToml(t *testing.T) {
+	caminho := escreverToml(t, t.TempDir(), "[ferramentas.claude_code]\ndiretorio = \"/do/toml\"\n")
+	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("JAMES_CLAUDE_CODE_DIRETORIO", "")
+
+	cfg, err := Carregar(caminho)
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.ClaudeCodeDiretorio != "/do/toml" {
+		t.Errorf("ClaudeCodeDiretorio = %q, queria o do toml", cfg.ClaudeCodeDiretorio)
+	}
+}
