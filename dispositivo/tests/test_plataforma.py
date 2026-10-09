@@ -59,3 +59,16 @@ def test_linux_ponte_de_tela_recusa_sem_levantar():
 
 def test_linux_declara_tela_indisponivel():
     assert linux.TELA_DISPONIVEL is False
+
+
+def test_main_importa_sem_puxar_tela_nem_playsound():
+    """main não pode depender de tela/pyautogui/playsound no import: no Linux
+    eles não existem, e o device inteiro (voz inclusa) morria antes do laço."""
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, james_device.main; "
+         "print(sorted(m for m in ('james_device.tela', 'playsound', 'pyautogui') if m in sys.modules))"],
+        cwd=RAIZ_DISPOSITIVO, capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "[]"

@@ -16,16 +16,16 @@ tela continua de pé, e o log diz alto o que caiu.
 
 import logging
 import os
+import sys
 import threading
 
 import speech_recognition as sr
 import vosk
-from playsound import playsound
 
 from james_device.conexao import ConexaoJames
 from james_device import gramatica
 from james_device.escuta import JANELA_PADRAO_SEGUNDOS, PALAVRA_PARADA_PADRAO, escutar
-from james_device.tela import executar_acao
+from james_device.plataforma import atual as plataforma
 from james_device.wake import VARIANTES_PADRAO, quase_acerto, registrar_quase_acerto
 
 logging.basicConfig(level=logging.INFO)
@@ -110,7 +110,7 @@ def tocar_em_paralelo(caminho: str):
     """Toca o som numa thread. Bloquear aqui comeria o começo da janela de
     escuta, que abre imediatamente depois — o preço é o bipe vazar um pouco
     pro áudio gravado, e a transcrição lida bem com isso."""
-    threading.Thread(target=playsound, args=(caminho,), daemon=True).start()
+    threading.Thread(target=plataforma.tocar_som, args=(caminho,), daemon=True).start()
 
 
 def escutar_e_enviar(conexao: ConexaoJames):
@@ -171,7 +171,9 @@ def _thread_de_escuta(conexao: ConexaoJames):
 
 
 def main():
-    conexao = ConexaoJames(URL_JAMESD, manipulador_acao=executar_acao)
+    if not plataforma.TELA_DISPONIVEL:
+        logger.warning("ponte de tela desligada neste sistema (%s); voz segue normal", sys.platform)
+    conexao = ConexaoJames(URL_JAMESD, manipulador_acao=plataforma.ponte_de_tela())
     threading.Thread(target=_thread_de_escuta, args=(conexao,), daemon=True).start()
     # Na thread principal: é a parte que não pode morrer por causa de áudio.
     conexao.executar()
