@@ -26,7 +26,7 @@ func construirComandoSistema(cfg *config.Config) *ferramentas.ComandoSistema {
 // por parâmetro pro teste cobrir os dois lados em qualquer sistema.
 func registrarTerminal(registro ferramentas.Registro, cfg *config.Config, suportado bool) error {
 	if !suportado {
-		slog.Warn("terminal desligado neste sistema: denylist linux ausente")
+		slog.Warn("terminal desligado nesta plataforma: sem denylist própria")
 		return nil
 	}
 	return registro.Registrar(construirComandoSistema(cfg))
