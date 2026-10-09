@@ -171,3 +171,19 @@ def handle_janela_em_foco() -> int:
     mesmo GetForegroundWindow: o retângulo diz ONDE a janela está, o handle
     diz QUEM ela é, e Mapa precisa do handle pra identidade."""
     return int(ctypes.windll.user32.GetForegroundWindow())
+
+
+TELA_DISPONIVEL = True
+
+
+def tocar_som(caminho: str) -> None:
+    from playsound import playsound
+
+    playsound(caminho)
+
+
+def ponte_de_tela():
+    # Import tardio: tela importa pyautogui, que só existe no Windows.
+    from james_device.tela import executar_acao
+
+    return executar_acao
