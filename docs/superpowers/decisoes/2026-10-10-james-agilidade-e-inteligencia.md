@@ -55,3 +55,11 @@
 - **Spike 2:** Whisper turbo na GPU + LLM com streaming + TTS com streaming.
 
 Resultados em `docs/superpowers/spikes/`. A escolha entre A e B sai dos números.
+
+## Resultado dos spikes (2026-10-10)
+
+Detalhes em [`spikes/2026-10-10-latencia-voz.md`](../spikes/2026-10-10-latencia-voz.md).
+
+- **Gemini Live:** 1,44 s de mediana, estável (1,35–1,55).
+- **Pipeline otimizado** (com o Gemini Flash no lugar do Haiku): 2,67 s de mediana, com picos de 4 s causados pelo edge-tts.
+- **Ainda não medidos:** o Claude Haiku 5.5 (falta chave de API) e um TTS local.
