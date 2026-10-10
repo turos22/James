@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { criarAudioAnalisado } from "./audio";
+import { criarAudioAnalisado, tocarAudio } from "./audio";
 
 function contextoFalso() {
   const analisador = { fftSize: 0, connect: vi.fn() };
@@ -47,5 +47,27 @@ describe("criarAudioAnalisado", () => {
     criarAudioAnalisado("/api/audio/x", ctx as unknown as AudioContext);
 
     expect(ctx.resume).toHaveBeenCalled();
+  });
+});
+
+// Medido no WebKitGTK do shell (Fedora, 2026-10-10): sem gesto do usuário,
+// audio.play() rejeita com NotAllowedError e o AudioContext fica suspenso.
+// Um turno por voz não tem clique, então o James respondia em silêncio total
+// e o catch antigo (encerrar) engolia o motivo.
+describe("tocarAudio", () => {
+  it("devolve true quando o play() passa", async () => {
+    const audio = { play: vi.fn().mockResolvedValue(undefined) };
+
+    expect(await tocarAudio(audio as unknown as HTMLAudioElement)).toBe(true);
+  });
+
+  it("devolve false e avisa no console quando o navegador bloqueia", async () => {
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bloqueio = new DOMException("não permitido", "NotAllowedError");
+    const audio = { play: vi.fn().mockRejectedValue(bloqueio) };
+
+    expect(await tocarAudio(audio as unknown as HTMLAudioElement)).toBe(false);
+    expect(aviso).toHaveBeenCalled();
+    aviso.mockRestore();
   });
 });

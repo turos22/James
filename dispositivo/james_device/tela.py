@@ -11,11 +11,12 @@ Nunca levanta: erro vira valor de retorno e o jamesd decide o que fazer
 import base64
 import logging
 
-# Import de superficies ANTES de pyautogui é proposital: superficies ativa
+# Import de plataforma.windows ANTES de pyautogui é proposital: ele ativa
 # DPI awareness per-monitor como efeito colateral do import, e isso só
 # funciona se rodar antes do pyautogui setar seu próprio awareness (mais
 # fraco) primeiro. Inverter esta ordem faz voltar o bug de coordenada
 # deslocada em tela escalada que a Task 1 existe para prevenir.
+from james_device.plataforma import windows as _windows  # noqa: F401 — efeito de import: DPI awareness antes do pyautogui
 from james_device import superficies
 import pyautogui
 
@@ -157,17 +158,8 @@ def _descrever_ponto(x: int, y: int) -> str | None:
 def _handle_janela_em_foco() -> int:
     """Handle bruto (HWND) da janela em foco, como número — é a chave de
     identidade que Mapa.valido_para usa pra saber se a janela trocou desde a
-    última varredura.
-
-    Duplica a chamada a GetForegroundWindow que superficies.py já faz dentro
-    de retangulo_da_janela_em_foco(): aquela função devolve o retângulo da
-    janela (o que _resolver_superficie precisa), não o handle (o que Mapa
-    precisa pra identidade). superficies.py não expõe o handle cru hoje, e
-    não está no escopo de arquivos desta task — duplicar duas linhas de
-    ctypes aqui é o custo aceito em vez de mexer lá."""
-    import ctypes
-
-    return int(ctypes.windll.user32.GetForegroundWindow())
+    última varredura. Mora em plataforma/windows.py, junto com o retângulo."""
+    return _windows.handle_janela_em_foco()
 
 
 def _listar_elementos(superficie: superficies.Superficie) -> str:

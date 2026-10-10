@@ -60,3 +60,8 @@ arquivos do Gui/
 # Log de calibração de quase-acertos da wake word (Fase 5, D10) —
 # transcrição do que o Arthur falou, dado pessoal, não pertence ao repo.
 dispositivo/wake_candidatos.log
+
+# Logs e binario do executar.sh
+.executar/
+# venv do device no Linux
+dispositivo/.venv/

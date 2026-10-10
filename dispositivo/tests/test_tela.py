@@ -1,3 +1,13 @@
+import sys
+
+import pytest
+
+if sys.platform != "win32":
+    # tela.py é Windows (pyautogui + UI Automation). No Linux, controle de
+    # tela é a fatia B2. Skip visível, não sumiço: o relatório mostra que
+    # estes testes existem e não rodaram.
+    pytest.skip("controle de tela só no Windows até a fatia B2", allow_module_level=True)
+
 import base64
 
 import james_device.tela as tela

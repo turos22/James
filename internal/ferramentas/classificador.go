@@ -122,38 +122,75 @@ var caminhosSensiveis = []string{
 // de se esconder colado num delimitador (`echo $(Remove-Item x)`).
 const separadores = " \t\r\n;|&()[]{}<>,=\"'"
 
-// ComandoPrecisaConfirmacao devolve true quando o comando precisa de
-// confirmação humana antes de executar. Fail closed: comando vazio, ilegível
-// ou ofuscado devolve true.
-func ComandoPrecisaConfirmacao(comando string) bool {
+// denylist é a política de uma plataforma: as mesmas quatro listas, com o
+// mesmo núcleo de decisão. Separar núcleo de tabela é o que deixa as duas
+// denylists (PowerShell e bash) compilarem e serem testadas em qualquer
+// sistema — uma denylist testada só na própria plataforma apodrece sem
+// ninguém ver.
+type denylist struct {
+	verbos      map[string]bool
+	prefixos    []string
+	ofuscacao   []string
+	caminhos    []string
+	separadores string
+
+	// porBasename compara o verbo pelo último segmento do caminho. No bash,
+	// /usr/bin/rm é o rm; sem isso o TrimLeft abaixo deixa "usr/bin/rm" e o
+	// verbo passa livre. No PowerShell fica desligado, preservando a
+	// política de 2026-08-11 exatamente como era.
+	porBasename bool
+}
+
+var denylistPowerShell = denylist{
+	verbos:      verbosDestrutivos,
+	prefixos:    prefixosDestrutivos,
+	ofuscacao:   marcasDeOfuscacao,
+	caminhos:    caminhosSensiveis,
+	separadores: separadores,
+}
+
+// ComandoPowerShellPrecisaConfirmacao devolve true quando o comando
+// PowerShell precisa de confirmação humana antes de executar. Fail closed:
+// comando vazio, ilegível ou ofuscado devolve true.
+func ComandoPowerShellPrecisaConfirmacao(comando string) bool {
+	return denylistPowerShell.precisaConfirmacao(comando)
+}
+
+func (d denylist) precisaConfirmacao(comando string) bool {
 	c := strings.TrimSpace(comando)
 	if c == "" {
 		return true
 	}
 
 	minusculo := strings.ToLower(c)
-	for _, marca := range marcasDeOfuscacao {
+	for _, marca := range d.ofuscacao {
 		if strings.Contains(minusculo, marca) {
 			return true
 		}
 	}
-	for _, caminho := range caminhosSensiveis {
+	for _, caminho := range d.caminhos {
 		if strings.Contains(minusculo, caminho) {
 			return true
 		}
 	}
 
+	ehSeparador := func(r rune) bool { return strings.ContainsRune(d.separadores, r) }
 	for _, token := range strings.FieldsFunc(minusculo, ehSeparador) {
 		// `&Remove-Item` e caminhos como `.\remove-tudo.ps1` chegam aqui com
 		// enfeite na frente; o que interessa é o nome do comando.
 		token = strings.TrimLeft(token, "&.\\/-")
+		if d.porBasename {
+			if i := strings.LastIndex(token, "/"); i >= 0 {
+				token = token[i+1:]
+			}
+		}
 		if token == "" {
 			continue
 		}
-		if verbosDestrutivos[token] {
+		if d.verbos[token] {
 			return true
 		}
-		for _, prefixo := range prefixosDestrutivos {
+		for _, prefixo := range d.prefixos {
 			if strings.HasPrefix(token, prefixo) && len(token) > len(prefixo) {
 				return true
 			}
@@ -161,8 +198,4 @@ func ComandoPrecisaConfirmacao(comando string) bool {
 	}
 
 	return false
-}
-
-func ehSeparador(r rune) bool {
-	return strings.ContainsRune(separadores, r)
 }

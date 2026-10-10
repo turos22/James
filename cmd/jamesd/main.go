@@ -71,7 +71,7 @@ func executar() error {
 	}
 
 	registro := ferramentas.NovoRegistro()
-	if err := registro.Registrar(construirComandoSistema(cfg)); err != nil {
+	if err := registrarTerminal(registro, cfg, ferramentas.TerminalSuportado); err != nil {
 		return fmt.Errorf("registrar executar_comando_sistema: %w", err)
 	}
 	if err := registro.Registrar(construirClaudeCode(cfg)); err != nil {

@@ -5,7 +5,7 @@ import { AbaJames } from "./abas/james";
 import { AbaMensagens } from "./abas/mensagens";
 import { Memoria } from "./abas/memoria";
 import { estadoInicial, reduzir } from "./estado/turno";
-import { criarAudioAnalisado, despertarAudio } from "./lib/audio";
+import { criarAudioAnalisado, despertarAudio, tocarAudio } from "./lib/audio";
 import { guardarSessao, limparSessao, sessaoGuardada } from "./lib/sessao";
 import { ClienteWS, type EstadoConexao } from "./lib/ws";
 import { Aplicativo } from "./shell/aplicativo";
@@ -20,6 +20,7 @@ export default function App() {
   const [tentativa, setTentativa] = useState(0);
   const [saidaVerTela, setSaidaVerTela] = useState<string | null>(null);
   const [analisador, setAnalisador] = useState<AnalyserNode | null>(null);
+  const [vozBloqueada, setVozBloqueada] = useState(false);
   const [estado, despachar] = useReducer(reduzir, estadoInicial);
   const clienteRef = useRef<ClienteWS | null>(null);
   // Espelho de estado.sessaoAtual só para leitura dentro do efeito de
@@ -109,9 +110,14 @@ export default function App() {
         excluirAudio();
       };
       audio.addEventListener("ended", encerrar);
-      // Autoplay pode ser bloqueado sem gesto recente do usuário — se falhar,
-      // o áudio só não toca, mas o arquivo ainda precisa sair do disco.
-      audio.play().catch(encerrar);
+      // Autoplay pode ser bloqueado sem gesto recente do usuário (medido no
+      // WebKitGTK do shell no Fedora). Se falhar, o arquivo ainda precisa sair
+      // do disco, e a tela precisa dizer por que o James ficou mudo.
+      void tocarAudio(audio).then((tocou) => {
+        if (tocou) return;
+        setVozBloqueada(true);
+        encerrar();
+      });
     });
 
     return () => cliente.fechar();
@@ -141,7 +147,18 @@ export default function App() {
   };
 
   return (
-    <div className="contents" onClick={despertarAudio}>
+    <div
+      className="contents"
+      onClick={() => {
+        despertarAudio();
+        setVozBloqueada(false);
+      }}
+    >
+      {vozBloqueada && (
+        <div role="alert" className="fixed inset-x-0 top-0 z-50 bg-amber-500 px-4 py-2 text-center text-sm text-black">
+          O navegador bloqueou a voz do James. Clique em qualquer lugar da janela para liberar.
+        </div>
+      )}
       <Aplicativo
         aprovacoesPendentes={estado.aprovacao ? 1 : 0}
         paineis={{

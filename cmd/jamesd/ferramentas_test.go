@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"james/internal/config"
+	"james/internal/ferramentas"
 )
 
 // TestConstruirComandoSistemaAplicaConfig é o teste que a Task 8 deixou sem
@@ -74,5 +75,25 @@ func TestConstruirClaudeCodeAplicaConfig(t *testing.T) {
 	}
 	if c.Timeout != 120*time.Second {
 		t.Errorf("Timeout = %s, queria %s", c.Timeout, 120*time.Second)
+	}
+}
+
+func TestRegistrarTerminalNaoRegistraQuandoNaoSuportado(t *testing.T) {
+	registro := ferramentas.NovoRegistro()
+	if err := registrarTerminal(registro, &config.Config{}, false); err != nil {
+		t.Fatalf("registrarTerminal devolveu erro: %v", err)
+	}
+	if _, ok := registro.Buscar("executar_comando_sistema"); ok {
+		t.Error("terminal registrado numa plataforma sem suporte")
+	}
+}
+
+func TestRegistrarTerminalRegistraQuandoSuportado(t *testing.T) {
+	registro := ferramentas.NovoRegistro()
+	if err := registrarTerminal(registro, &config.Config{}, true); err != nil {
+		t.Fatalf("registrarTerminal devolveu erro: %v", err)
+	}
+	if _, ok := registro.Buscar("executar_comando_sistema"); !ok {
+		t.Error("terminal não registrado numa plataforma com suporte")
 	}
 }

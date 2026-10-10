@@ -2,7 +2,7 @@ package ferramentas
 
 import "testing"
 
-// TestComandoPrecisaConfirmacao fixa a política nova: o James roda livre, e a
+// TestComandoPowerShellPrecisaConfirmacao fixa a política nova: o James roda livre, e a
 // confirmação humana fica reservada ao que destrói, ao que abre a máquina e
 // ao que executa código de procedência desconhecida.
 //
@@ -10,7 +10,7 @@ import "testing"
 // aprovação — e na prática pedia o tempo todo: `Get-Process | Where-Object
 // { ... }` já reprovava só por conter `{`. A troca é deliberada e foi pedida
 // pelo Arthur.
-func TestComandoPrecisaConfirmacao(t *testing.T) {
+func TestComandoPowerShellPrecisaConfirmacao(t *testing.T) {
 	casos := []struct {
 		nome    string
 		comando string
@@ -81,8 +81,8 @@ func TestComandoPrecisaConfirmacao(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.nome, func(t *testing.T) {
-			if got := ComandoPrecisaConfirmacao(c.comando); got != c.querido {
-				t.Errorf("ComandoPrecisaConfirmacao(%q) = %v, queria %v", c.comando, got, c.querido)
+			if got := ComandoPowerShellPrecisaConfirmacao(c.comando); got != c.querido {
+				t.Errorf("ComandoPowerShellPrecisaConfirmacao(%q) = %v, queria %v", c.comando, got, c.querido)
 			}
 		})
 	}
@@ -118,7 +118,7 @@ func TestAliasesResolvemParaAMesmaDecisaoQueONomeCompleto(t *testing.T) {
 	}
 	for alias, completo := range destrutivos {
 		t.Run(alias, func(t *testing.T) {
-			if !ComandoPrecisaConfirmacao(alias + " alvo") {
+			if !ComandoPowerShellPrecisaConfirmacao(alias + " alvo") {
 				t.Errorf("%q (alias de %s) passou livre; o nome completo é destrutivo", alias, completo)
 			}
 		})
@@ -138,7 +138,7 @@ func TestAliasesResolvemParaAMesmaDecisaoQueONomeCompleto(t *testing.T) {
 	}
 	for alias, completo := range inofensivos {
 		t.Run("livre/"+alias, func(t *testing.T) {
-			if ComandoPrecisaConfirmacao(alias + " alvo.txt") {
+			if ComandoPowerShellPrecisaConfirmacao(alias + " alvo.txt") {
 				t.Errorf("%q (alias de %s) exigiu confirmação; escrita e leitura comuns têm que passar", alias, completo)
 			}
 		})
@@ -164,8 +164,8 @@ func TestEscritaNoRegistroPedeConfirmacao(t *testing.T) {
 
 	for _, c := range casos {
 		t.Run(c.nome, func(t *testing.T) {
-			if got := ComandoPrecisaConfirmacao(c.comando); got != c.querido {
-				t.Errorf("ComandoPrecisaConfirmacao(%q) = %v, queria %v", c.comando, got, c.querido)
+			if got := ComandoPowerShellPrecisaConfirmacao(c.comando); got != c.querido {
+				t.Errorf("ComandoPowerShellPrecisaConfirmacao(%q) = %v, queria %v", c.comando, got, c.querido)
 			}
 		})
 	}
