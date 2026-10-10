@@ -119,11 +119,13 @@ abrir_no_navegador() {
 # o AudioContext fica suspenso), e o Wails 2.11 não expõe essa configuração.
 # Num turno por voz ninguém clica na janela, então o James responderia mudo.
 # O Chrome com --autoplay-policy=no-user-gesture-required toca (medido). Perfil
-# próprio em $LOGS, pra flag não afetar o seu Chrome de uso diário.
+# próprio em $LOGS, pra flag não afetar o seu Chrome de uso diário. O stderr
+# vai pra $LOGS/chrome.log: o Chrome despeja ruído (registro GCM, TensorFlow
+# Lite, libwayland no desligamento) que não é do James e afoga o terminal.
 abrir_chrome() {
     google-chrome --user-data-dir="$LOGS/chrome-perfil" --no-first-run \
         --no-default-browser-check --autoplay-policy=no-user-gesture-required \
-        --app=http://127.0.0.1:8080/
+        --app=http://127.0.0.1:8080/ 2>"$LOGS/chrome.log"
 }
 
 # Wails: compila com go build e não com o CLI do wails (o CLI v2.11.0 quebra
