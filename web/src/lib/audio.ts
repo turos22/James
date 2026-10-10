@@ -50,3 +50,16 @@ export function criarAudioAnalisado(url: string, ctx: AudioContext = contextoDeA
 
   return { audio, analisador };
 }
+
+// tocarAudio toca e diz se tocou. Existe porque o autoplay é bloqueado
+// quando não houve gesto do usuário (turno por voz): o play() rejeita, e um
+// catch mudo faz o James parecer quebrado em vez de bloqueado.
+export async function tocarAudio(audio: HTMLAudioElement): Promise<boolean> {
+  try {
+    await audio.play();
+    return true;
+  } catch (erro) {
+    console.warn("o navegador bloqueou o áudio da resposta; clique na janela para liberar:", erro);
+    return false;
+  }
+}
