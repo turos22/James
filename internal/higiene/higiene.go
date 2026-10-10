@@ -48,6 +48,7 @@ var diretoriosIgnorados = map[string]bool{
 	".git":         true,
 	"node_modules": true,
 	".venv":        true, // venv do device Python (dispositivo/.venv), fora do git
+	".executar":    true, // logs, binarios e perfil do Chrome do executar.sh, fora do git
 	"TTs":          true,
 	"vosk":         true,
 	"dist":         true,
