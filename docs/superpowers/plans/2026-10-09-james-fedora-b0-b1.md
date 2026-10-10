@@ -1577,7 +1577,7 @@ Sem código novo. Cada CA com a prova colada no relato. O que falhar vira task d
 - [ ] **CA8:** com o `executar.sh` de pé: "James" → som de entrada → "que horas são" → som de fechamento → resposta falada. Trecho de `.executar/device.log` com `comando entendido`.
 - [ ] **CA9:** "James, clica no botão iniciar". O James diz que a tela está indisponível, e `.executar/device.log` continua recebendo comandos depois disso.
 - [ ] **`pw-play` com MP3** (spec §9): `pw-play dispositivo/assets/entrada.mp3; echo $?` toca e devolve `0`.
-- [ ] **CA3 (Arthur, no Windows):** `go test ./...`, `pytest` do device, `executar.bat` subindo e um clique por voz numa tela escalada (o risco da Task 10).
+- [~] **CA3 (Arthur, no Windows):** *fora do portão a pedido do Arthur em 2026-10-10 (Windows de lado por ora). Continua sendo o único jeito de provar que a Task 10 não quebrou o DPI no Windows; fica como dívida registrada, não como bloqueio do merge.* Original: `go test ./...`, `pytest` do device, `executar.bat` subindo e um clique por voz numa tela escalada (o risco da Task 10).
 - [ ] Atualizar a memória do projeto e o HANDOFF com o estado e com o que ficou para B2 e Parte A.
 
 ---
@@ -1618,4 +1618,25 @@ Verificação ao vivo no Fedora (CA6, CA5, CA9 parcial):
 
 **B-d respondida:** `go build -tags desktop,production,webkit2_41 ./shell` compila e o binário sobe sem crash. O CLI `wails` (v2.11.0) falha com `internal error: package "context" without types` com Go 1.27.1, mesmo com os `-devel` instalados. É incompatibilidade do CLI, não do webkit.
 
-Pendente: CA3 (Windows), CA8 (voz ponta a ponta, precisa da voz do Arthur) e a decisão da Task 14 (como o `executar.sh` deve subir o shell nativo).
+Pendente: CA8 (voz ponta a ponta). CA3 saiu do portão (2026-10-10). A Task 14 foi feita; a Task 15 abaixo nasceu do CA8.
+
+---
+
+## Task 15: o James responde mudo no Linux (achado no CA8, 2026-10-10)
+
+**Sintoma:** voz entendida (`comando entendido`), resposta no Postgres, e nenhum som. Medido, não deduzido:
+
+1. O backend está certo: o turno por voz emite `audio_pronto` para a SPA (`internal/api/dispositivo.go`) e o `.mp3` é gerado. GStreamer tem os decodificadores de MP3.
+2. No Chromium do painel de automação o `play()` sem gesto **passou**. Esse motor não representa o shell, então o resultado não vale para o Wails.
+3. No **WebKitGTK real do shell** (binário de diagnóstico com uma página de teste): `new Audio().play()` sem gesto rejeitou com `NotAllowedError`, e o `AudioContext` ficou `suspended` (o `resume()` nem retornou).
+4. Em turno por voz ninguém clica na janela, e o `.catch(encerrar)` de `App.tsx` engolia o erro. Daí o silêncio total.
+5. O Wails 2.11 não expõe a configuração de autoplay do WebKit (`grep` no código dele: só aceleração de GPU e devtools).
+6. O Google Chrome (instalado), aberto com `--autoplay-policy=no-user-gesture-required`, tocou sem gesto: `A play() OK`, `A ended`, `ctx.state=running`.
+
+**Feito:**
+- [x] `tocarAudio` em `web/src/lib/audio.ts` (teste primeiro: vermelho, depois verde) devolve se tocou e avisa no console. `App.tsx` mostra uma faixa "O navegador bloqueou a voz do James. Clique em qualquer lugar da janela para liberar." e a esconde no clique. Suíte do front: 117 passam; `tsc` limpo. **A faixa em si não tem teste automatizado** (só a função).
+- [x] `executar.sh` abre o James numa janela do Chrome em modo app, com a flag e perfil próprio em `.executar/chrome-perfil`, quando o Chrome existe. `JAMES_SHELL=wails|chrome|navegador` força uma opção. O shell Wails continua disponível, mas mudo em voz enquanto ninguém clicar.
+
+**Não verificado ainda (precisa da pilha reiniciada):** voz ponta a ponta com a janela do Chrome. O orbe (analisador) no Chrome também não foi medido: na página de teste a leitura veio zerada, possivelmente por ter sido tirada depois do fim do clipe.
+
+**Dívida:** voltar ao shell Wails com som exigiria um patch no Wails ou tocar a resposta fora da WebView (device com `pw-play`, o que tira a animação do orbe).
