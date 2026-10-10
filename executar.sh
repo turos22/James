@@ -111,26 +111,44 @@ abrir_no_navegador() {
     wait "$PID_JAMESD"
 }
 
-# O shell Wails é opcional: se faltar o webkit, se a compilação falhar ou se
-# ele cair, o backend NÃO pode cair junto. Cai no navegador.
+# Qual janela abrir. JAMES_SHELL=chrome|wails|navegador força uma; sem ele,
+# a ordem é chrome, wails, navegador.
 #
-# Compila com go build e não com o CLI do wails: o CLI v2.11.0 quebra com
-# Go 1.27 ("package context without types"), enquanto o go build com as tags
-# abaixo funciona. O shell é só uma janela que abre http://127.0.0.1:8080
-# (ver shell/frontend/index.html); o dev server do wails não faz falta.
-if pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
-    if go build -tags desktop,production,webkit2_41 -o "$LOGS/shell" ./shell; then
-        # cwd em shell/ de proposito, como no .bat (pushd shell). Janela
-        # fechada = saida limpa = o script termina e o trap derruba o resto.
-        if ! (cd shell && "../$LOGS/shell"); then
-            echo "  o shell nativo caiu; seguindo no navegador."
-            abrir_no_navegador
-        fi
-    else
-        echo "  a compilacao do shell falhou; seguindo sem o shell nativo."
-        abrir_no_navegador
-    fi
-else
-    echo "  shell nativo indisponivel (webkit2gtk4.1-devel ausente)."
-    abrir_no_navegador
+# Por que o Chrome vem primeiro: o WebKitGTK do shell Wails bloqueia o
+# autoplay sem gesto do usuário (medido: play() rejeita com NotAllowedError e
+# o AudioContext fica suspenso), e o Wails 2.11 não expõe essa configuração.
+# Num turno por voz ninguém clica na janela, então o James responderia mudo.
+# O Chrome com --autoplay-policy=no-user-gesture-required toca (medido). Perfil
+# próprio em $LOGS, pra flag não afetar o seu Chrome de uso diário.
+abrir_chrome() {
+    google-chrome --user-data-dir="$LOGS/chrome-perfil" --no-first-run \
+        --no-default-browser-check --autoplay-policy=no-user-gesture-required \
+        --app=http://127.0.0.1:8080/
+}
+
+# Wails: compila com go build e não com o CLI do wails (o CLI v2.11.0 quebra
+# com Go 1.27, "package context without types"; o go build com as tags abaixo
+# funciona). O shell é só uma janela que abre http://127.0.0.1:8080 (ver
+# shell/frontend/index.html).
+abrir_wails() {
+    pkg-config --exists webkit2gtk-4.1 2>/dev/null || return 1
+    go build -tags desktop,production,webkit2_41 -o "$LOGS/shell" ./shell || return 1
+    # cwd em shell/ de proposito, como no .bat (pushd shell).
+    (cd shell && "../$LOGS/shell")
+}
+
+escolha="${JAMES_SHELL:-}"
+if [ -z "$escolha" ]; then
+    if command -v google-chrome >/dev/null 2>&1; then escolha=chrome
+    elif pkg-config --exists webkit2gtk-4.1 2>/dev/null; then escolha=wails
+    else escolha=navegador; fi
 fi
+echo "  janela: $escolha"
+
+# Janela fechada = saida limpa = o script termina e o trap derruba o resto.
+# Se a janela caiu com erro, o navegador e o plano B (e o backend segue).
+case "$escolha" in
+    chrome) abrir_chrome || { echo "  o Chrome caiu; seguindo no navegador."; abrir_no_navegador; } ;;
+    wails)  abrir_wails  || { echo "  o shell nativo caiu; seguindo no navegador."; abrir_no_navegador; } ;;
+    *)      abrir_no_navegador ;;
+esac
