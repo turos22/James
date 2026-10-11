@@ -72,3 +72,28 @@ ffmpeg -i pergunta.mp3 -ar 16000 -ac 1 -f s16le pergunta.raw && ffmpeg -f s16le 
 - STT com **a voz do Arthur**, ruído e distância: falta o corpus.
 - O custo real do Live por conversa: os números do plano são estimativa por minuto.
 - A latência de um TTS local (Piper ou outro).
+
+## Spike 1b: custo medido do Gemini Live (`spike1b_custo.py`)
+
+- **Montagem:** uma sessão com o `prompts/sistema.md` real do James como instrução de sistema e dois turnos (a pergunta e "E qual é a moeda de lá?").
+- **Envio:** silêncio só até a resposta começar; depois o envio para.
+- **Fonte dos números:** o `usage_metadata` que o servidor devolve:
+
+| Turno | Texto entrada | Áudio entrada | Áudio saída | Pensamento | US$ (preço oficial) |
+|---|---|---|---|---|---|
+| 1 | 1278 | 334 | 168 | 244 | 0,0051 |
+| 2 | 1308 | **543** | 77 | 49 | 0,0038 |
+
+- **O histórico é cobrado de novo a cada turno:** o áudio de entrada do turno 2 (543) inclui os 334 do turno 1. Sessão longa fica mais cara por turno.
+- **O modelo "pensa" por padrão** e cobra por isso. Assumi o preço de saída de texto (US$ 4,50/M) para o pensamento. A US$ 12/M, o turno 1 sai US$ 0,0069.
+- **Faltam no número:** a declaração das ferramentas, a memória e o resumo, que o James manda e este teste não mandou. Por isso uso US$ 0,006 por turno como estimativa realista.
+
+**Comparação mensal** (US$ 1 = R$ 5, antes de IOF):
+
+| Perguntas/dia | Live (US$ 0,005/turno) | Live (US$ 0,006) | Pipeline com Haiku 5.5 (US$ 0,001, estimado) |
+|---|---|---|---|
+| 20 | R$ 15 | R$ 18 | R$ 3 |
+| 40 | R$ 30 | R$ 36 | R$ 6 |
+| 100 | R$ 75 | R$ 90 | R$ 16 |
+
+O pipeline sai cerca de 5x mais barato por turno. O STT local e o edge-tts não custam nada; o custo é só o LLM. O preço do Haiku é o oficial, mas o volume de tokens é estimado (9k de entrada e 300 de saída por turno), não medido.
