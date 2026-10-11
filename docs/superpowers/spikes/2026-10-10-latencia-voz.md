@@ -97,3 +97,26 @@ ffmpeg -i pergunta.mp3 -ar 16000 -ac 1 -f s16le pergunta.raw && ffmpeg -f s16le 
 | 100 | R$ 75 | R$ 90 | R$ 16 |
 
 O pipeline sai cerca de 5x mais barato por turno. O STT local e o edge-tts não custam nada; o custo é só o LLM. O preço do Haiku é o oficial, mas o volume de tokens é estimado (9k de entrada e 300 de saída por turno), não medido.
+
+## Spike 3: TTS local com Piper (`spike3_piper.py`)
+
+- **Voz:** `pt_BR-faber-medium.onnx` (63,2 MB, `rhasspy/piper-voices` no Hugging Face, sha256 começa com `858555e3a064209c`).
+- **Runtime:** `piper-tts` 1.8.0 com onnxruntime na CPU.
+- **Carga da voz:** 0,70 s, uma vez só, no boot.
+- **Primeiro áudio** (frase inteira, 5 frases × 2): mediana **0,05 s**, faixa 0,025–0,116 s.
+- **RTF mediano:** 0,017. Gera 1 s de fala em cerca de 17 ms.
+- **Pipeline encadeado real com Piper** (10 rodadas; STT `-ac 512` → Gemini 2.5 Flash até a 1ª frase → Piper 1º áudio):
+
+| Variante | Mediana | Faixa |
+|---|---|---|
+| STT só depois da espera W | 1,71 s | 1,62–1,81 |
+| STT começando no primeiro silêncio | **1,53 s** | **1,44–1,63** |
+
+- **Comparação:** no mesmo método, o Gemini Live deu 1,44 s (1,35–1,55). **O pipeline com Piper empata com o Live na prática** e fica estável.
+- **Como se divide o 1,53 s:** espera de silêncio W = 0,70 (parâmetro), LLM ~0,8, Piper ~0,03. O STT (0,17 s) cabe dentro de W.
+
+**Variação sem explicação no STT.** Neste spike, o STT `-ac 512` mediu **0,17 s** (0,16–0,19). Conferi com o texto impresso, via Python e via `curl`, com um e com dois servidores carregados: sempre correto e sempre 0,17 s. No Spike 2, a mesma configuração tinha medido 1,07 s. A hipótese dos dois servidores carregados foi testada e descartada; a causa segue desconhecida. A instrumentação do pipeline real precisa medir isso continuamente.
+
+**O que falta decidir:** a voz. O Piper é ~25x mais rápido no primeiro áudio e não depende da rede, mas a voz é outra. As amostras para comparar de ouvido estão em `.executar/comparar-voz/` (fora do git): `comparar_N_piper.wav` e `comparar_N_edge.mp3`, com as mesmas 5 frases.
+
+**Ainda não medido:** o Claude Haiku 5.5 no lugar do Gemini Flash.

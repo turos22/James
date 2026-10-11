@@ -63,3 +63,12 @@ Detalhes em [`spikes/2026-10-10-latencia-voz.md`](../spikes/2026-10-10-latencia-
 - **Gemini Live:** 1,44 s de mediana, estável (1,35–1,55).
 - **Pipeline otimizado** (com o Gemini Flash no lugar do Haiku): 2,67 s de mediana, com picos de 4 s causados pelo edge-tts.
 - **Ainda não medidos:** o Claude Haiku 5.5 (falta chave de API) e um TTS local.
+
+## Decisão: pipeline (2026-10-10)
+
+O Arthur **fechou com o pipeline (caminho A)**. O Live sai cerca de 5x mais caro por turno (medido no Spike 1b) e estoura o teto com uso moderado. O Arthur aceita 2 s de latência.
+
+- **Spike 3** (Piper local no lugar do edge-tts): o pipeline encadeado mediu **1,53 s** (1,44–1,63), na prática empatado com o Live (1,44 s).
+- **Pendente:**
+  - a escolha da voz (Piper ou edge-tts), de ouvido, com as amostras em `.executar/comparar-voz/`;
+  - medir o Claude Haiku 5.5, que depende de uma chave de API da Anthropic.
