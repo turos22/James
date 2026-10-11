@@ -2,7 +2,7 @@
 
 **Data:** 2026-10-10
 **Autor:** Arthur Orosco (design colaborativo)
-**Estado:** rascunho com as decisões do Arthur incorporadas (2026-10-11, §10); aguardando a leitura final dele antes do plano
+**Estado:** aprovado pelo Arthur em 2026-10-11
 **Projeto:** `/home/arthurorosco/SI/Projetos/Athena(Go)/meu-app-ts`
 **Base:** [`decisoes/2026-10-10-james-agilidade-e-inteligencia.md`](../decisoes/2026-10-10-james-agilidade-e-inteligencia.md) (as decisões do Arthur) e [`spikes/2026-10-10-latencia-voz.md`](../spikes/2026-10-10-latencia-voz.md) (as medições).
 
