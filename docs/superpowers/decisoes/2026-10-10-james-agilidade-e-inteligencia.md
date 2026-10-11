@@ -72,3 +72,11 @@ O Arthur **fechou com o pipeline (caminho A)**. O Live sai cerca de 5x mais caro
 - **Pendente:**
   - a escolha da voz (Piper ou edge-tts), de ouvido, com as amostras em `.executar/comparar-voz/`;
   - medir o Claude Haiku 5.5, que depende de uma chave de API da Anthropic.
+
+## Fechamento do brainstorming de latência (2026-10-10)
+
+- **Voz:** Piper `pt_BR-faber-medium`, local. Escolha do Arthur ("a gente se acostuma").
+- **LLM rápido:** Claude Haiku 5.5. **Sem pensamento no caminho de voz** (0,72–0,82 s até a 1ª frase); com pensamento, 1,5–2 s.
+- **Pipeline medido:** 1,44 s (1,38–1,53) do fim da fala ao primeiro som. Igual ao Gemini Live.
+- **Risco aberto para a spec:** uso de ferramentas com o pensamento desligado não foi testado.
+- **Chave da Anthropic:** variável `CLAUDE_API_KEY` no `.env`.

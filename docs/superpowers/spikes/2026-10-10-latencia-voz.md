@@ -120,3 +120,33 @@ O pipeline sai cerca de 5x mais barato por turno. O STT local e o edge-tts não 
 **O que falta decidir:** a voz. O Piper é ~25x mais rápido no primeiro áudio e não depende da rede, mas a voz é outra. As amostras para comparar de ouvido estão em `.executar/comparar-voz/` (fora do git): `comparar_N_piper.wav` e `comparar_N_edge.mp3`, com as mesmas 5 frases.
 
 **Ainda não medido:** o Claude Haiku 5.5 no lugar do Gemini Flash.
+
+## Spike 4: Claude Haiku 5.5 (`spike4_haiku.py`)
+
+- **Chave:** `CLAUDE_API_KEY` no `.env`; o script lê sem imprimir.
+- **Modelo:** `claude-haiku-5-5`, `anthropic` 1.13.0, streaming. 10 rodadas por linha.
+- **Achado:** o Haiku 5.5 **pensa por padrão** (pensamento adaptativo, `effort` padrão `medium`).
+  - Na primeira tentativa, com `max_tokens=300` e o `sistema.md` real, o pensamento comeu o limite e a resposta saiu cortada (`stop_reason=max_tokens`).
+  - Parâmetros conferidos na referência da API: `thinking={"type": "disabled"}` (aceito com effort até `high`) e `output_config={"effort": "low"}`.
+
+| Variante | 1ª frase, prompt curto | 1ª frase, `sistema.md` real | Pensamento (mediana) | Respostas com "13 h" |
+|---|---|---|---|---|
+| Padrão (adaptativo, medium) | 1,54 s | 1,98 s | 141 / 282 tok | 10/10 · 10/10 |
+| Adaptativo, `effort` low | 1,12 s | 1,79 s | 0 / 199 tok | 10/10 · 10/10 |
+| **Pensamento desligado** | **0,72 s** | **0,82 s** | 0 | **6/10** · 10/10 |
+
+**Pipeline encadeado real** (STT `-ac 512` → Haiku sem pensamento até a 1ª frase → Piper): mediana **1,44 s**, faixa 1,38–1,53 s. É a mesma mediana do Gemini Live (1,44 s), agora com Claude, voz local e STT local.
+
+**Ressalvas:**
+- O critério "13 h" é grosseiro: é só uma frase, com n=10.
+- Sem pensamento, com o prompt curto, 4 de 10 respostas erraram ou ficaram vagas ("12 a 14 horas"). Com o prompt real, 10/10.
+- **Uso de ferramentas sem pensamento não foi testado.** A documentação registra, em outro modelo (Opus 5), chamada de ferramenta escrita como texto quando o pensamento está desligado. Para o James, que vive de ferramentas, isso é risco a testar na spec.
+
+## Conclusão dos spikes
+
+| | Latência medida | Custo/mês (40 perguntas/dia) | Inteligência | Voz do Arthur |
+|---|---|---|---|---|
+| Gemini Live | 1,44 s | R$ 30–36 (medido) | Gemini | Google |
+| **Pipeline: Whisper turbo GPU + Haiku 5.5 sem pensamento + Piper** | **1,44 s** | ≈ R$ 6 (estimado) | Claude | Local |
+
+Decisão (Arthur, 2026-10-10): pipeline, com a voz do Piper.
