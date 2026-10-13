@@ -145,12 +145,13 @@ Não é código, então não há TDD. A prova são os comandos de verificação.
 
   Ajustar os testes atuais que zeram só a `GEMINI_API_KEY` para também definir `CLAUDE_API_KEY`.
 - [ ] **Rodar e ver falhar** (campos inexistentes).
+- [ ] **Teste extra (segurança):** `tts_url` só aceita loopback (127.0.0.1, localhost, ::1). O servidor de TTS não tem autenticação e recebe o texto das respostas.
 - [ ] **Implementar:**
   - campos `Provedor`, `ClaudeAPIKey`, `MotorVoz`, `TTSURL`;
   - toml `[agente] provedor`, `[voz] motor`, `tts_url`;
   - validação por provedor;
   - a regra do `flash-lite` vale só para `gemini`.
-  - No `config.toml`: `provedor = "anthropic"`, `modelo = "claude-haiku-5-5"`, `[voz] motor = "piper"`. A `voz_tts` fica, comentada como "só para motor = edge".
+  - **No `config.toml` desta task, ficam `provedor = "gemini"` e `[voz] motor = "edge"`, explícitos**, porque o `main.go` só aprende a construir o provedor Anthropic na Task 6 e o Piper na Task 9. Cada commit precisa continuar subindo (conferido subindo o jamesd). A Task 6 troca para `provedor = "anthropic"` e `modelo = "claude-haiku-5-5"`; a Task 9 troca para `motor = "piper"`. A `voz_tts` fica, comentada como "só para motor = edge".
   - No `.env.example`: a linha `CLAUDE_API_KEY=` com comentário.
 - [ ] **Verde**, `GOOS=windows go vet ./...`, commit: `feat(config): provedor anthropic por padrao e motor de voz piper`.
 

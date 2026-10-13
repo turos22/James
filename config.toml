@@ -5,6 +5,10 @@ cert_arquivo = "certs/tailscale.crt"
 chave_arquivo = "certs/tailscale.key"
 
 [agente]
+# Quem responde: "anthropic" (padrão do código) ou "gemini". Fica "gemini"
+# aqui até a Task 6 do plano da voz em tempo real ligar o provedor Anthropic
+# no jamesd; depois vira "anthropic" com modelo "claude-haiku-5-5".
+provedor = "gemini"
 # Conferir a lista vigente de modelos Gemini antes de trocar. Proibido:
 # gemini-2.5-flash-lite (mais fraco da família).
 modelo = "gemini-2.5-flash"
@@ -31,6 +35,13 @@ timeout_aprovacao_segundos = 300
 # tem timbre mais claro e cadência mais rápida. Trocar aqui é a única
 # mudança necessária; o Sintetizador só repassa a string pro edge-tts.
 voz_tts = "en-US-AndrewMultilingualNeural"
+
+# Quem sintetiza a resposta do turno de texto: "piper" (local, padrão do
+# código) ou "edge". O jamesd só passa a usar o Piper na Task 9; até lá o
+# motor é o edge. tts_url é o servidor de TTS local do Piper e só aceita
+# loopback (o texto das respostas pode ter dado pessoal).
+motor = "edge"
+tts_url = "http://127.0.0.1:8180"
 
 [ferramentas.terminal]
 # Comando que passar disso é morto e reportado como timeout.
