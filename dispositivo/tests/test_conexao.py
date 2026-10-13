@@ -218,3 +218,85 @@ def test_parar_fecha_a_conexao_ativa_e_libera_sessao_ociosa_bloqueada():
 
     assert not thread.is_alive(), "parar() deveria ter liberado a sessão bloqueada em recv()"
     assert ws.fechado is True
+
+
+# --- fala_frase / fala_fim / fala_erro (spec 2026-10-10 voz em tempo real) ---
+
+def _fala_ws(*envelopes):
+    return FakeWS(mensagens=[json.dumps(e) for e in envelopes])
+
+
+def test_fala_frase_entrega_indice_e_texto_sem_responder_nada():
+    ws = _fala_ws({"tipo": "fala_frase", "id": "v1", "dados": {"texto": "Olá, Arthur.", "indice": 3}})
+    recebidas = []
+    conexao = ConexaoJames("ws://x", lambda d: {}, ao_fala_frase=lambda i, t: recebidas.append((i, t)))
+
+    conexao._sessao(ws)
+
+    assert recebidas == [(3, "Olá, Arthur.")]
+    assert ws.enviados == [], "fala não tem resposta pro jamesd"
+
+
+def test_fala_fim_e_fala_erro_chegam_aos_callbacks():
+    ws = _fala_ws(
+        {"tipo": "fala_fim", "id": "v1", "dados": {}},
+        {"tipo": "fala_erro", "id": "v2", "dados": {"mensagem": "não consegui completar esse turno"}},
+    )
+    eventos = []
+    conexao = ConexaoJames(
+        "ws://x", lambda d: {},
+        ao_fala_fim=lambda: eventos.append("fim"),
+        ao_fala_erro=lambda m: eventos.append(("erro", m)),
+    )
+
+    conexao._sessao(ws)
+
+    assert eventos == ["fim", ("erro", "não consegui completar esse turno")]
+
+
+def test_acao_de_tela_continua_funcionando_junto_com_a_fala():
+    ws = _fala_ws(
+        {"tipo": "fala_frase", "id": "v1", "dados": {"texto": "Vou ver.", "indice": 0}},
+        {"tipo": "acao_tela", "id": "7", "dados": {"acao": "click"}},
+    )
+    conexao = ConexaoJames("ws://x", lambda d: {"saida": "ok"}, ao_fala_frase=lambda i, t: None)
+
+    conexao._sessao(ws)
+
+    assert [e["tipo"] for e in ws.enviados] == ["resultado_acao"]
+
+
+def test_sem_callbacks_de_fala_o_device_ignora_a_fala():
+    ws = _fala_ws({"tipo": "fala_frase", "id": "v1", "dados": {"texto": "oi", "indice": 0}},
+                  {"tipo": "fala_fim", "id": "v1", "dados": {}})
+    conexao = ConexaoJames("ws://x", lambda d: {})
+
+    conexao._sessao(ws)  # não pode levantar
+
+    assert ws.enviados == []
+
+
+def test_fala_frase_malformada_e_ignorada_sem_chamar_o_callback(caplog):
+    ws = _fala_ws({"tipo": "fala_frase", "id": "v1", "dados": {"indice": 1}},          # sem texto
+                  {"tipo": "fala_frase", "id": "v1", "dados": {"texto": "x"}},          # sem índice
+                  {"tipo": "fala_frase", "id": "v1", "dados": {"texto": 5, "indice": 0}})  # texto não é string
+    recebidas = []
+    conexao = ConexaoJames("ws://x", lambda d: {}, ao_fala_frase=lambda i, t: recebidas.append((i, t)))
+
+    conexao._sessao(ws)
+
+    assert recebidas == []
+
+
+def test_callback_de_fala_com_bug_nao_derruba_a_sessao():
+    ws = _fala_ws({"tipo": "fala_frase", "id": "v1", "dados": {"texto": "a", "indice": 0}},
+                  {"tipo": "acao_tela", "id": "9", "dados": {}})
+
+    def estoura(i, t):
+        raise RuntimeError("bug no callback")
+
+    conexao = ConexaoJames("ws://x", lambda d: {"saida": "ok"}, ao_fala_frase=estoura)
+
+    conexao._sessao(ws)
+
+    assert [e["tipo"] for e in ws.enviados] == ["resultado_acao"], "a mensagem seguinte tem de ser tratada"

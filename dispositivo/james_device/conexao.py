@@ -22,12 +22,20 @@ class ConexaoJames:
         intervalo_heartbeat=15.0,
         intervalo_reconexao=2.0,
         conectar=conectar_padrao,
+        ao_fala_frase=None,
+        ao_fala_fim=None,
+        ao_fala_erro=None,
     ):
         self.url = url
         self.manipulador_acao = manipulador_acao
         self.intervalo_heartbeat = intervalo_heartbeat
         self.intervalo_reconexao = intervalo_reconexao
         self._conectar = conectar
+        # A fala vem do jamesd, frase a frase. Sem callback o device ignora a
+        # fala (device sem voz, ou testes da ponte de tela).
+        self._ao_fala_frase = ao_fala_frase
+        self._ao_fala_fim = ao_fala_fim
+        self._ao_fala_erro = ao_fala_erro
         self._parar = threading.Event()
         self._ws_atual = None
         self._lock_ws_atual = threading.Lock()
@@ -109,8 +117,32 @@ class ConexaoJames:
                 return
 
     def _tratar(self, ws, envelope):
-        if envelope.get("tipo") != "acao_tela":
+        tipo = envelope.get("tipo")
+        if tipo == "fala_frase":
+            self._tratar_fala_frase(envelope.get("dados") or {})
+            return
+        if tipo == "fala_fim":
+            if self._ao_fala_fim is not None:
+                self._ao_fala_fim()
+            return
+        if tipo == "fala_erro":
+            mensagem = (envelope.get("dados") or {}).get("mensagem")
+            if self._ao_fala_erro is not None and isinstance(mensagem, str):
+                self._ao_fala_erro(mensagem)
+            return
+        if tipo != "acao_tela":
             return
         resultado = self.manipulador_acao(envelope.get("dados", {}))
         resposta = json.dumps({"tipo": "resultado_acao", "id": envelope.get("id", ""), "dados": resultado})
         ws.send(resposta)
+
+    def _tratar_fala_frase(self, dados):
+        if self._ao_fala_frase is None:
+            return
+        texto, indice = dados.get("texto"), dados.get("indice")
+        # Malformada: não toca nada em vez de falar lixo. bool é int em Python,
+        # então precisa ser excluído à parte.
+        if not isinstance(texto, str) or not isinstance(indice, int) or isinstance(indice, bool):
+            logger.warning("fala_frase malformada do jamesd, ignorada: %r", dados)
+            return
+        self._ao_fala_frase(indice, texto)
