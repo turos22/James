@@ -45,6 +45,7 @@ class Fala:
         self._ocupado = False
         self._falando = False
         self._marcou_primeiro = False
+        self._marcou_primeira_frase = False
         self._fechar_reprodutor = False
         self._ultima_atividade = 0.0
         self._geracao = 0  # sobe a cada turno; deixa um áudio atrasado do turno anterior sem efeito no novo
@@ -67,7 +68,13 @@ class Fala:
             self._pendentes[indice] = texto
             self._ocupado = True
             self._ultima_atividade = self._relogio()
+            primeira = not self._marcou_primeira_frase
+            self._marcou_primeira_frase = True
             self._cond.notify_all()
+        if primeira:
+            # Na CHEGADA da frase, e não quando ela toca: o intervalo
+            # jamesd->device mede só o tempo até chegar.
+            self._marcar("primeira_frase")
 
     def fim(self) -> None:
         with self._cond:
@@ -133,6 +140,7 @@ class Fala:
         self._proximo = 0
         self._fim = False
         self._marcou_primeiro = False
+        self._marcou_primeira_frase = False
         self._ocupado = True
         self._ultima_atividade = self._relogio()
 
@@ -210,10 +218,14 @@ class Fala:
             if self._marcou_primeiro:
                 return
             self._marcou_primeiro = True
+        self._marcar("primeiro_audio")
+
+    def _marcar(self, nome: str) -> None:
+        # Medir não pode derrubar a fala.
         try:
-            self._medidor.marca("primeiro_audio")
+            self._medidor.marca(nome)
         except Exception:
-            logger.exception("falha ao registrar o primeiro áudio")
+            logger.exception("falha ao registrar o marco %s", nome)
 
     def _fechar(self) -> None:
         try:

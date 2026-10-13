@@ -241,6 +241,19 @@ func (s *Servidor) tratarNovaSessao(cliente *conexaoCliente, envelope Envelope, 
 // id do áudio gerado (vazio se não gerou); quem chama decide pra quem os
 // eventos intermediários e o audio_pronto vão.
 func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil permissao.Perfil, sessaoID *uuid.UUID, historico *[]agente.Mensagem, texto string, aoIniciar func(agente.ChamadaFerramenta), aoConcluir func(agente.ResultadoFerramenta), aoDelta func(string)) (agente.Resposta, string, error) {
+	inicioDoTurno := time.Now()
+	// Tempo até o primeiro pedaço de texto do modelo: é o que o jamesd soma à
+	// latência da voz (-1 quando não há streaming).
+	primeiroDelta := int64(-1)
+	if aoDelta != nil {
+		original := aoDelta
+		aoDelta = func(d string) {
+			if primeiroDelta < 0 {
+				primeiroDelta = time.Since(inicioDoTurno).Milliseconds()
+			}
+			original(d)
+		}
+	}
 	if *sessaoID == uuid.Nil {
 		sessao, err := s.Sessoes.Criar(ctx, texto)
 		if err != nil {
@@ -296,7 +309,6 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	// → ferramentas.
 	ctx = ferramentas.ComSessao(ctx, sessaoID.String())
 
-	inicioDoTurno := time.Now()
 	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
 	if err != nil {
 		return agente.Resposta{}, "", err
@@ -304,7 +316,8 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	// Uma linha por turno com os tokens: o teto do Arthur é de R$ 20 a 30 por
 	// mês, e o gasto só é controlável se for visível.
 	slog.Info("turno", "modo", nomeDoModo(modo), "entrada", resp.Uso.Entrada, "saida", resp.Uso.Saida,
-		"cache", resp.Uso.CacheLeitura, "pensamento", resp.Uso.Pensamento, "dur_ms", time.Since(inicioDoTurno).Milliseconds())
+		"cache", resp.Uso.CacheLeitura, "pensamento", resp.Uso.Pensamento,
+		"primeiro_delta_ms", primeiroDelta, "dur_ms", time.Since(inicioDoTurno).Milliseconds())
 
 	*historico = mensagens
 	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, tamanhoAntes)

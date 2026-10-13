@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -365,5 +366,55 @@ func TestVozNaoGeraAudioProntoETextoGera(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("turno de texto emitiu %d audio_pronto, queria 1", n)
+	}
+}
+
+// O tempo até o primeiro delta é o que o jamesd contribui pra latência da
+// voz: sem ele no log, "o James está lento" não diz de quem é a culpa.
+func TestLogDoTurnoTrazOTempoAtePrimeiroDelta(t *testing.T) {
+	var saida strings.Builder
+	anterior := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&saida, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(anterior) })
+
+	servidor, _ := servidorDeFala(t, &providerDeFala{rodadas: []rodadaDeFala{{
+		deltas:   []string{"Oi. ", "Tudo bem."},
+		resposta: agente.Resposta{Texto: "Oi. Tudo bem."},
+	}}})
+	conn := conectarDevice(t, servidor)
+
+	falarPeloDevice(t, conn, "oi")
+	lerFalaAteOFim(t, conn)
+
+	var linha string
+	for _, l := range strings.Split(saida.String(), "\n") {
+		if strings.Contains(l, "msg=turno") {
+			linha = l
+		}
+	}
+	if linha == "" {
+		t.Fatalf("nenhuma linha 'turno' no log: %q", saida.String())
+	}
+	if !strings.Contains(linha, "primeiro_delta_ms=") || strings.Contains(linha, "primeiro_delta_ms=-1") {
+		t.Errorf("a linha do turno não traz o tempo até o primeiro delta: %s", linha)
+	}
+	if !strings.Contains(linha, "modo=voz") {
+		t.Errorf("a linha do turno devia dizer modo=voz: %s", linha)
+	}
+}
+
+func TestLogDoTurnoDeTextoSemStreamingDizMenosUm(t *testing.T) {
+	var saida strings.Builder
+	anterior := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&saida, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(anterior) })
+
+	servidor, _ := servidorDeFala(t, &providerDeFala{rodadas: []rodadaDeFala{{
+		deltas: []string{"Oi."}, resposta: agente.Resposta{Texto: "Oi."},
+	}}})
+	capturarEventosDeUmTurnoNoServidor(t, servidor, "oi")
+
+	if !strings.Contains(saida.String(), "primeiro_delta_ms=-1") {
+		t.Errorf("o turno de texto não usa streaming e devia logar -1: %s", saida.String())
 	}
 }

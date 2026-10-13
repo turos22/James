@@ -181,13 +181,30 @@ def test_primeiro_audio_e_marcado_uma_vez_por_turno(montar):
         fala.frase(i, t)
     fala.fim()
     assert fala.aguardar_fim_do_turno(3)
-    assert medidor.marcas == ["primeiro_audio"]
+    assert medidor.marcas == ["primeira_frase", "primeiro_audio"]
 
     fala.comando_enviado()
     fala.frase(0, "d")
     fala.fim()
     assert fala.aguardar_fim_do_turno(3)
-    assert medidor.marcas == ["primeiro_audio", "primeiro_audio"]
+    assert medidor.marcas == ["primeira_frase", "primeiro_audio", "primeira_frase", "primeiro_audio"]
+
+
+def test_primeira_frase_e_marcada_na_chegada_e_nao_quando_toca(montar):
+    # O intervalo jamesd->device mede o tempo até a frase CHEGAR; se a marca
+    # esperasse o áudio tocar, o tts e o jamesd se misturariam.
+    fala, rep, medidor = montar()
+    rep.travar = threading.Event()
+
+    fala.comando_enviado()
+    fala.frase(0, "a")
+    assert medidor.marcas == ["primeira_frase"], "marcou na chegada, antes de qualquer som"
+
+    fala.frase(1, "b")
+    assert medidor.marcas == ["primeira_frase"], "a segunda frase não marca de novo"
+    rep.travar.set()
+    fala.fim()
+    assert fala.aguardar_fim_do_turno(3)
 
 
 def test_fecha_o_reprodutor_no_fim_de_cada_turno(montar):

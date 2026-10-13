@@ -34,6 +34,7 @@ from james_device.escuta import (
     parametros_do_ambiente,
 )
 from james_device.fala import FRASE_SEM_SERVIDOR, Fala, ReprodutorPyAudio
+from james_device.medidor import Medidor
 from james_device.sintese import Sintetizador
 from james_device.transcricao import criar_transcritor
 from james_device.plataforma import atual as plataforma
@@ -191,7 +192,7 @@ def _criar_vad():
         return None
 
 
-def escutar_e_enviar(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz):
+def escutar_e_enviar(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz, medidor: Medidor):
     """Carrega o modelo, abre o microfone e entrega o laço pro escuta.py."""
     # SetLogLevel(-1) antes de carregar: o Vosk despeja o grafo inteiro em
     # stderr no nível padrão e enterra qualquer log útil do device.
@@ -224,11 +225,12 @@ def escutar_e_enviar(conexao: ConexaoJames, fala: Fala | None, config: Configura
         # é "acordei, pode falar", faaah.wav é "ouvi, fechei, estou pensando".
         ao_acordar=lambda: tocar_em_paralelo("dispositivo/assets/entrada.mp3"),
         ao_fechar_janela=lambda: tocar_em_paralelo("dispositivo/assets/faaah.wav"),
-        ao_comando=criar_ao_comando(fala, conexao, None),
+        ao_comando=criar_ao_comando(fala, conexao, medidor),
         janela_segundos=JANELA_SEGUNDOS,
         palavra_parada=PALAVRA_PARADA,
         ao_quase_acerto=lambda texto: _registrar_se_quase(texto),
         vad=vad,
+        medidor=medidor,
         parametros_fim=config.parametros_fim,
         ocupado=fala.ocupado if fala is not None else None,
         continuacao_s=config.continuacao_s,
@@ -243,9 +245,9 @@ def _registrar_se_quase(texto: str) -> None:
         registrar_quase_acerto(candidato)
 
 
-def _thread_de_escuta(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz):
+def _thread_de_escuta(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz, medidor: Medidor):
     try:
-        escutar_e_enviar(conexao, fala, config)
+        escutar_e_enviar(conexao, fala, config, medidor)
     except Exception:
         # Alto e explícito: sem isso, uma thread que morre no arranque some em
         # silêncio e o sintoma vira "o James não responde quando eu falo", sem
@@ -257,14 +259,14 @@ def _thread_de_escuta(conexao: ConexaoJames, fala: Fala | None, config: Configur
         )
 
 
-def _montar_fala() -> Fala | None:
+def _montar_fala(medidor: Medidor) -> Fala | None:
     """Carrega a voz do Piper (0,7 s, uma vez, no boot: a primeira frase falada
     não pode pagar a carga). Sem voz o device segue ouvindo e enviando, mas as
     respostas ficam mudas, e isso é dito alto aqui."""
     try:
         sintetizador = Sintetizador(CAMINHO_VOZ_PIPER)
         sintetizador.carregar_agora()
-        return Fala(sintetizador, ReprodutorPyAudio())
+        return Fala(sintetizador, ReprodutorPyAudio(), medidor=medidor)
     except Exception:
         logger.exception(
             "a voz não carregou: o James vai ouvir mas NÃO vai falar. A voz do Piper existe em %s? (ver vozes/)",
@@ -279,7 +281,8 @@ def main():
     config = configurar(os.environ)
     if not plataforma.TELA_DISPONIVEL:
         logger.warning("ponte de tela desligada neste sistema (%s); voz segue normal", sys.platform)
-    fala = _montar_fala()
+    medidor = Medidor()
+    fala = _montar_fala(medidor)
     conexao = ConexaoJames(
         URL_JAMESD,
         manipulador_acao=plataforma.ponte_de_tela(),
@@ -287,7 +290,7 @@ def main():
         ao_fala_fim=fala.fim if fala else None,
         ao_fala_erro=fala.erro if fala else None,
     )
-    threading.Thread(target=_thread_de_escuta, args=(conexao, fala, config), daemon=True).start()
+    threading.Thread(target=_thread_de_escuta, args=(conexao, fala, config, medidor), daemon=True).start()
     # Na thread principal: é a parte que não pode morrer por causa de áudio.
     conexao.executar()
 
