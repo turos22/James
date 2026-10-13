@@ -226,7 +226,8 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
 - [ ] **Decisão pela saída:**
   - **10/10:** segue o plano.
   - **Qualquer falha:** repetir com `ModoVoz` = adaptativo, effort `low`. Se passar, mudar o mapeamento do `ModoVoz` para isso, anotar na spec (§9 já prevê) e seguir. Se também falhar, **parar e chamar o Arthur**.
-- [ ] Commit do teste (o portão fica versionado): `test(agente): portao do CA3, ferramentas com pensamento desligado`.
+- [x] **RESULTADO (2026-10-13): PASSOU, 10 de 10.** Todos viraram `tool_use` com `thinking` desligado, 0 tokens de pensamento, nenhum texto imitando chamada (saída colada no log da sessão). No pedido 9 ("clica no ponto 100, 100") o modelo chamou `ver_tela` antes, que é o que o `sistema.md` manda. **Limites honestos:** 10 pedidos de um turno só, sem histórico, sem imagem, uma rodada. Não prova taxa de acerto de 100% em uso real; o `/code-review` e o uso ao vivo (Task 19) seguem valendo. **Fica o plano A (voz sem pensamento).**
+- [x] Commit do teste (o portão fica versionado): `test(agente): portao do CA3, ferramentas com pensamento desligado`.
 
 ### Task 6: loop com streaming e escolha do provedor
 
