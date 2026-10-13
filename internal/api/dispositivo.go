@@ -172,7 +172,7 @@ func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, ses
 	emitir("transcricao", payloadTranscricao{Texto: texto})
 
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
-	resp, audioID, err := s.processarTurno(ctx, permissao.Privilegiado, sessaoID, historico, texto, aoIniciar, aoConcluir)
+	resp, audioID, err := s.processarTurno(ctx, agente.ModoVoz, permissao.Privilegiado, sessaoID, historico, texto, aoIniciar, aoConcluir)
 	if err != nil {
 		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "voz")})
 		return

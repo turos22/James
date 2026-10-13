@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"james/internal/agente"
-	"james/internal/agente/gemini"
 	"james/internal/api"
 	"james/internal/armazenamento/postgres"
 	"james/internal/config"
@@ -49,10 +48,11 @@ func executar() error {
 		return fmt.Errorf("migrações: %w", err)
 	}
 
-	provider, err := gemini.Novo(ctx, cfg.GeminiAPIKey, cfg.Modelo)
+	provider, err := construirProvedor(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("gemini: %w", err)
+		return fmt.Errorf("provedor: %w", err)
 	}
+	slog.Info("provedor do agente", "provedor", cfg.Provedor, "modelo", cfg.Modelo)
 
 	sistemaPrompt, err := os.ReadFile("prompts/sistema.md")
 	if err != nil {

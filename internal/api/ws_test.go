@@ -1219,7 +1219,7 @@ func TestTurnoQueTransbordaGravaOResumo(t *testing.T) {
 	historico := []agente.Mensagem{}
 	for i := 0; i < 6; i++ {
 		if _, _, err := s.processarTurno(
-			ctx, permissao.Privilegiado, &sessaoID, &historico,
+			ctx, agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
 			strings.Repeat("qual a capital do estado vizinho ", 3),
 			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
 		); err != nil {
@@ -1267,7 +1267,7 @@ func TestFalhaDoResumidorNaoDerrubaOTurno(t *testing.T) {
 	historico := []agente.Mensagem{}
 	for i := 0; i < 4; i++ {
 		if _, _, err := s.processarTurno(
-			ctx, permissao.Privilegiado, &sessaoID, &historico,
+			ctx, agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
 			strings.Repeat("mensagem comprida o suficiente para transbordar ", 3),
 			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
 		); err != nil {

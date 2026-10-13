@@ -5,13 +5,14 @@ cert_arquivo = "certs/tailscale.crt"
 chave_arquivo = "certs/tailscale.key"
 
 [agente]
-# Quem responde: "anthropic" (padrão do código) ou "gemini". Fica "gemini"
-# aqui até a Task 6 do plano da voz em tempo real ligar o provedor Anthropic
-# no jamesd; depois vira "anthropic" com modelo "claude-haiku-5-5".
-provedor = "gemini"
-# Conferir a lista vigente de modelos Gemini antes de trocar. Proibido:
-# gemini-2.5-flash-lite (mais fraco da família).
-modelo = "gemini-2.5-flash"
+# Quem responde: "anthropic" (Claude, padrão) ou "gemini". A chave do
+# Claude vem de CLAUDE_API_KEY no .env, nunca daqui.
+provedor = "anthropic"
+# Haiku 5.5: rápido e barato (US$ 0,10 / 0,50 por milhão de tokens). Na voz o
+# pensamento fica desligado; no texto ele pensa com esforço baixo.
+# Se voltar para provedor = "gemini", troque o modelo (ex.: "gemini-2.5-flash",
+# e nunca "gemini-2.5-flash-lite", o mais fraco da família).
+modelo = "claude-haiku-5-5"
 max_iteracoes = 5
 timeout_segundos = 30
 

@@ -242,7 +242,9 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   - `Loop.AoDelta func(string)` e `Loop.Modo agente.Modo`;
   - `processarTurno` recebe o modo; `tratarMensagem` passa `ModoTexto`;
   - `main.go` constrói `anthropic.Novo(cfg.ClaudeAPIKey, cfg.Modelo)` ou `gemini.Novo(...)` conforme `cfg.Provedor`, e loga o provedor e o modelo no boot;
-  - log por turno: `turno provedor=… modelo=… entrada=… saida=… cache=… dur=…`.
+  - log por turno: `turno modo=… entrada=… saida=… cache=… pensamento=… dur_ms=…` (o provedor e o modelo saem uma vez, no boot: `provedor do agente provedor=… modelo=…`).
+  - `config.toml` passa a `provedor = "anthropic"`, `modelo = "claude-haiku-5-5"`.
+  - **Verificado ao vivo (2026-10-13):** turno de texto com o Haiku real pelo WebSocket: resposta certa, `entrada=3511 saida=16 pensamento=0 dur_ms=1594`. `cache=0`: o prefixo (~3,5k tokens) provavelmente está abaixo do mínimo cacheável do Haiku; só custo, e a medição do plano (Task 19) diz o que fazer.
 - [ ] Verde e commit: `feat(agente): loop com streaming e jamesd escolhendo o provedor pela config`.
 
 ---

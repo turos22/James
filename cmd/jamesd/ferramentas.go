@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"james/internal/agente"
+	"james/internal/agente/anthropic"
+	"james/internal/agente/gemini"
 	"james/internal/config"
 	"james/internal/ferramentas"
 )
@@ -51,4 +56,22 @@ func construirClaudeCode(cfg *config.Config) *ferramentas.ClaudeCode {
 	c.Diretorio = cfg.ClaudeCodeDiretorio
 	c.Timeout = time.Duration(cfg.ClaudeCodeTimeoutSegundos) * time.Second
 	return c
+}
+
+// construirProvedor escolhe quem responde pelo [agente] provedor do
+// config.toml. Extraída de executar() pelo mesmo motivo das outras (abrir
+// Postgres de verdade e bloquear num canal): assim dá pra testar a escolha.
+func construirProvedor(ctx context.Context, cfg *config.Config) (agente.Provider, error) {
+	switch cfg.Provedor {
+	case "anthropic":
+		return anthropic.Novo(cfg.ClaudeAPIKey, cfg.Modelo), nil
+	case "gemini":
+		p, err := gemini.Novo(ctx, cfg.GeminiAPIKey, cfg.Modelo)
+		if err != nil {
+			return nil, fmt.Errorf("gemini: %w", err)
+		}
+		return p, nil
+	default:
+		return nil, fmt.Errorf("provedor %q desconhecido", cfg.Provedor)
+	}
 }
