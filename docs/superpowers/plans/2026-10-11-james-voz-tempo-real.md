@@ -385,6 +385,12 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   7. O `medidor` recebe `fim_fala` no começo do silêncio que fechou e `stt_pronto` quando a transcrição usada terminou.
   8. **Guarda do teto contra o `-ac`:** `JAMES_COMANDO_MAX_S` acima da cobertura do `-ac` configurado (512 → 10 s) faz a construção falhar com mensagem clara.
 - [ ] **Implementar:** a especulação usa `concurrent.futures.ThreadPoolExecutor(max_workers=1)` em produção. Descartar quer dizer não usar o resultado; não cancela a requisição em voo.
+- [x] **Verificado ao vivo (2026-10-13), componentes reais:** Silero real + `whisper-server` na GPU (`-ac 512`) + executor real, blocos de 0,1 s entregues em tempo real. O comando fechou **0,71 s depois do fim da voz** (W = 0,70 s) e o STT terminou 0,61 s depois do começo do silêncio, ou seja, **dentro da espera**: a especulação funciona e o STT não soma latência.
+- [x] **Cobertura extra (mutação achou lacuna):** especulação velha não pode valer no teto quando a voz voltou (pausa curta, voz continua até o teto).
+- [x] **Achados de precisão (não bloqueiam; alimentam o CA7).** Áudio **sintético do Piper**, 3 repetições iguais por caso (o servidor é determinístico por instância, mas **varia entre instâncias**: o "Guilherme" errou numa e acertou noutra):
+  - `-ac 512` leva ~0,6 s e o contexto completo ~1,7 s, com texto igual em 2 de 3 frases.
+  - O vocabulário em `--prompt` ajudou num nome (Postgres), piorou outro ("Abriu FileFox") e não resolveu "Tailscale".
+  - **Áudio sintético não mede precisão:** o Piper lê nomes em inglês com fonética portuguesa, então "Tailscale" e "Firefox" já chegam distorcidos ao Whisper. Quem decide `-ac 512` x 768, `--prompt` e o piso de precisão é o **corpus real do Arthur** (`feat/stt-whisper`, ainda não gravado).
 - [ ] Verde e commit: `feat(device): fim de fala por VAD com transcricao especulativa`.
 
 ### Task 15: half-duplex e continuação
