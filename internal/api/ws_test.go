@@ -1221,7 +1221,7 @@ func TestTurnoQueTransbordaGravaOResumo(t *testing.T) {
 		if _, _, err := s.processarTurno(
 			ctx, agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
 			strings.Repeat("qual a capital do estado vizinho ", 3),
-			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
+			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}, nil,
 		); err != nil {
 			t.Fatalf("turno %d falhou: %v", i, err)
 		}
@@ -1269,7 +1269,7 @@ func TestFalhaDoResumidorNaoDerrubaOTurno(t *testing.T) {
 		if _, _, err := s.processarTurno(
 			ctx, agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
 			strings.Repeat("mensagem comprida o suficiente para transbordar ", 3),
-			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {},
+			func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}, nil,
 		); err != nil {
 			t.Fatalf("o resumidor quebrado derrubou o turno %d: %v", i, err)
 		}

@@ -52,6 +52,20 @@ type payloadAudioPronto struct {
 	ID string `json:"id"`
 }
 
+// payloadFalaFrase é o formato de "fala_frase": uma frase pronta pra falar
+// (já sem Markdown) que o jamesd manda ao device. Indice dá a ordem; o device
+// toca na ordem do índice e não na de chegada.
+type payloadFalaFrase struct {
+	Texto  string `json:"texto"`
+	Indice int    `json:"indice"`
+}
+
+// payloadFalaErro é o formato de "fala_erro": o turno falhou e o device fala
+// esta mensagem (a mesma, segura, que o app mostra na tela).
+type payloadFalaErro struct {
+	Mensagem string `json:"mensagem"`
+}
+
 // payloadErro é o formato de "erro" — compartilhado pelos três handlers que
 // emitem esse evento (tratarMensagem, tratarEntradaDeVoz e tratarRetomar).
 type payloadErro struct {

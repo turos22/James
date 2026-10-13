@@ -89,7 +89,7 @@ func TestProcessarTurnoInjetaMemoriaNoSistemaPrompt(t *testing.T) {
 	var sessaoID uuid.UUID
 	var historico []agente.Mensagem
 	if _, _, err := s.processarTurno(context.Background(), agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
-		"oi", func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}); err != nil {
+		"oi", func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}, nil); err != nil {
 		t.Fatalf("processarTurno devolveu erro: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestProcessarTurnoSegueSemNotasQuandoVaultAusente(t *testing.T) {
 	var sessaoID uuid.UUID
 	var historico []agente.Mensagem
 	if _, _, err := s.processarTurno(context.Background(), agente.ModoTexto, permissao.Privilegiado, &sessaoID, &historico,
-		"oi", func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}); err != nil {
+		"oi", func(agente.ChamadaFerramenta) {}, func(agente.ResultadoFerramenta) {}, nil); err != nil {
 		t.Fatalf("vault ausente não pode derrubar o turno: %v", err)
 	}
 	if espiao.Sistema() != "sistema de teste" {

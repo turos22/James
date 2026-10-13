@@ -121,7 +121,7 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 	}
 
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
-	resp, audioID, err := s.processarTurno(ctx, agente.ModoTexto, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir)
+	resp, audioID, err := s.processarTurno(ctx, agente.ModoTexto, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir, nil)
 	if err != nil {
 		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "texto")})
 		return
@@ -240,7 +240,7 @@ func (s *Servidor) tratarNovaSessao(cliente *conexaoCliente, envelope Envelope, 
 // (Task 15/4.7 da spec — TTS entregue ao cliente). Devolve a resposta e o
 // id do áudio gerado (vazio se não gerou); quem chama decide pra quem os
 // eventos intermediários e o audio_pronto vão.
-func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil permissao.Perfil, sessaoID *uuid.UUID, historico *[]agente.Mensagem, texto string, aoIniciar func(agente.ChamadaFerramenta), aoConcluir func(agente.ResultadoFerramenta)) (agente.Resposta, string, error) {
+func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil permissao.Perfil, sessaoID *uuid.UUID, historico *[]agente.Mensagem, texto string, aoIniciar func(agente.ChamadaFerramenta), aoConcluir func(agente.ResultadoFerramenta), aoDelta func(string)) (agente.Resposta, string, error) {
 	if *sessaoID == uuid.Nil {
 		sessao, err := s.Sessoes.Criar(ctx, texto)
 		if err != nil {
@@ -289,6 +289,7 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	loop.AoIniciarFerramenta = aoIniciar
 	loop.AoConcluirFerramenta = aoConcluir
 	loop.Modo = modo
+	loop.AoDelta = aoDelta
 
 	// Ferramentas que mantêm estado por conversa (perguntar_ao_claude_code)
 	// leem o id da sessão daqui — é o único canal que atravessa api → agente
@@ -308,7 +309,12 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	*historico = mensagens
 	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, tamanhoAntes)
 
-	audioID := s.gerarAudioDaResposta(ctx, resp.Texto)
+	// Na voz quem fala é o device, frase a frase, enquanto o modelo escreve.
+	// Gerar áudio aqui também faria o James falar duas vezes (device e app).
+	audioID := ""
+	if modo != agente.ModoVoz {
+		audioID = s.gerarAudioDaResposta(ctx, resp.Texto)
+	}
 	return resp, audioID, nil
 }
 
