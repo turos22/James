@@ -421,6 +421,13 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   - `escutar(...)` com VAD, executor, `ocupado=fala.ocupado`, `ao_nao_entendeu=fala.nao_entendi` e os parâmetros por env da spec (§6.1);
   - `ao_comando` marca `comando_enviado` no `Fala` e no `Medidor`.
   - O `faaah.wav` de "fechei a janela" continua por enquanto; a Task 19 mede se ele atrasa o primeiro som.
+- [x] **Desvios feitos na execução:**
+  - O transcritor mora em `james_device/transcricao.py` (escolha por `JAMES_STT`, whisper por padrão, sem fallback para o Google; o texto de "áudio sem fala" do Whisper, como `[BLANK_AUDIO]`, vira vazio).
+  - O bloco do microfone passou de 0,25 s para **0,1 s** (`JAMES_BLOCO_MS`). Com 0,25 s a espera de 0,7 s só fecharia entre 0,75 s e 1,0 s.
+  - `configurar(env)` lê e valida tudo no boot (STT, parâmetros, teto contra o `-ac`, continuação, guarda de eco): configuração errada mata o device na partida com mensagem clara.
+  - `JAMES_WHISPER_AC` (padrão 512) é a fonte única do `-ac`; o `executar.sh` da Task 18 tem de iniciar o servidor com o mesmo valor.
+  - Se a voz do Piper não carregar, o device segue ouvindo e enviando mas avisa alto que não vai falar; se o VAD não carregar, cai na janela fixa.
+  - **Verificado ao vivo:** o device sobe com toda a fiação (voz, VAD, Vosk, conexão com o jamesd).
 - [ ] Verde (incluindo `test_plataforma`: o `main` continua importando sem `tela`) e commit: `feat(device): transcricao no whisper-server e fiacao da voz em tempo real`.
 
 ---

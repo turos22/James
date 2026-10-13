@@ -18,13 +18,24 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Mapping
+from dataclasses import dataclass
 
-import speech_recognition as sr
 import vosk
 
 from james_device.conexao import ConexaoJames
 from james_device import gramatica
-from james_device.escuta import JANELA_PADRAO_SEGUNDOS, PALAVRA_PARADA_PADRAO, escutar
+from james_device.escuta import (
+    GUARDA_ECO_PADRAO_S,
+    JANELA_PADRAO_SEGUNDOS,
+    PALAVRA_PARADA_PADRAO,
+    ParametrosDeFim,
+    escutar,
+    parametros_do_ambiente,
+)
+from james_device.fala import FRASE_SEM_SERVIDOR, Fala, ReprodutorPyAudio
+from james_device.sintese import Sintetizador
+from james_device.transcricao import criar_transcritor
 from james_device.plataforma import atual as plataforma
 from james_device.wake import VARIANTES_PADRAO, quase_acerto, registrar_quase_acerto
 
@@ -42,9 +53,13 @@ CAMINHO_MODELO_VOSK = os.environ.get("JAMES_VOSK_MODELO", "vosk/vosk-model-small
 TAXA_AMOSTRAGEM = 16000
 LARGURA_AMOSTRA = 2
 
-# 0,25s por bloco. Menor deixa a ativação mais responsiva e custa mais CPU por
-# segundo de áudio; maior atrasa a wake word em até o tamanho do bloco.
-QUADROS_POR_BLOCO = TAXA_AMOSTRAGEM // 4
+# Tamanho do bloco do microfone. 0,1 s: o fim de fala é medido em blocos, e com
+# 0,25 s a espera de 0,7 s só fecharia entre 0,75 s e 1,0 s. Menor custa mais
+# CPU por segundo de áudio; o piso é o quadro do VAD (32 ms).
+BLOCO_PADRAO_MS = 100
+BLOCO_MINIMO_MS = 32
+
+CAMINHO_VOZ_PIPER = os.environ.get("JAMES_PIPER_VOZ", "vozes/pt_BR-faber-medium.onnx")
 
 JANELA_SEGUNDOS = float(os.environ.get("JAMES_JANELA_SEGUNDOS", JANELA_PADRAO_SEGUNDOS))
 
@@ -53,7 +68,7 @@ JANELA_SEGUNDOS = float(os.environ.get("JAMES_JANELA_SEGUNDOS", JANELA_PADRAO_SE
 PALAVRA_PARADA = os.environ.get("JAMES_PALAVRA_PARADA", PALAVRA_PARADA_PADRAO)
 
 
-def blocos_do_microfone(quadros_por_bloco=QUADROS_POR_BLOCO):
+def blocos_do_microfone(quadros_por_bloco=None):
     """Gerador infinito de PCM cru do microfone padrão.
 
     Stream contínuo, e é o ponto: o desenho antigo alternava entre gravar e
@@ -63,6 +78,8 @@ def blocos_do_microfone(quadros_por_bloco=QUADROS_POR_BLOCO):
     """
     import pyaudio
 
+    if quadros_por_bloco is None:
+        quadros_por_bloco = bloco_do_ambiente(os.environ)
     audio = pyaudio.PyAudio()
     stream = audio.open(
         format=pyaudio.paInt16,
@@ -84,26 +101,75 @@ def blocos_do_microfone(quadros_por_bloco=QUADROS_POR_BLOCO):
         audio.terminate()
 
 
-def criar_transcritor():
-    """Devolve a função que transcreve os bytes da janela em texto.
+def _numero_do_ambiente(env: Mapping, nome: str, padrao: float, minimo: float, divisor: float = 1.0) -> float:
+    bruto = env.get(nome)
+    if bruto in (None, ""):
+        return padrao
+    try:
+        valor = float(bruto) / divisor
+    except ValueError:
+        raise ValueError(f"{nome}={bruto!r} não é um número") from None
+    if valor < minimo:
+        raise ValueError(f"{nome}={bruto!r} é pequeno demais")
+    return valor
 
-    Continua sendo o Google: pra frase livre em português o modelo small do
-    Vosk perde feio, e aqui a latência de rede não custa nada — a wake word
-    (que era o que sofria com ela) já foi resolvida offline antes deste ponto.
-    """
-    recognizer = sr.Recognizer()
 
-    def transcrever(audio: bytes) -> str:
-        if not audio:
-            return ""
-        dados = sr.AudioData(audio, TAXA_AMOSTRAGEM, LARGURA_AMOSTRA)
-        try:
-            return recognizer.recognize_google(dados, language="pt-BR")
-        except sr.UnknownValueError:
-            logger.info("não entendi o que foi falado na janela")
-            return ""
+def bloco_do_ambiente(env: Mapping) -> int:
+    """Quadros (amostras) por bloco do microfone, de JAMES_BLOCO_MS."""
+    ms = _numero_do_ambiente(env, "JAMES_BLOCO_MS", BLOCO_PADRAO_MS, BLOCO_MINIMO_MS)
+    return round(ms * TAXA_AMOSTRAGEM / 1000)
 
-    return transcrever
+
+def continuacao_do_ambiente(env: Mapping) -> float:
+    """Segundos de janela, depois que o James cala, em que voz vira comando sem
+    wake word. 0 desliga."""
+    return _numero_do_ambiente(env, "JAMES_CONTINUACAO_S", 6.0, 0.0)
+
+
+def guarda_eco_do_ambiente(env: Mapping) -> float:
+    """Segundos descartados depois que o James cala, pro rabo da voz dele no ar
+    da sala não virar comando."""
+    return _numero_do_ambiente(env, "JAMES_GUARDA_ECO_MS", GUARDA_ECO_PADRAO_S, 0.0, 1000.0)
+
+
+@dataclass(frozen=True)
+class ConfiguracaoDeVoz:
+    transcrever: object
+    parametros_fim: ParametrosDeFim
+    continuacao_s: float
+    guarda_eco_s: float
+
+
+def configurar(env: Mapping) -> ConfiguracaoDeVoz:
+    """Lê e valida tudo de uma vez, no boot. Configuração errada tem de matar o
+    device na partida com uma mensagem clara, não no meio de uma fala."""
+    audio_ctx = int(_numero_do_ambiente(env, "JAMES_WHISPER_AC", 512, 1))
+    return ConfiguracaoDeVoz(
+        transcrever=criar_transcritor(env),
+        parametros_fim=parametros_do_ambiente(env, audio_ctx=audio_ctx),
+        continuacao_s=continuacao_do_ambiente(env),
+        guarda_eco_s=guarda_eco_do_ambiente(env),
+    )
+
+
+def criar_ao_comando(fala, conexao, medidor):
+    """O que acontece quando um comando está pronto pra sair.
+
+    Marca o device como ocupado ANTES de enviar: se a resposta chegasse antes do
+    ocupado, a primeira frase tocaria com a escuta ainda aberta. Se o jamesd não
+    está lá, o James diz isso, localmente."""
+    if fala is None:
+        return conexao.enviar_entrada_voz
+
+    def ao_comando(texto: str):
+        fala.comando_enviado()
+        if conexao.enviar_entrada_voz(texto):
+            if medidor is not None:
+                medidor.marca("entrada_enviada")
+        else:
+            fala.erro(FRASE_SEM_SERVIDOR)
+
+    return ao_comando
 
 
 def tocar_em_paralelo(caminho: str):
@@ -113,7 +179,19 @@ def tocar_em_paralelo(caminho: str):
     threading.Thread(target=plataforma.tocar_som, args=(caminho,), daemon=True).start()
 
 
-def escutar_e_enviar(conexao: ConexaoJames):
+def _criar_vad():
+    """O VAD é o que faz o comando fechar quando a pessoa para de falar. Se não
+    carregar, o device cai na janela fixa de antes em vez de ficar surdo."""
+    try:
+        from james_device.vad import DetectorDeVoz
+
+        return DetectorDeVoz()
+    except Exception:
+        logger.exception("VAD não carregou: o comando volta a fechar por janela fixa de %.0fs", JANELA_SEGUNDOS)
+        return None
+
+
+def escutar_e_enviar(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz):
     """Carrega o modelo, abre o microfone e entrega o laço pro escuta.py."""
     # SetLogLevel(-1) antes de carregar: o Vosk despeja o grafo inteiro em
     # stderr no nível padrão e enterra qualquer log útil do device.
@@ -128,25 +206,34 @@ def escutar_e_enviar(conexao: ConexaoJames):
     reconhecedor = vosk.KaldiRecognizer(
         modelo, TAXA_AMOSTRAGEM, gramatica.montar(VARIANTES_PADRAO, PALAVRA_PARADA)
     )
+    vad = _criar_vad()
 
     logger.info(
-        "escuta ativa: wake word offline, janela de %.0fs, palavra de parada %r",
-        JANELA_SEGUNDOS,
+        "escuta ativa: wake word offline, fim de fala por %s, teto de %.0fs, continuação de %.0fs, palavra de parada %r",
+        "VAD" if vad is not None else f"janela fixa de {JANELA_SEGUNDOS:.0f}s",
+        config.parametros_fim.comando_max_s,
+        config.continuacao_s if vad is not None else 0,
         PALAVRA_PARADA or "(desligada)",
     )
 
     escutar(
         fonte_audio=blocos_do_microfone(),
         reconhecedor=reconhecedor,
-        transcrever_comando=criar_transcritor(),
+        transcrever_comando=config.transcrever,
         # Dois sons, dois significados, iguais aos do laço antigo: entrada.mp3
         # é "acordei, pode falar", faaah.wav é "ouvi, fechei, estou pensando".
         ao_acordar=lambda: tocar_em_paralelo("dispositivo/assets/entrada.mp3"),
         ao_fechar_janela=lambda: tocar_em_paralelo("dispositivo/assets/faaah.wav"),
-        ao_comando=conexao.enviar_entrada_voz,
+        ao_comando=criar_ao_comando(fala, conexao, None),
         janela_segundos=JANELA_SEGUNDOS,
         palavra_parada=PALAVRA_PARADA,
         ao_quase_acerto=lambda texto: _registrar_se_quase(texto),
+        vad=vad,
+        parametros_fim=config.parametros_fim,
+        ocupado=fala.ocupado if fala is not None else None,
+        continuacao_s=config.continuacao_s,
+        guarda_eco_s=config.guarda_eco_s,
+        ao_nao_entendeu=fala.nao_entendi if fala is not None else None,
     )
 
 
@@ -156,9 +243,9 @@ def _registrar_se_quase(texto: str) -> None:
         registrar_quase_acerto(candidato)
 
 
-def _thread_de_escuta(conexao: ConexaoJames):
+def _thread_de_escuta(conexao: ConexaoJames, fala: Fala | None, config: ConfiguracaoDeVoz):
     try:
-        escutar_e_enviar(conexao)
+        escutar_e_enviar(conexao, fala, config)
     except Exception:
         # Alto e explícito: sem isso, uma thread que morre no arranque some em
         # silêncio e o sintoma vira "o James não responde quando eu falo", sem
@@ -170,11 +257,37 @@ def _thread_de_escuta(conexao: ConexaoJames):
         )
 
 
+def _montar_fala() -> Fala | None:
+    """Carrega a voz do Piper (0,7 s, uma vez, no boot: a primeira frase falada
+    não pode pagar a carga). Sem voz o device segue ouvindo e enviando, mas as
+    respostas ficam mudas, e isso é dito alto aqui."""
+    try:
+        sintetizador = Sintetizador(CAMINHO_VOZ_PIPER)
+        sintetizador.carregar_agora()
+        return Fala(sintetizador, ReprodutorPyAudio())
+    except Exception:
+        logger.exception(
+            "a voz não carregou: o James vai ouvir mas NÃO vai falar. A voz do Piper existe em %s? (ver vozes/)",
+            CAMINHO_VOZ_PIPER,
+        )
+        return None
+
+
 def main():
+    # Configuração inválida mata o device AQUI, com mensagem clara, e não no
+    # meio de uma fala.
+    config = configurar(os.environ)
     if not plataforma.TELA_DISPONIVEL:
         logger.warning("ponte de tela desligada neste sistema (%s); voz segue normal", sys.platform)
-    conexao = ConexaoJames(URL_JAMESD, manipulador_acao=plataforma.ponte_de_tela())
-    threading.Thread(target=_thread_de_escuta, args=(conexao,), daemon=True).start()
+    fala = _montar_fala()
+    conexao = ConexaoJames(
+        URL_JAMESD,
+        manipulador_acao=plataforma.ponte_de_tela(),
+        ao_fala_frase=fala.frase if fala else None,
+        ao_fala_fim=fala.fim if fala else None,
+        ao_fala_erro=fala.erro if fala else None,
+    )
+    threading.Thread(target=_thread_de_escuta, args=(conexao, fala, config), daemon=True).start()
     # Na thread principal: é a parte que não pode morrer por causa de áudio.
     conexao.executar()
 

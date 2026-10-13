@@ -19,6 +19,7 @@ from collections import deque
 logger = logging.getLogger(__name__)
 
 FRASE_NAO_ENTENDI = "Não entendi, pode repetir?"
+FRASE_SEM_SERVIDOR = "Não consegui falar com o servidor."
 TIMEOUT_RESPOSTA_PADRAO = 30.0
 
 
