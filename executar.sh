@@ -7,7 +7,8 @@
 #    1. pre-requisitos
 #    2. Postgres (docker compose) e espera ficar saudavel
 #    3. build da SPA -> precisa vir ANTES do jamesd (go:embed)
-#    4. jamesd e james-device em segundo plano, logs em .executar/
+#    4. STT (whisper-server) e TTS (Piper) locais, depois jamesd e
+#       james-device em segundo plano, logs em .executar/
 #    5. shell Wails se der; senao o navegador. Ctrl+C encerra tudo.
 # ============================================================
 set -euo pipefail
@@ -78,7 +79,80 @@ go build -o "$LOGS/jamesd" ./cmd/jamesd || falhar "o codigo Go nao compila."
 echo "  ok"
 
 echo
-echo "[4/5] Subindo jamesd e james-device..."
+echo "[4/5] Subindo o STT e o TTS locais, o jamesd e o james-device..."
+
+PYTHON_DEVICE=dispositivo/.venv/bin/python
+[ -x "$PYTHON_DEVICE" ] || PYTHON_DEVICE=python3
+
+# Espera um endpoint HTTP responder: esperar_http <url> <segundos>
+esperar_http() {
+    local url=$1 segundos=$2
+    for _ in $(seq 1 "$segundos"); do
+        curl -s -m 2 -o /dev/null "$url" && return 0
+        sleep 1
+    done
+    return 1
+}
+
+# --- STT: whisper-server (whisper.cpp, Vulkan, modelo sempre carregado) ---
+# O -ac vem de JAMES_WHISPER_AC e o device le a MESMA variavel: ele recusa um
+# teto de comando maior que o que o -ac cobre (10 s com 512). Mudar so de um
+# lado cortaria o fim dos comandos em silencio.
+export JAMES_WHISPER_AC="${JAMES_WHISPER_AC:-512}"
+WHISPER_URL="${JAMES_WHISPER_URL:-http://127.0.0.1:8179}"
+WHISPER_SERVIDOR="${JAMES_WHISPER_SERVIDOR:-$HOME/.local/share/james/whisper.cpp/bin/whisper-server}"
+WHISPER_MODELO="${JAMES_WHISPER_MODELO:-$HOME/.local/share/james/modelos/ggml-large-v3-turbo-q8_0.bin}"
+
+if [ "${JAMES_STT:-whisper}" = "whisper" ]; then
+    if esperar_http "$WHISPER_URL/" 1; then
+        # Reaproveitar so vale se ele subiu com o MESMO -ac: o device valida o
+        # teto de comando contra JAMES_WHISPER_AC, e um servidor velho com -ac
+        # menor cortaria o fim dos comandos longos sem nenhum aviso.
+        PID_VELHO=$(ss -ltnpH "sport = :${WHISPER_URL##*:}" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+        if [ -z "$PID_VELHO" ] || [ ! -r "/proc/$PID_VELHO/cmdline" ]; then
+            echo "  AVISO: ja ha um whisper-server em $WHISPER_URL e nao consegui conferir o -ac dele; reaproveitando."
+        elif tr '\0' ' ' < "/proc/$PID_VELHO/cmdline" | grep -q -- " -ac $JAMES_WHISPER_AC "; then
+            echo "  ok - whisper-server ja estava de pe em $WHISPER_URL com -ac $JAMES_WHISPER_AC (reaproveitando)"
+        else
+            falhar "ja ha um whisper-server em $WHISPER_URL (pid $PID_VELHO) com outro -ac. Pare-o (kill $PID_VELHO) e rode de novo, ou ajuste JAMES_WHISPER_AC."
+        fi
+    elif [ -x "$WHISPER_SERVIDOR" ] && [ -f "$WHISPER_MODELO" ]; then
+        # As .so do whisper.cpp ficam ao lado do binario.
+        LD_LIBRARY_PATH="$(dirname "$WHISPER_SERVIDOR")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$WHISPER_SERVIDOR" -m "$WHISPER_MODELO" -l pt -t "${JAMES_WHISPER_THREADS:-6}" \
+            -ac "$JAMES_WHISPER_AC" --port "${WHISPER_URL##*:}" >"$LOGS/whisper.log" 2>&1 &
+        PIDS+=($!)
+        PID_WHISPER=$!
+        if esperar_http "$WHISPER_URL/" 60 && kill -0 "$PID_WHISPER" 2>/dev/null; then
+            echo "  ok - whisper-server de pe em $WHISPER_URL, -ac $JAMES_WHISPER_AC (log: $LOGS/whisper.log)"
+        else
+            echo "  AVISO: o whisper-server nao subiu (veja $LOGS/whisper.log); o device usa o STT do Google."
+            export JAMES_STT=google
+        fi
+    else
+        echo "  AVISO: whisper-server ou modelo ausente ($WHISPER_SERVIDOR / $WHISPER_MODELO); o device usa o STT do Google."
+        export JAMES_STT=google
+    fi
+else
+    echo "  JAMES_STT=${JAMES_STT}: whisper-server nao sobe"
+fi
+
+# --- TTS: voz do Piper, para as respostas do turno de TEXTO ---
+# O jamesd le a porta de [voz] tts_url no config.toml (8180 por padrao).
+TTS_PORTA="${JAMES_TTS_PORTA:-8180}"
+if esperar_http "http://127.0.0.1:$TTS_PORTA/saude" 1; then
+    echo "  ok - servidor de TTS ja estava de pe na porta $TTS_PORTA (reaproveitando)"
+else
+    "$PYTHON_DEVICE" -m dispositivo.james_device.servidor_tts >"$LOGS/tts.log" 2>&1 &
+    PIDS+=($!)
+    PID_TTS=$!
+    if esperar_http "http://127.0.0.1:$TTS_PORTA/saude" 30 && kill -0 "$PID_TTS" 2>/dev/null; then
+        echo "  ok - servidor de TTS de pe na porta $TTS_PORTA (log: $LOGS/tts.log)"
+    else
+        echo "  AVISO: o servidor de TTS nao subiu (veja $LOGS/tts.log); as respostas digitadas ficam sem voz. A voz por microfone nao depende dele."
+    fi
+fi
+
 "$LOGS/jamesd" >"$LOGS/jamesd.log" 2>&1 &
 PIDS+=($!)
 PID_JAMESD=$!
@@ -96,8 +170,6 @@ echo "  ok - jamesd de pe em http://127.0.0.1:8080 (log: $LOGS/jamesd.log)"
 
 # cwd na raiz de proposito: o device le dispositivo/assets/ por caminho
 # relativo. Sem microfone ele reclama no log e o resto segue pelo teclado.
-PYTHON_DEVICE=dispositivo/.venv/bin/python
-[ -x "$PYTHON_DEVICE" ] || PYTHON_DEVICE=python3
 "$PYTHON_DEVICE" -m dispositivo.james_device.main >"$LOGS/device.log" 2>&1 &
 PIDS+=($!)
 echo "  ok - james-device em segundo plano (log: $LOGS/device.log)"
@@ -111,7 +183,7 @@ abrir_no_navegador() {
     wait "$PID_JAMESD"
 }
 
-# Qual janela abrir. JAMES_SHELL=chrome|wails|navegador força uma; sem ele,
+# Qual janela abrir. JAMES_SHELL=chrome|wails|navegador|nenhum força uma; sem ele,
 # a ordem é chrome, wails, navegador.
 #
 # Por que o Chrome vem primeiro: o WebKitGTK do shell Wails bloqueia o
@@ -152,5 +224,6 @@ echo "  janela: $escolha"
 case "$escolha" in
     chrome) abrir_chrome || { echo "  o Chrome caiu; seguindo no navegador."; abrir_no_navegador; } ;;
     wails)  abrir_wails  || { echo "  o shell nativo caiu; seguindo no navegador."; abrir_no_navegador; } ;;
+    nenhum) echo "  sem janela (JAMES_SHELL=nenhum); Ctrl+C encerra tudo."; wait "$PID_JAMESD" ;;
     *)      abrir_no_navegador ;;
 esac

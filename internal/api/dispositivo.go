@@ -157,11 +157,11 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(envelope.Dados, &dados); err != nil {
 			continue
 		}
-		s.tratarEntradaDeVoz(r.Context(), envelope.ID, dados.Texto, &sessaoID, &historico)
+		s.tratarEntradaDeVoz(r.Context(), conexao, envelope.ID, dados.Texto, &sessaoID, &historico)
 	}
 }
 
-func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
+func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, conexao *conexaoDispositivo, id, texto string, sessaoID *uuid.UUID, historico *[]agente.Mensagem) {
 	emitir := func(tipo string, dados any) { s.Clientes.BroadcastParaPrivilegiados(tipo, id, dados) }
 
 	// Antes de qualquer processamento: o turno pode levar minutos (ferramenta
@@ -172,12 +172,23 @@ func (s *Servidor) tratarEntradaDeVoz(ctx context.Context, id, texto string, ses
 	emitir("transcricao", payloadTranscricao{Texto: texto})
 
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
-	resp, audioID, err := s.processarTurno(ctx, permissao.Privilegiado, sessaoID, historico, texto, aoIniciar, aoConcluir)
+	falar := novoFalador(conexao, id)
+	// Quando uma ferramenta começa, fala o que o modelo acabou de dizer ("vou
+	// olhar a tela") na hora: a próxima frase só existe depois dela.
+	aoIniciarFalando := func(c agente.ChamadaFerramenta) {
+		falar.descarregar()
+		aoIniciar(c)
+	}
+	resp, _, err := s.processarTurno(ctx, agente.ModoVoz, permissao.Privilegiado, sessaoID, historico, texto, aoIniciarFalando, aoConcluir, falar.delta)
 	if err != nil {
-		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "voz")})
+		mensagem := mensagemDeErroDoTurno(err, "voz")
+		emitir("erro", payloadErro{Mensagem: mensagem})
+		falar.erro(mensagem)
 		return
 	}
+	falar.descarregar()
+	falar.fim()
 	// Mesmo ponto de atenção de tratarMensagem (ws.go): sessaoID só é lido
 	// depois de processarTurno, nunca antes.
-	emitirDesfechoDoTurno(emitir, resp, *sessaoID, audioID)
+	emitirDesfechoDoTurno(emitir, resp, *sessaoID, "")
 }

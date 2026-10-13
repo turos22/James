@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,17 +18,19 @@ func escreverToml(t *testing.T, dir, conteudo string) string {
 
 func TestCarregarFalhaSemGeminiAPIKey(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
-	caminho := escreverToml(t, t.TempDir(), "")
+	caminho := escreverToml(t, t.TempDir(), "[agente]\nprovedor = \"gemini\"\nmodelo = \"gemini-2.5-flash\"\n")
 
 	_, err := Carregar(caminho)
-	if err == nil {
-		t.Fatal("esperava erro por GEMINI_API_KEY ausente, veio nil")
+	if err == nil || !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+		t.Fatalf("esperava erro citando GEMINI_API_KEY, veio %v", err)
 	}
 }
 
 func TestCarregarFalhaSemDatabaseURL(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "")
 	caminho := escreverToml(t, t.TempDir(), "")
 
@@ -39,6 +42,7 @@ func TestCarregarFalhaSemDatabaseURL(t *testing.T) {
 
 func TestCarregarAplicaDefaults(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
 	caminho := escreverToml(t, t.TempDir(), "")
 
@@ -59,9 +63,11 @@ func TestCarregarAplicaDefaults(t *testing.T) {
 
 func TestCarregarLeValoresDoToml(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
 	caminho := escreverToml(t, t.TempDir(), `
 [agente]
+provedor = "gemini"
 modelo = "gemini-2.5-pro"
 max_iteracoes = 8
 
@@ -86,9 +92,11 @@ timeout_aprovacao_segundos = 60
 
 func TestCarregarRejeitaModeloDescartado(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
 	caminho := escreverToml(t, t.TempDir(), `
 [agente]
+provedor = "gemini"
 modelo = "gemini-2.5-flash-lite"
 `)
 
@@ -105,6 +113,7 @@ func TestCarregarAplicaDefaultsDeFerramentas(t *testing.T) {
 		t.Fatalf("erro ao escrever config: %v", err)
 	}
 	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x")
 
 	cfg, err := Carregar(caminho)
@@ -154,6 +163,7 @@ max_resultados = 3
 		t.Fatalf("erro ao escrever config: %v", err)
 	}
 	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x")
 
 	cfg, err := Carregar(caminho)
@@ -183,6 +193,7 @@ max_resultados = 3
 
 func TestCarregarAplicaDefaultsDaMemoriaDuravel(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "chave-de-teste")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5433/james")
 
 	cfg, err := Carregar(filepath.Join(t.TempDir(), "nao-existe.toml"))
@@ -202,6 +213,7 @@ func TestCarregarAplicaDefaultsDaMemoriaDuravel(t *testing.T) {
 func TestCarregarEnvDoClaudeCodeVenceOToml(t *testing.T) {
 	caminho := escreverToml(t, t.TempDir(), "[ferramentas.claude_code]\ndiretorio = \"C:\\\\no\\\\windows\"\n")
 	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x")
 	t.Setenv("JAMES_CLAUDE_CODE_DIRETORIO", "/home/arthur/workspace")
 
@@ -217,6 +229,7 @@ func TestCarregarEnvDoClaudeCodeVenceOToml(t *testing.T) {
 func TestCarregarEnvVaziaDoClaudeCodeNaoApagaOToml(t *testing.T) {
 	caminho := escreverToml(t, t.TempDir(), "[ferramentas.claude_code]\ndiretorio = \"/do/toml\"\n")
 	t.Setenv("GEMINI_API_KEY", "chave")
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
 	t.Setenv("DATABASE_URL", "postgres://x")
 	t.Setenv("JAMES_CLAUDE_CODE_DIRETORIO", "")
 
@@ -226,5 +239,147 @@ func TestCarregarEnvVaziaDoClaudeCodeNaoApagaOToml(t *testing.T) {
 	}
 	if cfg.ClaudeCodeDiretorio != "/do/toml" {
 		t.Errorf("ClaudeCodeDiretorio = %q, queria o do toml", cfg.ClaudeCodeDiretorio)
+	}
+}
+
+// --- provedor do agente e motor de voz (spec 2026-10-10 voz em tempo real) ---
+
+func ambienteBase(t *testing.T) {
+	t.Helper()
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("CLAUDE_API_KEY", "")
+	t.Setenv("DATABASE_URL", "postgres://x:y@localhost:5434/james")
+}
+
+func TestCarregarPadraoEhAnthropicHaiku(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	cfg, err := Carregar(escreverToml(t, t.TempDir(), ""))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.Provedor != "anthropic" {
+		t.Errorf("Provedor = %q, queria anthropic", cfg.Provedor)
+	}
+	if cfg.Modelo != "claude-haiku-5-5" {
+		t.Errorf("Modelo = %q, queria claude-haiku-5-5", cfg.Modelo)
+	}
+	if cfg.ClaudeAPIKey != "sk-ant-teste" {
+		t.Errorf("ClaudeAPIKey não chegou da env")
+	}
+}
+
+func TestCarregarAnthropicSemChaveFalhaCitandoAVariavel(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("GEMINI_API_KEY", "chave-do-gemini") // não substitui a da Anthropic
+
+	_, err := Carregar(escreverToml(t, t.TempDir(), ""))
+	if err == nil || !strings.Contains(err.Error(), "CLAUDE_API_KEY") {
+		t.Fatalf("esperava erro citando CLAUDE_API_KEY, veio %v", err)
+	}
+}
+
+func TestCarregarAnthropicNaoExigeChaveDoGemini(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	if _, err := Carregar(escreverToml(t, t.TempDir(), "")); err != nil {
+		t.Fatalf("GEMINI_API_KEY não deveria ser obrigatória com provedor anthropic: %v", err)
+	}
+}
+
+func TestCarregarGeminiAindaFunciona(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("GEMINI_API_KEY", "chave-do-gemini")
+
+	cfg, err := Carregar(escreverToml(t, t.TempDir(), "[agente]\nprovedor = \"gemini\"\nmodelo = \"gemini-2.5-flash\"\n"))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.Provedor != "gemini" || cfg.Modelo != "gemini-2.5-flash" {
+		t.Errorf("provedor/modelo = %q/%q", cfg.Provedor, cfg.Modelo)
+	}
+}
+
+func TestCarregarRejeitaProvedorDesconhecido(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	_, err := Carregar(escreverToml(t, t.TempDir(), "[agente]\nprovedor = \"openai\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "openai") {
+		t.Fatalf("esperava erro nomeando o provedor inválido, veio %v", err)
+	}
+}
+
+func TestCarregarModeloDoGeminiEmProvedorAnthropicNaoVale(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	// A regra do flash-lite é do Gemini; com anthropic o modelo é livre.
+	cfg, err := Carregar(escreverToml(t, t.TempDir(), "[agente]\nmodelo = \"claude-sonnet-5-5\"\n"))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.Modelo != "claude-sonnet-5-5" {
+		t.Errorf("Modelo = %q", cfg.Modelo)
+	}
+}
+
+func TestCarregarVozPadraoEhPiperLocal(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	cfg, err := Carregar(escreverToml(t, t.TempDir(), ""))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.MotorVoz != "piper" {
+		t.Errorf("MotorVoz = %q, queria piper", cfg.MotorVoz)
+	}
+	if cfg.TTSURL != "http://127.0.0.1:8180" {
+		t.Errorf("TTSURL = %q, queria http://127.0.0.1:8180", cfg.TTSURL)
+	}
+}
+
+func TestCarregarLeMotorEUrlDeVozDoToml(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	cfg, err := Carregar(escreverToml(t, t.TempDir(), "[voz]\nmotor = \"edge\"\ntts_url = \"http://127.0.0.1:9999\"\n"))
+	if err != nil {
+		t.Fatalf("Carregar devolveu erro: %v", err)
+	}
+	if cfg.MotorVoz != "edge" || cfg.TTSURL != "http://127.0.0.1:9999" {
+		t.Errorf("motor/url = %q/%q", cfg.MotorVoz, cfg.TTSURL)
+	}
+}
+
+func TestCarregarRejeitaMotorDeVozDesconhecido(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	_, err := Carregar(escreverToml(t, t.TempDir(), "[voz]\nmotor = \"festival\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "festival") {
+		t.Fatalf("esperava erro nomeando o motor inválido, veio %v", err)
+	}
+}
+
+func TestCarregarTTSURLSoAceitaLoopback(t *testing.T) {
+	ambienteBase(t)
+	t.Setenv("CLAUDE_API_KEY", "sk-ant-teste")
+
+	// O servidor de TTS é local e sem autenticação: apontar pra fora mandaria
+	// o texto das respostas (que podem ter dado pessoal) pra rede.
+	for _, url := range []string{"http://192.168.0.5:8180", "http://exemplo.invalid:8180", "https://127.0.0.1.evil.invalid"} {
+		_, err := Carregar(escreverToml(t, t.TempDir(), "[voz]\ntts_url = \""+url+"\"\n"))
+		if err == nil {
+			t.Errorf("tts_url %q deveria ser recusada (não é loopback)", url)
+		}
+	}
+	for _, url := range []string{"http://127.0.0.1:8180", "http://localhost:8180", "http://[::1]:8180"} {
+		if _, err := Carregar(escreverToml(t, t.TempDir(), "[voz]\ntts_url = \""+url+"\"\n")); err != nil {
+			t.Errorf("tts_url %q deveria ser aceita: %v", url, err)
+		}
 	}
 }

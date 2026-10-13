@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -395,5 +396,51 @@ func TestWSDispositivoEntradaDeVozRespostaFinalCarregaSessaoID(t *testing.T) {
 	}
 	if dadosRecebidos.SessaoID != criada.String() {
 		t.Errorf("sessao_id em resposta_final = %q, queria o id da sessão criada no banco: %q", dadosRecebidos.SessaoID, criada.String())
+	}
+}
+
+// providerQueAnotaOModo guarda o Modo de cada requisição que chega ao modelo.
+type providerQueAnotaOModo struct {
+	mu    sync.Mutex
+	modos []agente.Modo
+}
+
+func (p *providerQueAnotaOModo) Gerar(ctx context.Context, req agente.Requisicao) (agente.Resposta, error) {
+	p.mu.Lock()
+	p.modos = append(p.modos, req.Modo)
+	p.mu.Unlock()
+	return agente.Resposta{Texto: "ok"}, nil
+}
+
+func (p *providerQueAnotaOModo) GerarStream(ctx context.Context, req agente.Requisicao, emitir func(string)) (agente.Resposta, error) {
+	return p.Gerar(ctx, req)
+}
+
+func (p *providerQueAnotaOModo) ultimoModo(t *testing.T) agente.Modo {
+	t.Helper()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.modos) == 0 {
+		t.Fatal("o provider não recebeu nenhuma requisição")
+	}
+	return p.modos[len(p.modos)-1]
+}
+
+// Voz desliga o pensamento (rápido), texto pensa (correto). Quem decide é o
+// canal por onde o turno entrou, não o conteúdo.
+func TestTurnoDeVozPassaModoVozETurnoDeTextoPassaModoTexto(t *testing.T) {
+	servidor, s := servidorComDispositivoDeTeste(t)
+	defer servidor.Close()
+	anota := &providerQueAnotaOModo{}
+	s.Loop.Provider = anota
+
+	capturarEventosDeEntradaDeVozNoServidor(t, servidor, "que horas são")
+	if got := anota.ultimoModo(t); got != agente.ModoVoz {
+		t.Errorf("turno de voz: modo = %v, queria ModoVoz", got)
+	}
+
+	capturarEventosDeUmTurnoNoServidor(t, servidor, "que horas são")
+	if got := anota.ultimoModo(t); got != agente.ModoTexto {
+		t.Errorf("turno de texto: modo = %v, queria ModoTexto", got)
 	}
 }

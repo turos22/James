@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -95,5 +97,57 @@ func TestRegistrarTerminalRegistraQuandoSuportado(t *testing.T) {
 	}
 	if _, ok := registro.Buscar("executar_comando_sistema"); !ok {
 		t.Error("terminal não registrado numa plataforma com suporte")
+	}
+}
+
+func TestConstruirProvedorEscolhePelaConfig(t *testing.T) {
+	casos := []struct {
+		nome    string
+		cfg     config.Config
+		tipo    string
+		querErr bool
+	}{
+		{"anthropic", config.Config{Provedor: "anthropic", ClaudeAPIKey: "sk-ant-teste", Modelo: "claude-haiku-5-5"}, "*anthropic.Provider", false},
+		{"gemini", config.Config{Provedor: "gemini", GeminiAPIKey: "chave", Modelo: "gemini-2.5-flash"}, "*gemini.Provider", false},
+		{"desconhecido", config.Config{Provedor: "openai"}, "", true},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			p, err := construirProvedor(context.Background(), &c.cfg)
+			if c.querErr {
+				if err == nil {
+					t.Fatal("esperava erro, veio nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("construirProvedor devolveu erro: %v", err)
+			}
+			if got := fmt.Sprintf("%T", p); got != c.tipo {
+				t.Errorf("tipo = %s, queria %s", got, c.tipo)
+			}
+		})
+	}
+}
+
+func TestConstruirSintetizadorEscolhePeloMotor(t *testing.T) {
+	piper, err := construirSintetizador(&config.Config{MotorVoz: "piper", TTSURL: "http://127.0.0.1:8180"}, "audios")
+	if err != nil {
+		t.Fatalf("piper devolveu erro: %v", err)
+	}
+	if piper.Extensao != ".wav" {
+		t.Errorf("piper: Extensao = %q, queria .wav", piper.Extensao)
+	}
+
+	edge, err := construirSintetizador(&config.Config{MotorVoz: "edge"}, "audios")
+	if err != nil {
+		t.Fatalf("edge devolveu erro: %v", err)
+	}
+	if edge.Extensao != "" {
+		t.Errorf("edge: Extensao = %q, queria vazia (mp3 por padrão)", edge.Extensao)
+	}
+
+	if _, err := construirSintetizador(&config.Config{MotorVoz: "festival"}, "audios"); err == nil {
+		t.Error("motor desconhecido deveria devolver erro")
 	}
 }

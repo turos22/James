@@ -5,9 +5,14 @@ cert_arquivo = "certs/tailscale.crt"
 chave_arquivo = "certs/tailscale.key"
 
 [agente]
-# Conferir a lista vigente de modelos Gemini antes de trocar. Proibido:
-# gemini-2.5-flash-lite (mais fraco da família).
-modelo = "gemini-2.5-flash"
+# Quem responde: "anthropic" (Claude, padrão) ou "gemini". A chave do
+# Claude vem de CLAUDE_API_KEY no .env, nunca daqui.
+provedor = "anthropic"
+# Haiku 5.5: rápido e barato (US$ 0,10 / 0,50 por milhão de tokens). Na voz o
+# pensamento fica desligado; no texto ele pensa com esforço baixo.
+# Se voltar para provedor = "gemini", troque o modelo (ex.: "gemini-2.5-flash",
+# e nunca "gemini-2.5-flash-lite", o mais fraco da família).
+modelo = "claude-haiku-5-5"
 max_iteracoes = 5
 timeout_segundos = 30
 
@@ -31,6 +36,14 @@ timeout_aprovacao_segundos = 300
 # tem timbre mais claro e cadência mais rápida. Trocar aqui é a única
 # mudança necessária; o Sintetizador só repassa a string pro edge-tts.
 voz_tts = "en-US-AndrewMultilingualNeural"
+
+# Quem sintetiza a resposta do turno de texto: "piper" (local, padrão) ou
+# "edge" (edge-tts, na nuvem da Microsoft; hoje recusa as conexões com HTTP
+# 403). tts_url é o servidor de TTS local do Piper e só aceita loopback (o
+# texto das respostas pode ter dado pessoal). O servidor é o
+# dispositivo/james_device/servidor_tts.py, que o executar.sh sobe.
+motor = "piper"
+tts_url = "http://127.0.0.1:8180"
 
 [ferramentas.terminal]
 # Comando que passar disso é morto e reportado como timeout.

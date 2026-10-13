@@ -4,6 +4,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 
@@ -13,6 +15,7 @@ import (
 
 type Config struct {
 	GeminiAPIKey string
+	ClaudeAPIKey string
 	TavilyAPIKey string
 	DatabaseURL  string
 
@@ -21,6 +24,8 @@ type Config struct {
 	CertArquivo  string
 	ChaveArquivo string
 
+	// Provedor é quem responde: "anthropic" (padrão) ou "gemini".
+	Provedor        string
 	Modelo          string
 	MaxIteracoes    int
 	TimeoutSegundos int
@@ -46,6 +51,11 @@ type Config struct {
 	BuscaMaxResultados   int
 
 	VozTTS string
+
+	// MotorVoz é quem sintetiza a resposta do turno de texto: "piper" (padrão,
+	// local) ou "edge". TTSURL é o servidor de TTS do Piper, sempre loopback.
+	MotorVoz string
+	TTSURL   string
 }
 
 type arquivoToml struct {
@@ -56,6 +66,7 @@ type arquivoToml struct {
 		ChaveArquivo string `toml:"chave_arquivo"`
 	} `toml:"servidor"`
 	Agente struct {
+		Provedor        string `toml:"provedor"`
 		Modelo          string `toml:"modelo"`
 		MaxIteracoes    int    `toml:"max_iteracoes"`
 		TimeoutSegundos int    `toml:"timeout_segundos"`
@@ -85,12 +96,39 @@ type arquivoToml struct {
 	} `toml:"ferramentas"`
 	Voz struct {
 		VozTTS string `toml:"voz_tts"`
+		Motor  string `toml:"motor"`
+		TTSURL string `toml:"tts_url"`
 	} `toml:"voz"`
 }
 
 // modeloDescartado é o único modelo proibido pela spec — o mais fraco da
 // família Gemini, causa provável do planejamento ruim de tools no app antigo.
 const modeloDescartado = "gemini-2.5-flash-lite"
+
+const (
+	provedorPadrao = "anthropic"
+	motorVozPadrao = "piper"
+	ttsURLPadrao   = "http://127.0.0.1:8180"
+)
+
+// exigirLoopback recusa qualquer URL cujo host não seja loopback. O servidor
+// de TTS é local e não tem autenticação, e recebe o texto das respostas, que
+// pode ter dado pessoal: apontá-lo pra fora da máquina é vazamento, e não
+// existe motivo legítimo pra isso.
+func exigirLoopback(bruta string) error {
+	u, err := url.Parse(bruta)
+	if err != nil || u.Hostname() == "" {
+		return fmt.Errorf("URL inválida %q", bruta)
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("%q não é loopback (use 127.0.0.1, localhost ou ::1)", host)
+}
 
 // Carregar lê o .env (mesmo diretório do config.toml, se existir) e o
 // config.toml em caminhoToml, aplica defaults e falha rápido se faltar
@@ -107,6 +145,7 @@ func Carregar(caminhoToml string) (*Config, error) {
 
 	cfg := &Config{
 		GeminiAPIKey: os.Getenv("GEMINI_API_KEY"),
+		ClaudeAPIKey: os.Getenv("CLAUDE_API_KEY"),
 		TavilyAPIKey: os.Getenv("TAVILY_API_KEY"),
 		DatabaseURL:  os.Getenv("DATABASE_URL"),
 
@@ -115,7 +154,8 @@ func Carregar(caminhoToml string) (*Config, error) {
 		CertArquivo:  valorOuDefault(arq.Servidor.CertArquivo, "certs/tailscale.crt"),
 		ChaveArquivo: valorOuDefault(arq.Servidor.ChaveArquivo, "certs/tailscale.key"),
 
-		Modelo:          valorOuDefault(arq.Agente.Modelo, "gemini-2.5-flash"),
+		Provedor:        valorOuDefault(arq.Agente.Provedor, provedorPadrao),
+		Modelo:          arq.Agente.Modelo, // o padrão depende do provedor, abaixo
 		MaxIteracoes:    intOuDefault(arq.Agente.MaxIteracoes, 5),
 		TimeoutSegundos: intOuDefault(arq.Agente.TimeoutSegundos, 30),
 
@@ -135,7 +175,9 @@ func Carregar(caminhoToml string) (*Config, error) {
 		BuscaTimeoutSegundos: intOuDefault(arq.Ferramentas.Busca.TimeoutSegundos, 20),
 		BuscaMaxResultados:   intOuDefault(arq.Ferramentas.Busca.MaxResultados, 5),
 
-		VozTTS: valorOuDefault(arq.Voz.VozTTS, "pt-BR-AntonioNeural"),
+		VozTTS:   valorOuDefault(arq.Voz.VozTTS, "pt-BR-AntonioNeural"),
+		MotorVoz: valorOuDefault(arq.Voz.Motor, motorVozPadrao),
+		TTSURL:   valorOuDefault(arq.Voz.TTSURL, ttsURLPadrao),
 	}
 
 	// O config.toml é versionado e serve Windows e Fedora; o caminho do
@@ -144,8 +186,22 @@ func Carregar(caminhoToml string) (*Config, error) {
 		cfg.ClaudeCodeDiretorio = d
 	}
 
+	// O modelo padrão acompanha o provedor: um único default global daria
+	// "gemini-2.5-flash" mandado pra API da Anthropic.
+	switch cfg.Provedor {
+	case "anthropic":
+		cfg.Modelo = valorOuDefault(cfg.Modelo, "claude-haiku-5-5")
+	case "gemini":
+		cfg.Modelo = valorOuDefault(cfg.Modelo, "gemini-2.5-flash")
+	default:
+		return nil, fmt.Errorf("provedor %q desconhecido em [agente] provedor (use \"anthropic\" ou \"gemini\")", cfg.Provedor)
+	}
+
 	var faltando []string
-	if cfg.GeminiAPIKey == "" {
+	if cfg.Provedor == "anthropic" && cfg.ClaudeAPIKey == "" {
+		faltando = append(faltando, "CLAUDE_API_KEY")
+	}
+	if cfg.Provedor == "gemini" && cfg.GeminiAPIKey == "" {
 		faltando = append(faltando, "GEMINI_API_KEY")
 	}
 	if cfg.DatabaseURL == "" {
@@ -155,8 +211,16 @@ func Carregar(caminhoToml string) (*Config, error) {
 		return nil, fmt.Errorf("configuração incompleta, faltando: %s", strings.Join(faltando, ", "))
 	}
 
-	if cfg.Modelo == modeloDescartado {
+	// A proibição do flash-lite é da família Gemini.
+	if cfg.Provedor == "gemini" && cfg.Modelo == modeloDescartado {
 		return nil, fmt.Errorf("modelo %q está descartado pela spec (o mais fraco da família Gemini)", modeloDescartado)
+	}
+
+	if cfg.MotorVoz != "piper" && cfg.MotorVoz != "edge" {
+		return nil, fmt.Errorf("motor de voz %q desconhecido em [voz] motor (use \"piper\" ou \"edge\")", cfg.MotorVoz)
+	}
+	if err := exigirLoopback(cfg.TTSURL); err != nil {
+		return nil, fmt.Errorf("[voz] tts_url: %w", err)
 	}
 
 	return cfg, nil

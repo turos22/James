@@ -33,6 +33,16 @@ type Loop struct {
 	// nos testes deste pacote.
 	AoIniciarFerramenta  func(ChamadaFerramenta)
 	AoConcluirFerramenta func(ResultadoFerramenta)
+
+	// AoDelta, quando não-nil, liga o streaming: o loop usa GerarStream e
+	// repassa cada pedaço de texto assim que chega, em TODAS as rodadas,
+	// inclusive o que o modelo diz antes de chamar uma ferramenta ("vou abrir
+	// o Firefox") — é o que a voz fala enquanto a ferramenta roda. Nil
+	// mantém o comportamento de sempre (Gerar, resposta inteira).
+	AoDelta func(string)
+
+	// Modo vai em cada requisição ao provedor. O valor zero é ModoTexto.
+	Modo Modo
 }
 
 // SolicitarAprovacao pergunta a um cliente privilegiado se autoriza uma
@@ -47,6 +57,7 @@ type SolicitarAprovacao func(ctx context.Context, chamada ChamadaFerramenta) (ap
 // (para persistência pelo chamador).
 func (l *Loop) Executar(ctx context.Context, sistema string, historico []Mensagem, entrada Mensagem, perfil permissao.Perfil, solicitarAprovacao SolicitarAprovacao) (Resposta, []Mensagem, error) {
 	mensagens := append(append([]Mensagem{}, historico...), entrada)
+	var uso Uso // total do turno: cada rodada de ferramenta é uma chamada ao modelo
 
 	for i := 0; i < l.MaxIteracoes; i++ {
 		// Defesa em profundidade: um cliente WS desconectado cancela o
@@ -56,15 +67,17 @@ func (l *Loop) Executar(ctx context.Context, sistema string, historico []Mensage
 			return Resposta{}, mensagens, err
 		}
 
-		req := Requisicao{Sistema: sistema, Mensagens: mensagens, Declaracoes: l.Ferramentas.Declaracoes()}
+		req := Requisicao{Sistema: sistema, Mensagens: mensagens, Declaracoes: l.Ferramentas.Declaracoes(), Modo: l.Modo}
 		resp, err := l.gerar(ctx, req)
 		if err != nil {
 			return Resposta{}, mensagens, fmt.Errorf("provider: %w", err)
 		}
 
 		mensagens = append(mensagens, Mensagem{Papel: PapelModelo, Texto: resp.Texto, Chamadas: resp.Chamadas})
+		uso = uso.Somar(resp.Uso)
 
 		if len(resp.Chamadas) == 0 {
+			resp.Uso = uso
 			return resp, mensagens, nil
 		}
 
@@ -89,6 +102,9 @@ func (l *Loop) gerar(ctx context.Context, req Requisicao) (Resposta, error) {
 		var cancelar context.CancelFunc
 		ctxProvider, cancelar = context.WithTimeout(ctx, l.TimeoutProvider)
 		defer cancelar()
+	}
+	if l.AoDelta != nil {
+		return l.Provider.GerarStream(ctxProvider, req, l.AoDelta)
 	}
 	return l.Provider.Gerar(ctxProvider, req)
 }

@@ -121,7 +121,7 @@ func (s *Servidor) tratarMensagem(ctx context.Context, cliente *conexaoCliente, 
 	}
 
 	aoIniciar, aoConcluir := hooksDeFerramenta(emitir)
-	resp, audioID, err := s.processarTurno(ctx, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir)
+	resp, audioID, err := s.processarTurno(ctx, agente.ModoTexto, cliente.Perfil(), sessaoID, historico, dados.Texto, aoIniciar, aoConcluir, nil)
 	if err != nil {
 		emitir("erro", payloadErro{Mensagem: mensagemDeErroDoTurno(err, "texto")})
 		return
@@ -240,7 +240,20 @@ func (s *Servidor) tratarNovaSessao(cliente *conexaoCliente, envelope Envelope, 
 // (Task 15/4.7 da spec — TTS entregue ao cliente). Devolve a resposta e o
 // id do áudio gerado (vazio se não gerou); quem chama decide pra quem os
 // eventos intermediários e o audio_pronto vão.
-func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, sessaoID *uuid.UUID, historico *[]agente.Mensagem, texto string, aoIniciar func(agente.ChamadaFerramenta), aoConcluir func(agente.ResultadoFerramenta)) (agente.Resposta, string, error) {
+func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil permissao.Perfil, sessaoID *uuid.UUID, historico *[]agente.Mensagem, texto string, aoIniciar func(agente.ChamadaFerramenta), aoConcluir func(agente.ResultadoFerramenta), aoDelta func(string)) (agente.Resposta, string, error) {
+	inicioDoTurno := time.Now()
+	// Tempo até o primeiro pedaço de texto do modelo: é o que o jamesd soma à
+	// latência da voz (-1 quando não há streaming).
+	primeiroDelta := int64(-1)
+	if aoDelta != nil {
+		original := aoDelta
+		aoDelta = func(d string) {
+			if primeiroDelta < 0 {
+				primeiroDelta = time.Since(inicioDoTurno).Milliseconds()
+			}
+			original(d)
+		}
+	}
 	if *sessaoID == uuid.Nil {
 		sessao, err := s.Sessoes.Criar(ctx, texto)
 		if err != nil {
@@ -288,6 +301,8 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	loop := *s.Loop
 	loop.AoIniciarFerramenta = aoIniciar
 	loop.AoConcluirFerramenta = aoConcluir
+	loop.Modo = modo
+	loop.AoDelta = aoDelta
 
 	// Ferramentas que mantêm estado por conversa (perguntar_ao_claude_code)
 	// leem o id da sessão daqui — é o único canal que atravessa api → agente
@@ -298,11 +313,21 @@ func (s *Servidor) processarTurno(ctx context.Context, perfil permissao.Perfil, 
 	if err != nil {
 		return agente.Resposta{}, "", err
 	}
+	// Uma linha por turno com os tokens: o teto do Arthur é de R$ 20 a 30 por
+	// mês, e o gasto só é controlável se for visível.
+	slog.Info("turno", "modo", nomeDoModo(modo), "entrada", resp.Uso.Entrada, "saida", resp.Uso.Saida,
+		"cache", resp.Uso.CacheLeitura, "pensamento", resp.Uso.Pensamento,
+		"primeiro_delta_ms", primeiroDelta, "dur_ms", time.Since(inicioDoTurno).Milliseconds())
 
 	*historico = mensagens
 	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, tamanhoAntes)
 
-	audioID := s.gerarAudioDaResposta(ctx, resp.Texto)
+	// Na voz quem fala é o device, frase a frase, enquanto o modelo escreve.
+	// Gerar áudio aqui também faria o James falar duas vezes (device e app).
+	audioID := ""
+	if modo != agente.ModoVoz {
+		audioID = s.gerarAudioDaResposta(ctx, resp.Texto)
+	}
 	return resp, audioID, nil
 }
 
@@ -363,6 +388,13 @@ func (s *Servidor) atualizarResumo(ctx context.Context, sessaoID uuid.UUID, tran
 		slog.Warn("erro ao gravar o resumo, seguindo com ele só neste turno", "erro", err)
 	}
 	return atualizado
+}
+
+func nomeDoModo(m agente.Modo) string {
+	if m == agente.ModoVoz {
+		return "voz"
+	}
+	return "texto"
 }
 
 // gerarAudioDaResposta é melhor-esforço: se o Sintetizador não estiver

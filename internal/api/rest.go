@@ -184,8 +184,24 @@ func (s *Servidor) servirAudio(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id inválido", http.StatusBadRequest)
 		return
 	}
-	caminho := filepath.Join(s.DiretorioAudio, id.String()+".mp3")
-	http.ServeFile(w, r, caminho)
+	for _, f := range formatosDeAudio {
+		caminho := filepath.Join(s.DiretorioAudio, id.String()+f.extensao)
+		if _, err := os.Stat(caminho); err == nil {
+			// Cabeçalho explícito: o Go não conhece .wav na tabela embutida de
+			// tipos, e sem ele o navegador farejaria o conteúdo.
+			w.Header().Set("Content-Type", f.tipo)
+			http.ServeFile(w, r, caminho)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+// formatosDeAudio na ordem de preferência: o Piper gera .wav, o edge-tts
+// gerava .mp3 e pode voltar por config.
+var formatosDeAudio = []struct{ extensao, tipo string }{
+	{".wav", "audio/wav"},
+	{".mp3", "audio/mpeg"},
 }
 
 // excluirAudio apaga o arquivo de áudio gerado depois que o cliente já
@@ -199,10 +215,12 @@ func (s *Servidor) excluirAudio(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id inválido", http.StatusBadRequest)
 		return
 	}
-	caminho := filepath.Join(s.DiretorioAudio, id.String()+".mp3")
-	if err := os.Remove(caminho); err != nil && !os.IsNotExist(err) {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	for _, f := range formatosDeAudio {
+		caminho := filepath.Join(s.DiretorioAudio, id.String()+f.extensao)
+		if err := os.Remove(caminho); err != nil && !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
