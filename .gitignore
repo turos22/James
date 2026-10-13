@@ -65,3 +65,6 @@ dispositivo/wake_candidatos.log
 .executar/
 # venv do device no Linux
 dispositivo/.venv/
+
+# Voz do Piper (modelo ~63 MB), baixada a parte como o vosk/
+vozes/

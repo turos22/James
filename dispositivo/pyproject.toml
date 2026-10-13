@@ -12,12 +12,16 @@ requires-python = ">=3.11"
 # pyautogui, playsound e uiautomation só existem no Windows. No Linux os sons
 # saem pelo pw-play (james_device/plataforma/linux.py) e controle de tela é a
 # fatia B2 (spec 2026-10-09-james-fedora), então não são dependência lá.
+# piper-tts: voz local do James (spec 2026-10-10 voz em tempo real). pysilero-vad
+# detecta fim de fala; é o VAD Silero em ONNX e NÃO depende de nada. Não trocar
+# pelo pacote oficial silero-vad: ele puxa PyTorch e CUDA (gigabytes). requests
+# fala com o whisper-server e o servidor de TTS locais.
 # vosk + PyAudio: wake word offline em stream contínuo (escuta.py). O modelo
 # em si NÃO é dependência de pacote — é baixado à parte e vive em
 # vosk/vosk-model-small-pt-0.3 na raiz do repo, fora do versionamento.
 # PyAudio vira dependência direta aqui porque main.py abre o stream sozinho,
 # em vez de passar pelo sr.Microphone do SpeechRecognition.
-dependencies = ["websockets>=13.0", "SpeechRecognition>=3.10", "pyautogui>=0.9.54; sys_platform == 'win32'", "playsound>=1.2.2,<1.3.0; sys_platform == 'win32'", "uiautomation>=2.0.18; sys_platform == 'win32'", "vosk>=0.3.45", "PyAudio>=0.2.14"]
+dependencies = ["websockets>=13.0", "SpeechRecognition>=3.10", "pyautogui>=0.9.54; sys_platform == 'win32'", "playsound>=1.2.2,<1.3.0; sys_platform == 'win32'", "uiautomation>=2.0.18; sys_platform == 'win32'", "vosk>=0.3.45", "PyAudio>=0.2.14", "piper-tts>=1.8", "pysilero-vad>=3.4", "requests>=2.32"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

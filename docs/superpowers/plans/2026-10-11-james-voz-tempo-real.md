@@ -89,6 +89,8 @@ executar.sh, .gitignore, .env.example              MODIFICAR
 
 ## Fatia 0: ambiente
 
+> **Achado na execução (2026-10-13):** o `edge-tts` está falhando com **HTTP 403** do servidor da Microsoft (`WSServerHandshakeError 403` em `speech.platform.bing.com`), até em frase simples. É o TTS que o James usa hoje na `main`, então o James em `main` está **sem voz de resposta no texto** neste momento. O Piper (Task 9) resolve isso de vez; até lá, `[voz] motor = "edge"` não é opção de volta confiável. O motor `edge` fica no código só por compatibilidade.
+
 ### Task 0: whisper.cpp, voz do Piper e dependências em lugar estável
 
 Não é código, então não há TDD. A prova são os comandos de verificação.
@@ -113,12 +115,12 @@ Não é código, então não há TDD. A prova são os comandos de verificação.
   mkdir -p vozes && U=https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium && curl -sSL -o vozes/pt_BR-faber-medium.onnx "$U/pt_BR-faber-medium.onnx" && curl -sSL -o vozes/pt_BR-faber-medium.onnx.json "$U/pt_BR-faber-medium.onnx.json" && sha256sum vozes/pt_BR-faber-medium.onnx | cut -c1-16
   ```
 
-- [ ] **Passo 4:** `.gitignore` ganha `vozes/`. `pyproject.toml` ganha `piper-tts>=1.8`, `pysilero-vad>=3.4` e `requests>=2.32`, com comentário do porquê (sem torch: o `silero-vad` oficial puxa CUDA). Reinstalar o venv do device e rodar o pytest: tem de continuar 120 passed, 1 skipped.
-- [ ] **Passo 5:** `go get github.com/anthropics/anthropic-sdk-go@v1.80.0 && go mod tidy`. `go build ./...` limpo.
+- [ ] **Passo 4:** `.gitignore` ganha `vozes/`. `pyproject.toml` ganha `piper-tts>=1.8`, `pysilero-vad>=3.4` e `requests>=2.32`, com comentário do porquê (sem torch: o `silero-vad` oficial puxa CUDA). Reinstalar o venv do device e rodar o pytest: tem de continuar **101 passed, 1 skipped** nesta branch (os 19 testes do script de corpus moram na `feat/stt-whisper`).
+- [ ] **Passo 5: não se aplica aqui.** `go mod tidy` remove o SDK da Anthropic enquanto nada o importa. Ele entra no `go.mod` na Task 3, com `go get github.com/anthropics/anthropic-sdk-go@v1.80.0` (exige Go ≥ 1.24; o projeto está em 1.26).
 - [ ] **Passo 6: commit.**
 
   ```bash
-  git add .gitignore dispositivo/pyproject.toml go.mod go.sum && git commit -m "build: dependencias da voz em tempo real (Anthropic SDK, Piper, pysilero-vad)"
+  git add .gitignore dispositivo/pyproject.toml && git commit -m "build: dependencias da voz em tempo real (Anthropic SDK, Piper, pysilero-vad)"
   ```
 
 ---
