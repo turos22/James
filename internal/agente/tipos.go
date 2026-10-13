@@ -44,15 +44,52 @@ type Mensagem struct {
 	Resultados []ResultadoFerramenta
 }
 
+// Modo diz de onde veio o turno, e com isso quanto vale esperar pelo modelo.
+// O provedor Anthropic usa pra decidir se o modelo pensa antes de responder:
+// na voz cada décimo de segundo é ouvido, no texto a qualidade pesa mais. O
+// Gemini ignora este campo.
+//
+// O valor zero é ModoTexto de propósito: quem esquece de preencher ganha o
+// comportamento mais lento e mais correto, nunca a resposta apressada.
+type Modo int
+
+const (
+	ModoTexto Modo = iota
+	ModoVoz
+)
+
 type Requisicao struct {
 	Sistema     string
 	Mensagens   []Mensagem
 	Declaracoes []ferramentas.Declaracao
+	Modo        Modo
+}
+
+// Uso é o consumo de tokens de uma chamada ao modelo. Existe pra o custo ser
+// visível por turno: o teto do Arthur é de R$ 20 a 30 por mês.
+type Uso struct {
+	Entrada      int
+	Saida        int
+	CacheLeitura int
+	Pensamento   int
+}
+
+// Somar devolve a soma dos dois usos, sem alterar nenhum. O loop chama o
+// modelo várias vezes por turno (uma por rodada de ferramenta) e o turno
+// precisa do total.
+func (u Uso) Somar(outro Uso) Uso {
+	return Uso{
+		Entrada:      u.Entrada + outro.Entrada,
+		Saida:        u.Saida + outro.Saida,
+		CacheLeitura: u.CacheLeitura + outro.CacheLeitura,
+		Pensamento:   u.Pensamento + outro.Pensamento,
+	}
 }
 
 type Resposta struct {
 	Texto    string
 	Chamadas []ChamadaFerramenta
+	Uso      Uso
 }
 
 // Provider é a fronteira que torna o loop testável com respostas
