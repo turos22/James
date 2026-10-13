@@ -23,6 +23,8 @@ acústica (tests/test_escuta.py). Quem faz a fiação com o mundo real é main.p
 """
 
 import concurrent.futures
+import dataclasses
+import itertools
 import json
 import logging
 import re
@@ -129,6 +131,11 @@ def _tirar_palavra_parada(texto: str, palavra_parada: str) -> str:
 # ---------------------------------------------------------------------------
 
 BYTES_POR_SEGUNDO = 32000  # PCM 16 kHz, mono, 16 bits
+
+# Depois que o James cala, o microfone ainda pega o rabo da voz dele no ar da
+# sala. Descartar esse tanto antes de abrir a continuação evita transcrever o
+# próprio James.
+GUARDA_ECO_PADRAO_S = 0.4
 
 # Palavras com que ninguém termina uma frase: se a transcrição acaba numa
 # delas, a pessoa ainda está pensando e vale esperar mais um pouco. Já
@@ -348,6 +355,10 @@ def escutar(
     parametros_fim: ParametrosDeFim | None = None,
     executor=None,
     medidor=None,
+    ocupado=None,
+    continuacao_s: float = 0.0,
+    guarda_eco_s: float = GUARDA_ECO_PADRAO_S,
+    ao_nao_entendeu=None,
 ):
     """Laço da escuta. Só retorna quando `fonte_audio` se esgota — com um
     microfone de verdade, isso é nunca.
@@ -362,12 +373,71 @@ def escutar(
     a transcrição sai especulativa. Sem `vad`, vale a janela fixa de
     `janela_segundos`, o comportamento de antes: é o que sobra se o VAD não
     carregar.
+
+    `ocupado` é um callable (Fala.ocupado): enquanto devolver True o James está
+    falando, e o áudio do microfone é DESCARTADO, sem passar pelo Vosk nem pelo
+    VAD, senão a voz dele dispara a wake word. Quando ele cala, e se
+    `continuacao_s` > 0 (e há `vad`), abre uma janela em que voz vira comando
+    SEM wake word, depois de `guarda_eco_s` descartados pra não pegar o rabo da
+    voz dele no ar da sala. `ao_nao_entendeu` é chamado quando alguém falou e a
+    transcrição veio vazia.
     """
     fonte = iter(fonte_audio)
     if vad is not None and executor is None:
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    params = parametros_fim or ParametrosDeFim()
+
+    def entregar(comando_bruto):
+        comando = _tirar_palavra_parada(comando_bruto or "", palavra_parada).strip()
+        if not comando:
+            logger.info("janela fechou sem comando entendido, voltando a dormir")
+            if ao_nao_entendeu is not None:
+                _sem_derrubar(ao_nao_entendeu, "avisar que não entendeu")
+            return
+        logger.info("comando entendido: %r", comando)
+        _sem_derrubar(lambda: ao_comando(comando), "entregar o comando")
+
+    def coletar(origem, parametros):
+        return _sem_derrubar(
+            lambda: coletar_comando(origem, vad, reconhecedor, transcrever_comando, parametros,
+                                    medidor=medidor, executor=executor, palavra_parada=palavra_parada),
+            "coletar o comando",
+        )
+
+    descartando = False  # estava ocupado no chunk anterior
+    guarda = 0           # bytes de eco ainda a descartar
+    retomando = False    # o James acabou de calar: a próxima voz pode ser continuação
 
     for chunk in fonte:
+        if ocupado is not None:
+            if ocupado():
+                descartando = True
+                continue
+            if descartando:
+                descartando = False
+                guarda = round(guarda_eco_s * BYTES_POR_SEGUNDO)
+                retomando = True
+                # O que o Vosk e o VAD guardaram é de antes (ou é a voz do
+                # próprio James): começa limpo.
+                _sem_derrubar(reconhecedor.Reset, "zerar o reconhecedor depois da fala")
+                if vad is not None:
+                    vad.reset()
+            if guarda > 0:
+                guarda -= len(chunk)
+                continue
+            if retomando:
+                retomando = False
+                if vad is not None and continuacao_s > 0:
+                    # O chunk que acabou de chegar é o primeiro da janela.
+                    janela = dataclasses.replace(params, espera_voz_s=continuacao_s)
+                    coleta = coletar(itertools.chain([chunk], fonte), janela)
+                    _sem_derrubar(reconhecedor.Reset, "zerar o reconhecedor depois da continuação")
+                    if coleta is None or coleta.desistiu:
+                        logger.info("sem continuação em %.0fs, volto a exigir a wake word", continuacao_s)
+                        continue
+                    entregar(coleta.texto)
+                    continue
+
         final = reconhecedor.AcceptWaveform(chunk)
         texto = _texto_reconhecido(reconhecedor, final)
         if not texto:
@@ -400,12 +470,7 @@ def escutar(
 
         if vad is not None:
             vad.reset()
-            coleta = _sem_derrubar(
-                lambda: coletar_comando(fonte, vad, reconhecedor, transcrever_comando,
-                                        parametros_fim or ParametrosDeFim(), medidor=medidor,
-                                        executor=executor, palavra_parada=palavra_parada),
-                "coletar o comando",
-            )
+            coleta = coletar(fonte, params)
             audio = None
         else:
             coleta = None
@@ -424,13 +489,6 @@ def escutar(
             if coleta is None or coleta.desistiu:
                 logger.info("janela fechou sem ninguém falar, voltando a dormir")
                 continue
-            comando = coleta.texto
+            entregar(coleta.texto)
         else:
-            comando = _sem_derrubar(lambda: transcrever_comando(audio), "transcrever o comando")
-        comando = _tirar_palavra_parada(comando or "", palavra_parada).strip()
-        if not comando:
-            logger.info("janela fechou sem comando entendido, voltando a dormir")
-            continue
-
-        logger.info("comando entendido: %r", comando)
-        _sem_derrubar(lambda: ao_comando(comando), "entregar o comando")
+            entregar(_sem_derrubar(lambda: transcrever_comando(audio), "transcrever o comando"))
