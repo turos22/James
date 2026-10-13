@@ -245,3 +245,20 @@ def test_frase_longa_tocando_nao_solta_a_escuta_mesmo_passando_do_prazo(montar):
     assert fala.ocupado()
 
     rep.travar.set()
+
+
+def test_mensagem_de_erro_toca_depois_das_frases_que_ja_chegaram(montar):
+    # O erro não pode furar a fila: o Arthur ouviria o aviso e só depois a
+    # frase que veio antes dele.
+    fala, rep, _ = montar()
+    rep.travar = threading.Event()
+
+    fala.comando_enviado()
+    fala.frase(0, "primeira")
+    fala.frase(1, "segunda")
+    assert rep.tocando.wait(3)
+    fala.erro("falhou")
+    rep.travar.set()
+
+    assert fala.aguardar_fim_do_turno(3)
+    assert rep.tocadas == ["primeira", "segunda", "falhou"]

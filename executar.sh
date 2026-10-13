@@ -105,7 +105,17 @@ WHISPER_MODELO="${JAMES_WHISPER_MODELO:-$HOME/.local/share/james/modelos/ggml-la
 
 if [ "${JAMES_STT:-whisper}" = "whisper" ]; then
     if esperar_http "$WHISPER_URL/" 1; then
-        echo "  ok - whisper-server ja estava de pe em $WHISPER_URL (reaproveitando)"
+        # Reaproveitar so vale se ele subiu com o MESMO -ac: o device valida o
+        # teto de comando contra JAMES_WHISPER_AC, e um servidor velho com -ac
+        # menor cortaria o fim dos comandos longos sem nenhum aviso.
+        PID_VELHO=$(ss -ltnpH "sport = :${WHISPER_URL##*:}" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)
+        if [ -z "$PID_VELHO" ] || [ ! -r "/proc/$PID_VELHO/cmdline" ]; then
+            echo "  AVISO: ja ha um whisper-server em $WHISPER_URL e nao consegui conferir o -ac dele; reaproveitando."
+        elif tr '\0' ' ' < "/proc/$PID_VELHO/cmdline" | grep -q -- " -ac $JAMES_WHISPER_AC "; then
+            echo "  ok - whisper-server ja estava de pe em $WHISPER_URL com -ac $JAMES_WHISPER_AC (reaproveitando)"
+        else
+            falhar "ja ha um whisper-server em $WHISPER_URL (pid $PID_VELHO) com outro -ac. Pare-o (kill $PID_VELHO) e rode de novo, ou ajuste JAMES_WHISPER_AC."
+        fi
     elif [ -x "$WHISPER_SERVIDOR" ] && [ -f "$WHISPER_MODELO" ]; then
         # As .so do whisper.cpp ficam ao lado do binario.
         LD_LIBRARY_PATH="$(dirname "$WHISPER_SERVIDOR")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \

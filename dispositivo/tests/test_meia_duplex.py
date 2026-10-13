@@ -171,7 +171,7 @@ def test_nao_entendi_e_chamado_com_texto_vazio_e_abre_a_continuacao():
 
     transcritor = TranscritorQueLembra(["", "repetido"])
     fonte = (
-        [b"wake"] + [bloco(i) for i in range(12)]          # comando que o STT não entende
+        [b"wake"] + [bloco(i) for i in range(22)]          # 1,5 s de fala que o STT não entende
         + [b"wake"] * 3                                     # "Não entendi, pode repetir?"
         + [bloco(100 + i) for i in range(4)]                # guarda
         + [bloco(200 + i) for i in range(12)]               # o Arthur repete, sem wake word
@@ -181,7 +181,7 @@ def test_nao_entendi_e_chamado_com_texto_vazio_e_abre_a_continuacao():
     escuta.escutar(
         fonte_audio=fonte, reconhecedor=reconhecedor, transcrever_comando=transcritor,
         ao_acordar=lambda: None, ao_comando=comandos.append, palavra_parada="",
-        vad=VadFalso(COMANDO + COMANDO), parametros_fim=ParametrosDeFim(), executor=ExecutorSincrono(),
+        vad=VadFalso("V" * 15 + "." * 7 + COMANDO), parametros_fim=ParametrosDeFim(), executor=ExecutorSincrono(),
         ocupado=ocupado, continuacao_s=6.0, guarda_eco_s=0.4, ao_nao_entendeu=nao_entendeu,
     )
 

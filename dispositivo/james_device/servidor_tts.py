@@ -31,7 +31,10 @@ VOZ_PADRAO = "vozes/pt_BR-faber-medium.onnx"
 MAX_BYTES_DO_PEDIDO = 64 * 1024
 MAX_CARACTERES = 20_000
 
+# Onde o servidor pode ESCUTAR (é IPv4: "::1" abriria um socket que ele não tem).
 _ENDERECOS_LOOPBACK = {"127.0.0.1", "localhost"}
+# Que Host o pedido pode declarar: o cabeçalho é de quem pede, e [::1] é loopback.
+_HOSTS_DE_CONFIANCA = _ENDERECOS_LOOPBACK | {"::1"}
 
 
 def _wav_em_bytes(pcm: bytes, taxa: int) -> bytes:
@@ -68,15 +71,35 @@ def criar_servidor(host: str, porta: int, sintetizador) -> ThreadingHTTPServer:
             self.end_headers()
             self.wfile.write(corpo)
 
+        def _pedido_de_confianca(self) -> bool:
+            """Só o jamesd (e quem roda na mesma máquina por loopback) fala com
+            este servidor. Uma página do navegador não pode: o Host tem de ser
+            loopback (contra DNS rebinding) e não pode haver Origin (o jamesd não
+            manda; navegador manda)."""
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+            if host not in _HOSTS_DE_CONFIANCA or self.headers.get("Origin") is not None:
+                self._responder(403, b"proibido")
+                return False
+            return True
+
         def do_GET(self):
+            if not self._pedido_de_confianca():
+                return
             if self.path == "/saude":
                 self._responder(200, b"ok")
             else:
                 self._responder(404, b"nao encontrado")
 
         def do_POST(self):
+            if not self._pedido_de_confianca():
+                return
             if self.path != "/sintetizar":
                 self._responder(404, b"nao encontrado")
+                return
+            # text/plain é "requisição simples": uma página qualquer manda sem
+            # preflight. application/json não, e aqui não há resposta a preflight.
+            if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+                self._responder(415, b"use application/json")
                 return
             try:
                 tamanho = int(self.headers.get("Content-Length", ""))

@@ -140,3 +140,36 @@ def test_usa_o_relogio_injetado_quando_nao_ha_instante(tmp_path):
 
     campos = dict(zip(CABECALHO.split("\t"), linhas(tmp_path / "latencia.tsv")[1].split("\t")))
     assert campos["total_s"] == "1.500"
+
+
+def test_gravacao_assincrona_nao_bloqueia_a_marca_do_primeiro_audio(tmp_path):
+    # O primeiro_audio é marcado ANTES de o som tocar. Se a marca esperasse o
+    # disco, o I/O entraria no caminho crítico que o medidor existe pra medir.
+    import threading
+    import time
+
+    solto = threading.Event()
+    m = Medidor(tmp_path / "latencia.tsv", assincrono=True)
+    escrever_de_verdade = m._escrever_linha
+
+    def devagar(linha):
+        solto.wait(5)
+        escrever_de_verdade(linha)
+
+    m._escrever_linha = devagar
+
+    inicio = time.monotonic()
+    turno_completo(m)
+    demorou = time.monotonic() - inicio
+
+    assert demorou < 0.5, f"a marca esperou o disco ({demorou:.2f}s)"
+    assert not (tmp_path / "latencia.tsv").exists(), "a escrita deveria estar pendente"
+    solto.set()
+    m.esvaziar(timeout=5)
+    assert len(linhas(tmp_path / "latencia.tsv")) == 2
+
+
+def test_modo_sincrono_continua_sendo_o_padrao(tmp_path):
+    m = Medidor(tmp_path / "latencia.tsv")
+    turno_completo(m)
+    assert len(linhas(tmp_path / "latencia.tsv")) == 2, "sem assincrono=True a linha já está no arquivo"

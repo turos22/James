@@ -85,7 +85,11 @@ class Fala:
     def erro(self, mensagem: str) -> None:
         """O turno falhou no jamesd: fala a mensagem segura que ele mandou."""
         with self._cond:
-            self._locais.append(mensagem)
+            # Entra na fila de índices, DEPOIS das frases que já chegaram: se
+            # furasse a fila, o Arthur ouviria o aviso e só então a frase que
+            # veio antes dele. O jamesd não manda mais nada depois de um erro.
+            depois_da_ultima = max(max(self._pendentes, default=-1), self._proximo - 1) + 1
+            self._pendentes[depois_da_ultima] = mensagem
             self._fim = True
             self._ocupado = True
             self._ultima_atividade = self._relogio()

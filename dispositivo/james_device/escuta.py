@@ -137,6 +137,17 @@ BYTES_POR_SEGUNDO = 32000  # PCM 16 kHz, mono, 16 bits
 # próprio James.
 GUARDA_ECO_PADRAO_S = 0.4
 
+# Sinal que vai ao STT ANTES da primeira voz: o começo da fala costuma ser
+# pego pelo VAD um pouco tarde, e cortar a consoante inicial piora o STT. Tem de
+# ser curto: o áudio enviado inclui isto, e teto + pré-roll precisa caber no
+# contexto do -ac do Whisper (ver validar_teto).
+PRE_ROLL_S = 0.2
+
+# Voz mais curta que isto, com transcrição vazia, é ruído (o bipe de acordar que
+# vaza pro microfone, um clique, uma tosse) e não uma fala que o STT não
+# entendeu: o James segue esperando em vez de dizer "não entendi".
+VOZ_MINIMA_S = 1.0
+
 # Palavras com que ninguém termina uma frase: se a transcrição acaba numa
 # delas, a pessoa ainda está pensando e vale esperar mais um pouco. Já
 # normalizadas (sem acento, minúsculas).
@@ -172,10 +183,12 @@ def validar_teto(teto_s: float, audio_ctx: int) -> None:
     """Um comando mais longo que a cobertura do -ac seria cortado em silêncio
     pelo Whisper: o final da frase sumiria sem erro nenhum."""
     cobertura = cobertura_do_audio_ctx(audio_ctx)
-    if teto_s > cobertura:
+    # O áudio enviado leva PRE_ROLL_S de sinal antes da primeira voz.
+    if teto_s + PRE_ROLL_S > cobertura:
         raise ValueError(
-            f"JAMES_COMANDO_MAX_S={teto_s:g}s passa do que o whisper-server cobre com -ac {audio_ctx} "
-            f"({cobertura:.1f}s): o fim do comando seria cortado. Suba o -ac ou baixe o teto."
+            f"JAMES_COMANDO_MAX_S={teto_s:g}s (mais {PRE_ROLL_S:g}s de pré-roll) passa do que o whisper-server "
+            f"cobre com -ac {audio_ctx} ({cobertura:.1f}s): o fim do comando seria cortado. "
+            "Suba o -ac ou baixe o teto."
         )
 
 
@@ -230,6 +243,19 @@ class _MedidorMudo:
         pass
 
 
+def _aparar_ate_a_pre_roll(audio: list, limite_bytes: int) -> list:
+    """`audio` termina no bloco com a primeira voz. Mantém esse bloco e, antes
+    dele, só o silêncio que cabe em `limite_bytes`."""
+    atual, antes = audio[-1], audio[:-1]
+    mantidos, soma = [], 0
+    for bloco in reversed(antes):
+        if soma + len(bloco) > limite_bytes:
+            break
+        mantidos.append(bloco)
+        soma += len(bloco)
+    return list(reversed(mantidos)) + [atual]
+
+
 def coletar_comando(fonte, vad, reconhecedor, transcrever, params: ParametrosDeFim, medidor=None,
                     executor=None, palavra_parada: str = "", agora=time.monotonic) -> Coleta:
     """Junta áudio da MESMA fonte do laço principal até o comando acabar, e
@@ -253,11 +279,18 @@ def coletar_comando(fonte, vad, reconhecedor, transcrever, params: ParametrosDeF
         # transcrição que foi usada, não de quando alguém foi olhar o resultado.
         return transcrever(audio), agora()
 
+    falhou = False
+
     def resultado(futuro):
+        nonlocal falhou
         try:
+            falhou = False
             return futuro.result()
         except Exception:
+            # Falha do STT não é ruído: o Arthur falou, e o James tem de pedir
+            # pra repetir, não ficar esperando em silêncio.
             logger.exception("falha ao transcrever o comando, seguindo sem texto")
+            falhou = True
             return "", agora()
 
     def transcrever_agora(pedacos):
@@ -279,9 +312,11 @@ def coletar_comando(fonte, vad, reconhecedor, transcrever, params: ParametrosDeF
     teto = round(params.comando_max_s * BYTES_POR_SEGUNDO)
     espera = round(params.espera_voz_s * BYTES_POR_SEGUNDO)
 
+    pre_roll = round(PRE_ROLL_S * BYTES_POR_SEGUNDO)
+    voz_minima = round(VOZ_MINIMA_S * BYTES_POR_SEGUNDO)
     audio = []
     houve_voz = False
-    bytes_espera = bytes_comando = bytes_silencio = 0
+    bytes_espera = bytes_comando = bytes_silencio = bytes_voz = 0
     especulacao = None
 
     try:
@@ -296,7 +331,12 @@ def coletar_comando(fonte, vad, reconhecedor, transcrever, params: ParametrosDeF
                     return fechar(transcrever_agora(audio))
 
             if tem_voz:
+                if not houve_voz:
+                    # O silêncio de antes da fala não vai ao STT (só a pré-roll):
+                    # senão ele consome o contexto do -ac e corta o fim do comando.
+                    audio = _aparar_ate_a_pre_roll(audio, pre_roll)
                 houve_voz = True
+                bytes_voz += len(chunk)
                 bytes_silencio = 0
                 if especulacao is not None:
                     especulacao.cancel()
@@ -319,6 +359,20 @@ def coletar_comando(fonte, vad, reconhecedor, transcrever, params: ParametrosDeF
 
             if especulacao is not None and bytes_silencio >= silencio:
                 texto, instante = resultado(especulacao)
+                if not texto.strip() and not falhou and bytes_voz < voz_minima:
+                    logger.info("%.1fs de som sem fala entendida, tratado como ruído; sigo esperando",
+                                bytes_voz / BYTES_POR_SEGUNDO)
+                    # O episódio de ruído conta como espera: se ninguém falar de
+                    # verdade, o prazo de espera_voz_s continua valendo.
+                    bytes_espera += bytes_comando
+                    audio = []
+                    houve_voz = False
+                    bytes_comando = bytes_voz = bytes_silencio = 0
+                    especulacao = None
+                    if bytes_espera >= espera:
+                        logger.info("ninguém falou em %.0fs depois de acordar, desisti", params.espera_voz_s)
+                        return Coleta(texto="", desistiu=True)
+                    continue
                 if not (parece_incompleta(texto) and bytes_silencio < silencio_longo):
                     return fechar((texto, instante))
                 # Frase pela metade: espera até silencio_longo antes de fechar.

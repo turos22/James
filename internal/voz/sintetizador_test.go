@@ -203,3 +203,35 @@ func TestEdgeTambemRecebeOTextoLimpo(t *testing.T) {
 		t.Errorf("o executor recebeu %q, queria o texto sem Markdown", recebido)
 	}
 }
+
+// Truncar em silêncio gravaria um WAV com cabeçalho inconsistente, e o app
+// receberia audio_pronto de um arquivo que não toca.
+func TestPiperAudioMaiorQueOLimiteEErroENaoArquivoTruncado(t *testing.T) {
+	anterior := tamanhoMaximoDeAudio
+	tamanhoMaximoDeAudio = 100
+	t.Cleanup(func() { tamanhoMaximoDeAudio = anterior })
+
+	srv, _ := servidorDeTTS(t, http.StatusOK, make([]byte, 101))
+	dir := t.TempDir()
+	s := NovoSintetizadorPiper(dir, srv.URL)
+
+	if _, err := s.Gerar(context.Background(), "oi", "", "id-1"); err == nil {
+		t.Fatal("áudio acima do limite deveria virar erro")
+	}
+	if itens, _ := os.ReadDir(dir); len(itens) != 0 {
+		t.Errorf("sobrou arquivo truncado: %v", itens)
+	}
+}
+
+func TestPiperAudioExatamenteNoLimiteAindaVale(t *testing.T) {
+	anterior := tamanhoMaximoDeAudio
+	tamanhoMaximoDeAudio = 100
+	t.Cleanup(func() { tamanhoMaximoDeAudio = anterior })
+
+	srv, _ := servidorDeTTS(t, http.StatusOK, make([]byte, 100))
+	s := NovoSintetizadorPiper(t.TempDir(), srv.URL)
+
+	if _, err := s.Gerar(context.Background(), "oi", "", "id-1"); err != nil {
+		t.Fatalf("áudio no limite devia passar: %v", err)
+	}
+}

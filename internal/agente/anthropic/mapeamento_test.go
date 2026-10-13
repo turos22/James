@@ -362,3 +362,51 @@ func TestChamadaSemArgumentosViraMapaVazioNaoNil(t *testing.T) {
 		t.Error("Args = nil; ferramentas leem do mapa e nil quebra a asserção de tipo mais adiante")
 	}
 }
+
+// A API exige que a primeira mensagem seja do usuário. Janela.Montar corta por
+// orçamento de tokens em qualquer fronteira, então a janela pode começar numa
+// mensagem do modelo (e nos resultados de ferramenta dela, que sem o tool_use
+// também dão 400).
+func TestJanelaQueComecaNoModeloVaiAtePrimeiraMensagemDoUsuario(t *testing.T) {
+	req := agente.Requisicao{Mensagens: []agente.Mensagem{
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{{ID: "t1", Nome: "ls"}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{ID: "t1", Nome: "ls", Saida: "a"}}},
+		{Papel: agente.PapelModelo, Texto: "achei um arquivo"},
+		{Papel: agente.PapelUsuario, Texto: "e agora?"},
+		{Papel: agente.PapelModelo, Texto: "agora é com você"},
+	}}
+
+	msgs := mensagensDe(t, req)
+
+	if len(msgs) != 2 {
+		t.Fatalf("%d mensagens, queria 2 (a partir de 'e agora?'): %v", len(msgs), msgs)
+	}
+	if msgs[0].(map[string]any)["role"] != "user" {
+		t.Errorf("a primeira mensagem tem papel %v, queria user", msgs[0].(map[string]any)["role"])
+	}
+	if blocosDe(t, msgs[0])[0]["text"] != "e agora?" {
+		t.Errorf("a janela deveria começar em 'e agora?': %v", msgs[0])
+	}
+}
+
+func TestJanelaSemNenhumaMensagemDoUsuarioFicaVazia(t *testing.T) {
+	req := agente.Requisicao{Mensagens: []agente.Mensagem{
+		{Papel: agente.PapelModelo, Texto: "sozinho"},
+	}}
+	if msgs := mensagensDe(t, req); len(msgs) != 0 {
+		t.Errorf("mensagens = %v, queria nenhuma (a API recusaria uma janela sem usuário)", msgs)
+	}
+}
+
+func TestResultadoDeFerramentaNaoContaComoMensagemDoUsuario(t *testing.T) {
+	// Um "user" feito só de tool_result também não pode abrir a conversa.
+	req := agente.Requisicao{Mensagens: []agente.Mensagem{
+		{Papel: agente.PapelModelo, Chamadas: []agente.ChamadaFerramenta{{ID: "t1", Nome: "ls"}}},
+		{Papel: agente.PapelFerramenta, Resultados: []agente.ResultadoFerramenta{{ID: "t1", Nome: "ls", Saida: "a"}}},
+		{Papel: agente.PapelUsuario, Texto: "oi"},
+	}}
+	msgs := mensagensDe(t, req)
+	if len(msgs) != 1 || blocosDe(t, msgs[0])[0]["type"] != "text" {
+		t.Errorf("mensagens = %v, queria só o 'oi'", msgs)
+	}
+}

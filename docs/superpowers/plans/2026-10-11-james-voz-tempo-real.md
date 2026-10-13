@@ -492,6 +492,21 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
 - [ ] Atualizar o plano com o que fechou e o que ficou aberto, mais a memória do projeto.
 - [ ] Merge em `main` **só com o OK do Arthur**.
 
+**Execução do `/code-review` (2026-10-13, nível high, contra `main`): 10 achados, 9 corrigidos com teste antes e 1 não corrigido.**
+
+| # | Achado | Desfecho |
+|---|---|---|
+| 1 | A janela de histórico podia começar numa mensagem do modelo, e a API exige começar pelo usuário (erro permanente em sessão longa) | **Corrigido** (`comecarPeloUsuario`) |
+| 2 | O silêncio de antes da voz ia inteiro ao STT e podia estourar o `-ac` | **Corrigido**: pré-roll de 0,2 s; `validar_teto` passa a somar o pré-roll |
+| 3 | Ruído curto (o bipe de acordar) fechava o comando vazio e o James dizia "não entendi" | **Corrigido**: voz < 1 s com texto vazio é ruído. Para separar de falha do STT, o transcritor Whisper agora **levanta** `FalhaDeTranscricao` em vez de devolver `""` |
+| 4 | Especulações descartadas continuam rodando e atrasam a final | **Não corrigido**: o `cancel()` já tira da fila as que não começaram; só a que está rodando não dá para abortar (requisição HTTP em voo). Custo máximo ~0,6 s em fala com duas pausas curtas. Medir na Task 19 |
+| 5 | A mensagem de erro furava a fila e tocava antes das frases | **Corrigido** |
+| 6 | Config de voz inválida derrubava também a ponte de tela | **Corrigido** (`configurar_ou_degradar`: com tela desliga só a voz; sem tela falha na partida) |
+| 7 | `executar.sh` reaproveitava um whisper-server velho com `-ac` diferente | **Corrigido** (confere pelo `/proc` e recusa com instrução) |
+| 8 | Áudio acima de 64 MB era truncado sem erro | **Corrigido** |
+| 9 | Gravar o TSV do medidor atrasava o primeiro som | **Corrigido** (escrita assíncrona na thread do medidor) |
+| 10 | O servidor de TTS aceitava pedido de qualquer página do navegador | **Corrigido** (exige `Host` loopback, `Content-Type: application/json` e ausência de `Origin`) |
+
 ---
 
 ## Fora deste plano

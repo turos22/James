@@ -153,6 +153,23 @@ def configurar(env: Mapping) -> ConfiguracaoDeVoz:
     )
 
 
+def configurar_ou_degradar(env: Mapping, tela_disponivel: bool) -> "ConfiguracaoDeVoz | None":
+    """configurar() com a política de falha certa pra cada sistema.
+
+    Com ponte de tela (Windows), configuração de voz inválida desliga SÓ a voz,
+    em voz alta: o controle de tela não tem nada a ver com áudio e não pode
+    morrer por um JAMES_STT digitado errado. Sem ponte de tela (Linux hoje) o
+    device é só voz, então sem voz não há o que manter de pé: falha na partida."""
+    try:
+        return configurar(env)
+    except ValueError as erro:
+        if tela_disponivel:
+            logger.error("configuração de voz inválida, a VOZ fica desligada e a ponte de tela segue: %s", erro)
+            return None
+        logger.error("configuração de voz inválida, o device não sobe: %s", erro)
+        raise SystemExit(2) from erro
+
+
 def criar_ao_comando(fala, conexao, medidor):
     """O que acontece quando um comando está pronto pra sair.
 
@@ -276,13 +293,13 @@ def _montar_fala(medidor: Medidor) -> Fala | None:
 
 
 def main():
-    # Configuração inválida mata o device AQUI, com mensagem clara, e não no
-    # meio de uma fala.
-    config = configurar(os.environ)
+    # Configuração inválida é descoberta AQUI, na partida, e não no meio de uma
+    # fala (ver configurar_ou_degradar pra política de cada sistema).
+    config = configurar_ou_degradar(os.environ, plataforma.TELA_DISPONIVEL)
     if not plataforma.TELA_DISPONIVEL:
         logger.warning("ponte de tela desligada neste sistema (%s); voz segue normal", sys.platform)
-    medidor = Medidor()
-    fala = _montar_fala(medidor)
+    medidor = Medidor(assincrono=True)
+    fala = _montar_fala(medidor) if config is not None else None
     conexao = ConexaoJames(
         URL_JAMESD,
         manipulador_acao=plataforma.ponte_de_tela(),
@@ -290,7 +307,8 @@ def main():
         ao_fala_fim=fala.fim if fala else None,
         ao_fala_erro=fala.erro if fala else None,
     )
-    threading.Thread(target=_thread_de_escuta, args=(conexao, fala, config, medidor), daemon=True).start()
+    if config is not None:
+        threading.Thread(target=_thread_de_escuta, args=(conexao, fala, config, medidor), daemon=True).start()
     # Na thread principal: é a parte que não pode morrer por causa de áudio.
     conexao.executar()
 

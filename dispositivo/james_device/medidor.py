@@ -16,6 +16,7 @@ Marcos de um turno, na ordem em que acontecem:
 """
 
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
@@ -31,12 +32,19 @@ CAMINHO_PADRAO = ".executar/latencia.tsv"
 
 
 class Medidor:
-    def __init__(self, caminho=CAMINHO_PADRAO, agora=time.monotonic):
+    def __init__(self, caminho=CAMINHO_PADRAO, agora=time.monotonic, assincrono=False):
         self._caminho = Path(caminho)
         self._agora = agora
         self._trava = threading.Lock()
         self._marcas: dict[str, float] = {}
         self._turno = 0
+        # Assíncrono: o primeiro_audio é marcado ANTES de o som tocar, e gravar
+        # no disco ali colocaria o I/O no caminho crítico que este medidor existe
+        # pra medir. A linha vai pra uma fila e uma thread grava.
+        self._fila: queue.Queue | None = None
+        if assincrono:
+            self._fila = queue.Queue()
+            threading.Thread(target=self._gravador, name="medidor", daemon=True).start()
 
     def marca(self, nome: str, em: float | None = None) -> None:
         if nome not in NOMES:
@@ -82,6 +90,20 @@ class Medidor:
             "?" if jamesd is None else f"{jamesd:.2f}",
             "?" if tts is None else f"{tts:.2f}",
         )
+        if self._fila is not None:
+            self._fila.put(linha)
+        else:
+            self._escrever_linha(linha)
+
+    def _gravador(self) -> None:
+        while True:
+            linha = self._fila.get()
+            try:
+                self._escrever_linha(linha)
+            finally:
+                self._fila.task_done()
+
+    def _escrever_linha(self, linha: str) -> None:
         try:
             self._caminho.parent.mkdir(parents=True, exist_ok=True)
             novo = not self._caminho.exists() or self._caminho.stat().st_size == 0
@@ -91,4 +113,12 @@ class Medidor:
                 f.write(linha + "\n")
         except OSError:
             # Medir não pode derrubar a voz: o pior caso é perder a linha.
-            logger.exception("falha ao gravar a latência do turno %d em %s", self._turno, self._caminho)
+            logger.exception("falha ao gravar a latência do turno em %s", self._caminho)
+
+    def esvaziar(self, timeout: float = 5.0) -> None:
+        """Espera as linhas pendentes irem pro disco (testes e desligamento)."""
+        if self._fila is None:
+            return
+        fim = time.monotonic() + timeout
+        while self._fila.unfinished_tasks and time.monotonic() < fim:
+            time.sleep(0.01)

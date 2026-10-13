@@ -7,6 +7,7 @@ from james_device.fala import FRASE_SEM_SERVIDOR
 from james_device.main import (
     bloco_do_ambiente,
     configurar,
+    configurar_ou_degradar,
     continuacao_do_ambiente,
     criar_ao_comando,
     guarda_eco_do_ambiente,
@@ -118,3 +119,27 @@ def test_configurar_junta_tudo_e_falha_no_boot_se_algo_estiver_errado():
         configurar({"JAMES_COMANDO_MAX_S": "15"})
     # com o ac certo, 15 s cabe
     assert configurar({"JAMES_COMANDO_MAX_S": "15", "JAMES_WHISPER_AC": "768"}).parametros_fim.comando_max_s == 15.0
+
+
+def test_config_invalida_com_ponte_de_tela_desliga_so_a_voz(caplog):
+    # A ponte de tela não tem nada a ver com áudio: um JAMES_STT digitado errado
+    # não pode derrubar o controle de tela junto.
+    import logging
+
+    with caplog.at_level(logging.ERROR):
+        cfg = configurar_ou_degradar({"JAMES_STT": "deepgram"}, tela_disponivel=True)
+
+    assert cfg is None
+    assert any("JAMES_STT" in r.message for r in caplog.records)
+
+
+def test_config_invalida_sem_ponte_de_tela_mata_o_device_no_boot():
+    # Sem tela, o device é só voz: sem voz não há o que manter de pé.
+    with pytest.raises(SystemExit) as saida:
+        configurar_ou_degradar({"JAMES_STT": "deepgram"}, tela_disponivel=False)
+    assert saida.value.code == 2
+
+
+def test_config_valida_passa_direto():
+    assert configurar_ou_degradar({}, tela_disponivel=True) is not None
+    assert configurar_ou_degradar({}, tela_disponivel=False) is not None

@@ -81,7 +81,7 @@ func NovoSintetizadorPiper(diretorioSaida, urlServidor string) *Sintetizador {
 }
 
 // tamanhoMaximoDeAudio protege o disco de um servidor de TTS defeituoso.
-const tamanhoMaximoDeAudio = 64 << 20
+var tamanhoMaximoDeAudio int64 = 64 << 20
 
 func executarPiper(urlServidor string) func(ctx context.Context, texto, voz, arquivoSaida string) error {
 	cliente := &http.Client{Timeout: 10 * time.Second}
@@ -105,9 +105,15 @@ func executarPiper(urlServidor string) func(ctx context.Context, texto, voz, arq
 			return fmt.Errorf("servidor de TTS devolveu HTTP %d", resp.StatusCode)
 		}
 
-		audio, err := io.ReadAll(io.LimitReader(resp.Body, tamanhoMaximoDeAudio))
+		// Lê um byte a mais que o limite: só assim dá pra distinguir "cabe
+		// exatamente" de "foi cortado". Cortar em silêncio gravaria um WAV com
+		// cabeçalho inconsistente.
+		audio, err := io.ReadAll(io.LimitReader(resp.Body, tamanhoMaximoDeAudio+1))
 		if err != nil {
 			return fmt.Errorf("lendo o áudio do servidor de TTS: %w", err)
+		}
+		if int64(len(audio)) > tamanhoMaximoDeAudio {
+			return fmt.Errorf("servidor de TTS devolveu mais de %d bytes de áudio", tamanhoMaximoDeAudio)
 		}
 		if len(audio) == 0 {
 			return errors.New("servidor de TTS devolveu áudio vazio")

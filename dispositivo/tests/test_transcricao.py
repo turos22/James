@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from james_device.transcricao import FRASE_VAZIA, criar_transcritor, transcritor_whisper
+from james_device.transcricao import FRASE_VAZIA, FalhaDeTranscricao, criar_transcritor, transcritor_whisper
 
 
 class ServidorWhisperFalso:
@@ -101,26 +101,27 @@ def test_audio_vazio_nao_faz_requisicao(whisper):
     assert s.pedidos == []
 
 
-def test_servidor_com_erro_devolve_vazio_e_loga(whisper, caplog):
+def test_servidor_com_erro_levanta_falha_e_loga(whisper, caplog):
     s = whisper(status=500, corpo=b"falhou")
-    with caplog.at_level(logging.WARNING):
-        assert transcritor_whisper(s.url)(PCM) == ""
+    with caplog.at_level(logging.WARNING), pytest.raises(FalhaDeTranscricao):
+        transcritor_whisper(s.url)(PCM)
     assert any("whisper" in r.message.lower() for r in caplog.records)
 
 
-def test_servidor_fora_do_ar_devolve_vazio_e_loga(whisper, caplog):
+def test_servidor_fora_do_ar_levanta_falha_e_loga(whisper, caplog):
     s = whisper()
     url = s.url
     s.fechar()
-    with caplog.at_level(logging.WARNING):
-        assert transcritor_whisper(url)(PCM) == ""
+    with caplog.at_level(logging.WARNING), pytest.raises(FalhaDeTranscricao):
+        transcritor_whisper(url)(PCM)
     assert any("whisper" in r.message.lower() for r in caplog.records)
 
 
 @pytest.mark.parametrize("corpo", [b"isso nao e json", b'{"outra": 1}', b"[]", b'{"text": 5}'])
-def test_resposta_ilegivel_devolve_vazio(whisper, corpo):
+def test_resposta_ilegivel_levanta_falha(whisper, corpo):
     s = whisper(corpo=corpo)
-    assert transcritor_whisper(s.url)(PCM) == ""
+    with pytest.raises(FalhaDeTranscricao):
+        transcritor_whisper(s.url)(PCM)
 
 
 def test_texto_de_silencio_do_whisper_vira_vazio(whisper):
@@ -158,10 +159,11 @@ def test_valor_invalido_falha_no_boot_nomeando_a_variavel():
 
 
 def test_whisper_sem_fallback_para_o_google(whisper, monkeypatch):
-    # Decisão da Parte A: sem fallback para o Google. Se o Whisper cai, o
-    # comando vem vazio, e o James pede pra repetir.
+    # Decisão da Parte A: sem fallback para o Google. Se o Whisper cai, a falha
+    # sobe (e o James pede pra repetir), em vez de o áudio sair pro Google.
     import james_device.transcricao as t
 
     monkeypatch.setattr(t, "transcritor_google", lambda: (_ for _ in ()).throw(AssertionError("chamou o Google")))
     s = whisper(status=500, corpo=b"x")
-    assert criar_transcritor({"JAMES_WHISPER_URL": s.url})(PCM) == ""
+    with pytest.raises(FalhaDeTranscricao):
+        criar_transcritor({"JAMES_WHISPER_URL": s.url})(PCM)

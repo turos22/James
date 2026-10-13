@@ -266,7 +266,14 @@ def test_cobertura_do_audio_ctx():
 
 def test_teto_dentro_da_cobertura_passa():
     validar_teto(10.0, 512)
-    validar_teto(10.2, 512)
+    validar_teto(10.04, 512)
+
+
+def test_a_pre_roll_conta_na_cobertura():
+    # O áudio enviado leva 0,2 s de sinal antes da primeira voz: teto + pré-roll
+    # tem de caber nos 10,24 s do -ac 512, senão o fim do comando é cortado.
+    with pytest.raises(ValueError, match="-ac 512"):
+        validar_teto(10.1, 512)
 
 
 def test_teto_acima_da_cobertura_do_ac_falha_com_mensagem_clara():
@@ -324,3 +331,45 @@ def test_escutar_com_vad_entrega_o_comando_transcrito_na_especulacao():
     )
 
     assert comandos == ["abre o navegador"]
+
+
+# ---------- achados da revisão ----------
+
+def test_silencio_antes_da_voz_nao_vai_ao_stt_so_a_pre_roll():
+    # 3 s de silêncio, depois a fala: o Whisper só pode receber 0,2 s do silêncio
+    # (pré-roll), senão os 3 s consomem o contexto do -ac e cortam o fim.
+    coleta, _, transcritor, _ = coletar("." * 30 + "VVVVV" + "." * 10, textos=["ok"], total_blocos=60)
+
+    assert coleta.texto == "ok"
+    assert transcritor.blocos == [2 + 5 + 1], "2 de pré-roll, 5 de voz e o 1º de silêncio"
+
+
+def test_audio_no_teto_cabe_no_contexto_do_whisper_mesmo_com_silencio_antes():
+    from james_device.escuta import cobertura_do_audio_ctx
+
+    _, _, transcritor, _ = coletar("." * 40 + "V" * 110, total_blocos=160)
+
+    segundos = transcritor.blocos[-1] * 0.1
+    assert segundos <= cobertura_do_audio_ctx(512) + 1e-9, f"{segundos:.2f}s não cabem no -ac 512"
+
+
+def test_ruido_curto_com_stt_vazio_nao_fecha_o_comando():
+    # O bipe de acordar vaza pro microfone e o VAD o chama de voz. Fechar vazio
+    # aqui faria o James dizer "não entendi" antes de o Arthur falar.
+    coleta, _, transcritor, _ = coletar("VV" + "." * 10 + "VVVVV" + "." * 10, textos=["", "abre"], total_blocos=40)
+
+    assert coleta == Coleta(texto="abre", desistiu=False)
+    assert len(transcritor.blocos) == 2
+
+
+def test_so_ruido_desiste_sem_dizer_nao_entendi():
+    coleta, _, _, _ = coletar("VV" + "." * 90, textos=[""], total_blocos=100)
+
+    assert coleta == Coleta(texto="", desistiu=True)
+
+
+def test_fala_de_verdade_com_stt_vazio_ainda_fecha_vazio_pra_dizer_nao_entendi():
+    # 1,5 s de voz que o Whisper não entendeu: aí sim o Arthur falou.
+    coleta, _, _, _ = coletar("V" * 15 + "." * 10, textos=[""], total_blocos=40)
+
+    assert coleta == Coleta(texto="", desistiu=False)

@@ -25,7 +25,7 @@ func paraParams(req agente.Requisicao, modelo string) sdk.MessageNewParams {
 	p := sdk.MessageNewParams{
 		Model:     sdk.Model(modelo),
 		MaxTokens: maxTokens,
-		Messages:  paraMensagens(req.Mensagens),
+		Messages:  comecarPeloUsuario(paraMensagens(req.Mensagens)),
 		Tools:     paraFerramentas(req.Declaracoes),
 	}
 
@@ -47,6 +47,30 @@ func paraParams(req agente.Requisicao, modelo string) sdk.MessageNewParams {
 		p.OutputConfig = sdk.OutputConfigParam{Effort: sdk.OutputConfigEffortLow}
 	}
 	return p
+}
+
+// comecarPeloUsuario descarta o que vem antes da primeira mensagem do usuário
+// com texto. A API exige que a conversa abra com o usuário, e Janela.Montar
+// corta por orçamento de tokens em qualquer fronteira: a janela pode começar
+// numa fala do modelo, ou nos resultados de uma ferramenta cujo tool_use ficou
+// de fora (um user feito só de tool_result também dá 400). Sem isto, uma
+// sessão longa vira erro permanente.
+func comecarPeloUsuario(msgs []sdk.MessageParam) []sdk.MessageParam {
+	for i, m := range msgs {
+		if m.Role != sdk.MessageParamRoleUser {
+			continue
+		}
+		soResultados := true
+		for _, b := range m.Content {
+			if b.OfToolResult == nil {
+				soResultados = false
+			}
+		}
+		if !soResultados {
+			return msgs[i:]
+		}
+	}
+	return nil
 }
 
 func paraFerramentas(decls []ferramentas.Declaracao) []sdk.ToolUnionParam {

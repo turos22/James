@@ -1,8 +1,9 @@
 """O STT do comando: Whisper local (padrão) ou Google, por JAMES_STT.
 
 O contrato é o de sempre, Callable[[bytes], str]: PCM 16 kHz mono 16 bits
-entra, texto sai. Falha devolve "" e loga; quem decide o que fazer com um
-comando vazio é o escutar (que manda o James pedir pra repetir).
+entra, texto sai. Falha LEVANTA FalhaDeTranscricao e loga; texto vazio
+é outra coisa (o STT funcionou e não ouviu fala). Quem decide o que fazer com
+cada caso é o escutar (que manda o James pedir pra repetir).
 
 Sem fallback para o Google quando o Whisper falha (decisão da Parte A): o áudio
 do comando não volta a sair da máquina por baixo dos panos.
@@ -17,6 +18,13 @@ from collections.abc import Mapping
 import requests
 
 logger = logging.getLogger(__name__)
+
+class FalhaDeTranscricao(Exception):
+    """O STT falhou (servidor fora do ar, erro, resposta ilegível). É DIFERENTE
+    de devolver "": texto vazio quer dizer que o STT funcionou e não ouviu fala.
+    Quem escuta precisa da diferença: vazio com pouca voz é ruído e o James
+    segue esperando; falha é "não entendi, pode repetir?"."""
+
 
 TAXA_AMOSTRAGEM = 16000
 LARGURA_AMOSTRA = 2
@@ -72,17 +80,17 @@ def transcritor_whisper(url: str = URL_WHISPER_PADRAO):
             )
             if resp.status_code != 200:
                 logger.warning("whisper-server devolveu HTTP %d, comando sem texto", resp.status_code)
-                return ""
+                raise FalhaDeTranscricao(f"whisper-server devolveu HTTP {resp.status_code}")
             texto = resp.json()["text"]
         except requests.RequestException as erro:
             logger.warning("whisper-server fora do ar ou lento (%s), comando sem texto", erro)
-            return ""
-        except (ValueError, KeyError, TypeError):
+            raise FalhaDeTranscricao("whisper-server fora do ar ou lento") from erro
+        except (ValueError, KeyError, TypeError) as erro:
             logger.warning("resposta ilegível do whisper-server, comando sem texto")
-            return ""
+            raise FalhaDeTranscricao("resposta ilegível do whisper-server") from erro
         if not isinstance(texto, str):
             logger.warning("whisper-server devolveu texto que não é string, comando sem texto")
-            return ""
+            raise FalhaDeTranscricao("o texto do whisper-server não é string")
         texto = texto.strip()
         if _e_alucinacao(texto):
             logger.info("whisper devolveu %r, que não é fala: tratado como vazio", texto)

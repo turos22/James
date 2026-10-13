@@ -118,7 +118,7 @@ def test_sintese_que_quebra_devolve_500_sem_vazar_o_erro():
     assert "secreto" not in corpo and "/home/" not in corpo
 
 
-@pytest.mark.parametrize("endereco", ["0.0.0.0", "192.168.0.10", "::", "exemplo.invalid", ""])
+@pytest.mark.parametrize("endereco", ["0.0.0.0", "192.168.0.10", "::", "::1", "exemplo.invalid", ""])
 def test_recusa_escutar_fora_do_loopback(endereco):
     with pytest.raises(ValueError, match="loopback"):
         criar_servidor(endereco, 0, SintetizadorFalso())
@@ -128,3 +128,46 @@ def test_recusa_escutar_fora_do_loopback(endereco):
 def test_aceita_loopback(endereco):
     srv = criar_servidor(endereco, 0, SintetizadorFalso())
     srv.server_close()
+
+
+# ---------- só o jamesd fala com este servidor, não uma página do navegador ----------
+
+def _cru(srv, metodo, caminho, corpo=b"", cabecalhos=None):
+    import http.client
+
+    conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=5)
+    cab = {"Content-Type": "application/json", **(cabecalhos or {})}
+    conn.request(metodo, caminho, body=corpo, headers=cab)
+    resp = conn.getresponse()
+    resp.read()
+    conn.close()
+    return resp.status
+
+
+def test_post_que_nao_e_json_e_recusado(servidor):
+    # text/plain é "requisição simples": uma página qualquer consegue mandar sem
+    # preflight. application/json não, e este servidor não responde preflight.
+    srv, sint = servidor
+    status = _cru(srv, "POST", "/sintetizar", b'{"texto":"oi."}', {"Content-Type": "text/plain"})
+    assert status == 415
+    assert sint.textos == []
+
+
+def test_host_de_fora_e_recusado_contra_dns_rebinding(servidor):
+    srv, sint = servidor
+    assert _cru(srv, "POST", "/sintetizar", b'{"texto":"oi."}', {"Host": "evil.invalid"}) == 403
+    assert _cru(srv, "GET", "/saude", b"", {"Host": "evil.invalid"}) == 403
+    assert sint.textos == []
+
+
+def test_pedido_com_origin_e_recusado(servidor):
+    # O jamesd não manda Origin. Quem manda é navegador.
+    srv, sint = servidor
+    assert _cru(srv, "POST", "/sintetizar", b'{"texto":"oi."}', {"Origin": "https://evil.invalid"}) == 403
+    assert sint.textos == []
+
+
+def test_pedido_normal_continua_passando(servidor):
+    srv, sint = servidor
+    assert _cru(srv, "POST", "/sintetizar", b'{"texto":"oi."}') == 200
+    assert _cru(srv, "POST", "/sintetizar", b'{"texto":"oi."}', {"Host": f"localhost:{srv.server_address[1]}"}) == 200
