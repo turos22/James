@@ -286,6 +286,7 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   4. Turno de texto (`tratarMensagem`): `audio_pronto` continua vindo, com sintetizador falso.
   5. Erro do provedor num turno de voz: o device recebe `fala_erro` com a mensagem segura (a mesma de `mensagemDeErroDoTurno`).
   6. Turno de voz passa `ModoVoz` ao loop; turno de texto passa `ModoTexto`.
+- [ ] **Teste extra (achado na Task 7):** quando uma ferramenta começa (`AoIniciarFerramenta`), a frase que o modelo acabou de falar ("Vou olhar a tela.") tem de sair **na hora**. O quebrador segura um ponto no fim do buffer até chegar o próximo caractere (para não partir "Haiku 5.5"), e com a ferramenta rodando esse caractere só chega depois dela. Solução: o hook de início de ferramenta chama `quebrador.Fim()` e manda o resultado como `fala_frase`. Teste: provedor falso emite `"Vou ver."`, depois uma chamada de ferramenta lenta; a `fala_frase` com "Vou ver." chega **antes** da ferramenta concluir.
 - [ ] **Implementar:**
   - `tratarEntradaDeVoz` recebe a `*conexaoDispositivo`;
   - monta `AoDelta`: `QuebradorDeFrases` → `LimparParaFala` → `conexao.Enviar(fala_frase)`;
