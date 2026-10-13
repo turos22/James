@@ -464,8 +464,10 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   bash -n executar.sh
   ```
 
-  Depois, subir de verdade e conferir `pgrep -x whisper-server`, `curl -s 127.0.0.1:8180/saude` e o log. A subida completa fica para a Task 19.
-- [ ] Commit: `feat(ambiente): executar.sh sobe o whisper-server e o servidor de TTS`.
+  Depois, subir de verdade e conferir `pgrep -x whisper-server`, `curl -s 127.0.0.1:8180/saude` e o log.
+- [x] **Verificado ao vivo (2026-10-13):** `JAMES_SHELL=nenhum ./executar.sh` sobe Postgres, whisper-server (RX 6650 XT, `-ac 512`), servidor de TTS, jamesd e device, todos respondendo; `TERM` no script derruba tudo e deixa as portas 8179, 8180 e 8080 livres. Foi adicionado o modo `JAMES_SHELL=nenhum` (sem janela) para testes e uso remoto.
+- [x] **Achado:** o `executar.sh` estava `100644` no índice do Git (o `chmod +x` da Task 8 nunca foi registrado) e o repositório tem `core.fileMode=false`, herança do Windows, o que faz o checkout aqui não restaurar o bit de execução. Corrigido com `git update-index --chmod=+x` (índice agora `100755`) e `git config core.fileMode true` **local a este clone**.
+- [x] Commit: `feat(ambiente): executar.sh sobe o whisper-server e o servidor de TTS`.
 
 ---
 
