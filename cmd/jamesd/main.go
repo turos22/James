@@ -19,7 +19,6 @@ import (
 	"james/internal/dispositivo"
 	"james/internal/ferramentas"
 	"james/internal/memoria"
-	"james/internal/voz"
 	"james/web"
 )
 
@@ -102,6 +101,12 @@ func executar() error {
 		return fmt.Errorf("assets da SPA: %w (rodou \"npm run build\" em web/ antes do go build?)", err)
 	}
 
+	sintetizador, err := construirSintetizador(cfg, "audios")
+	if err != nil {
+		return fmt.Errorf("voz: %w", err)
+	}
+	slog.Info("voz do turno de texto", "motor", cfg.MotorVoz)
+
 	servidor := &api.Servidor{
 		Sessoes:        postgres.NovoSessaoRepositorio(pool),
 		Mensagens:      postgres.NovoMensagemRepositorio(pool),
@@ -125,7 +130,7 @@ func executar() error {
 		AprovacoesPendentes: api.NovoRegistroAprovacoesPendentes(),
 		TimeoutAprovacao:    time.Duration(cfg.TimeoutAprovacaoSegundos) * time.Second,
 		DispositivoHub:      dispositivoHub,
-		Sintetizador:        voz.NovoSintetizador("audios"),
+		Sintetizador:        sintetizador,
 		VozTTS:              cfg.VozTTS,
 	}
 

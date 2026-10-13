@@ -11,6 +11,7 @@ import (
 	"james/internal/agente/gemini"
 	"james/internal/config"
 	"james/internal/ferramentas"
+	"james/internal/voz"
 )
 
 // construirComandoSistema aplica timeout e limite de saída vindos do
@@ -73,5 +74,19 @@ func construirProvedor(ctx context.Context, cfg *config.Config) (agente.Provider
 		return p, nil
 	default:
 		return nil, fmt.Errorf("provedor %q desconhecido", cfg.Provedor)
+	}
+}
+
+// construirSintetizador escolhe quem sintetiza a resposta do turno de texto
+// pelo [voz] motor do config.toml. Extraída de executar() pelo mesmo motivo
+// das outras: testar a escolha sem subir o jamesd inteiro.
+func construirSintetizador(cfg *config.Config, diretorioAudio string) (*voz.Sintetizador, error) {
+	switch cfg.MotorVoz {
+	case "piper":
+		return voz.NovoSintetizadorPiper(diretorioAudio, cfg.TTSURL), nil
+	case "edge":
+		return voz.NovoSintetizador(diretorioAudio), nil
+	default:
+		return nil, fmt.Errorf("motor de voz %q desconhecido", cfg.MotorVoz)
 	}
 }

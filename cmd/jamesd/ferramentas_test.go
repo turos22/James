@@ -129,3 +129,25 @@ func TestConstruirProvedorEscolhePelaConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConstruirSintetizadorEscolhePeloMotor(t *testing.T) {
+	piper, err := construirSintetizador(&config.Config{MotorVoz: "piper", TTSURL: "http://127.0.0.1:8180"}, "audios")
+	if err != nil {
+		t.Fatalf("piper devolveu erro: %v", err)
+	}
+	if piper.Extensao != ".wav" {
+		t.Errorf("piper: Extensao = %q, queria .wav", piper.Extensao)
+	}
+
+	edge, err := construirSintetizador(&config.Config{MotorVoz: "edge"}, "audios")
+	if err != nil {
+		t.Fatalf("edge devolveu erro: %v", err)
+	}
+	if edge.Extensao != "" {
+		t.Errorf("edge: Extensao = %q, queria vazia (mp3 por padrão)", edge.Extensao)
+	}
+
+	if _, err := construirSintetizador(&config.Config{MotorVoz: "festival"}, "audios"); err == nil {
+		t.Error("motor desconhecido deveria devolver erro")
+	}
+}

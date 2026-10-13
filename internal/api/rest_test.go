@@ -391,3 +391,79 @@ func TestGetMemoriaSemVaultDevolve200EListaVazia(t *testing.T) {
 		t.Errorf("esperava lista vazia, veio %d", len(corpo.Notas))
 	}
 }
+
+// --- áudio do turno de texto: o Piper gera .wav, o edge gerava .mp3 ---
+
+func TestServirAudioWavVemComTipoWav(t *testing.T) {
+	s := servidorDeTeste(t)
+	id := "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7"
+	if err := os.WriteFile(filepath.Join(s.DiretorioAudio, id+".wav"), []byte("RIFFwav"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/api/audio/" + id)
+	if err != nil {
+		t.Fatalf("GET devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, queria 200", resp.StatusCode)
+	}
+	// O Go não conhece .wav na tabela embutida de tipos, então o cabeçalho é
+	// explícito: sem ele o navegador farejaria o conteúdo.
+	if got := resp.Header.Get("Content-Type"); got != "audio/wav" {
+		t.Errorf("Content-Type = %q, queria audio/wav", got)
+	}
+}
+
+func TestServirAudioMp3VemComTipoMpeg(t *testing.T) {
+	s := servidorDeTeste(t)
+	id := "7a2d3c4b-5e6f-4071-9b82-a3c4d5e6f708"
+	if err := os.WriteFile(filepath.Join(s.DiretorioAudio, id+".mp3"), []byte("ID3mp3"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	servidor := httptest.NewServer(s.Rotas())
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL + "/api/audio/" + id)
+	if err != nil {
+		t.Fatalf("GET devolveu erro: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Content-Type"); got != "audio/mpeg" {
+		t.Errorf("Content-Type = %q, queria audio/mpeg", got)
+	}
+}
+
+func TestExcluirAudioRemoveWavEMp3(t *testing.T) {
+	for _, ext := range []string{".wav", ".mp3"} {
+		t.Run(ext, func(t *testing.T) {
+			s := servidorDeTeste(t)
+			id := "8b3e4d5c-6f70-4182-8c93-b4d5e6f70819"
+			caminho := filepath.Join(s.DiretorioAudio, id+ext)
+			if err := os.WriteFile(caminho, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			servidor := httptest.NewServer(s.Rotas())
+			defer servidor.Close()
+
+			req, _ := http.NewRequest(http.MethodDelete, servidor.URL+"/api/audio/"+id, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("DELETE devolveu erro: %v", err)
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusNoContent {
+				t.Errorf("status = %d, queria 204", resp.StatusCode)
+			}
+			if _, err := os.Stat(caminho); !os.IsNotExist(err) {
+				t.Errorf("o arquivo %s continua no disco (erro %v)", ext, err)
+			}
+		})
+	}
+}

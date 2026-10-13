@@ -310,6 +310,7 @@ O risco número 1 da spec. Tudo o que vem depois assume que este portão passou.
   - executor Piper com `http.Client` com timeout de 10 s;
   - `servirAudio` e `deletar` procuram `.wav` e depois `.mp3`;
   - `main.go` escolhe pelo `cfg.MotorVoz`.
+- [x] **Feito na execução:** a limpeza de Markdown (`LimparParaFala`) ficou dentro de `Sintetizador.Gerar`, valendo para os dois motores (o edge também leria os asteriscos). Texto que sobra vazio devolve erro sem chamar o servidor. `construirSintetizador` em `cmd/jamesd` escolhe o motor, e o `config.toml` passa a `motor = "piper"`. Até as Tasks 12 e 18 o servidor de TTS não existe, então o turno de texto fica sem áudio (com erro no log), como já ficava com o edge-tts em 403.
 - [ ] Verde e commit: `feat(voz): turno de texto fala com o Piper pelo servidor de TTS local`.
 
 ### Task 10: síntese e fala no device
