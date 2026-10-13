@@ -339,3 +339,25 @@ func TestVarrerIgnoraPastaDeExecucao(t *testing.T) {
 		t.Errorf(".executar deveria ser ignorado, vieram %d achados: %+v", len(achados), achados)
 	}
 }
+
+// __pycache__/ é bytecode gerado ao rodar o device (fora do git). Ele carrega
+// as strings do código-fonte, inclusive exemplos de URL com senha: falso
+// positivo.
+func TestVarrerIgnoraBytecodePython(t *testing.T) {
+	raiz := t.TempDir()
+	pasta := filepath.Join(raiz, "dispositivo", "james_device", "__pycache__")
+	if err := os.MkdirAll(pasta, 0o755); err != nil {
+		t.Fatalf("não consegui criar a pasta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pasta, "x.cpython-313.pyc"), []byte(chaveFalsa()), 0o600); err != nil {
+		t.Fatalf("não consegui escrever a fixture: %v", err)
+	}
+
+	achados, err := Varrer(raiz)
+	if err != nil {
+		t.Fatalf("Varrer devolveu erro: %v", err)
+	}
+	if len(achados) != 0 {
+		t.Errorf("__pycache__ deveria ser ignorado, vieram %d achados: %+v", len(achados), achados)
+	}
+}
