@@ -374,3 +374,19 @@ Só o Arthur pode fazer: voz, aprovação no app, diálogo do KDE.
 - **Task 17, corrida do Klipper:** depois do `setClipboardContents`, o Ctrl+V imediato às vezes colava o conteúdo antigo. Agora o `digitar` espera (até 0,5 s) a leitura devolver o texto do James antes do Ctrl+V; senão, erro e nada é colado. Ao vivo: 3 de 3 com o colar forçado, área de transferência devolvida nas três.
 - **Task 17, recusas certas:** com uma imagem na área de transferência, o James recusou colar por cima (o teste agora confere essa recusa quando há imagem). A barra do Firefox cresce ao ganhar foco ("breakout"), e o segundo `clicar_elemento` foi recusado com "mudou de lugar" pela revalidação: proteção funcionando, o modelo chama `ver_tela` de novo.
 - **Task 17, tela de boas-vindas do KWrite** tem duas versões ("Novo" na barra, ou "Novo arquivo" com recentes): testes ao vivo aceitam os dois e exigem o botão visível.
+
+### Task 17: verificação ao vivo pelo executor (2026-10-13)
+
+Script: `docs/superpowers/spikes/2026-10-13-tela-wayland/verificar_b2.py` (mesmas peças do `plataforma/linux.py`). Última rodada, depois das correções, com `VERIFICAR_SEM_ABRIR=1` (o CA4 já tinha passado na rodada anterior e não foi repetido para não abrir outra aba e outro arquivo no VS Code do Arthur):
+
+| CA | Resultado |
+|---|---|
+| CA2 | ok: 8 janelas; focar o Firefox ok (a lista ambígua não aparece com um Firefox só) |
+| CA4 | ok (rodada anterior): KWrite pelo nome, `~/Downloads`, `https://example.com`, arquivo do repo na linha 3 no VS Code; janelas abertas pelo teste fechadas pelo id |
+| CA5 | ok: PNG 1280x720, botão Novo listado, elementos estruturados |
+| CA6 | ok no KWrite com outra janela na frente (a dona foi focada antes); ok no Firefox numa rodada isolada (dois cliques na barra); Dolphin não estava aberto nesta rodada |
+| CA7 | ok no KWrite (AT-SPI, sem nulo; colar forçado 3 de 3); **Firefox pendente**: na última rodada ele estava em tela cheia (sem barra visível), e numa anterior a área de transferência tinha imagem (recusa correta). Fica para a Task 18 |
+| CA8 (device) | ok: `click` em cima do "Novo" recusado com "use clicar_elemento com o id e12" |
+| CA10 | ok: Spotify em foco → aviso de app sem elementos + imagem |
+| CA12 | ok: focar 12 ms, `clicar_elemento` 8 ms, `digitar` 23 ms, `ver_tela` 154 ms (medianas) |
+| CA3 | não rodado: mexe na música do Arthur, fica para a Task 18 |
