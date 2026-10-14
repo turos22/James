@@ -142,12 +142,32 @@ func TestClicarElementoDestrutivoPeloNomePedeAprovacaoMesmoSemMapa(t *testing.T)
 	}
 }
 
-func TestIdForaDoMapaNaoPedeAprovacao(t *testing.T) {
-	// O device recusa sozinho ("não achei o elemento"), e não há o que aprovar.
+// Achado do code-review: o Hub zera o mapa quando o WS reconecta (a cada 2 s,
+// é normal) e o device mantém o dele; sem o mapa, o id não diz o que é. Na
+// dúvida, pede aprovação: o custo é um clique do Arthur, o contrário é
+// apagar sem avisar.
+func TestIdQueOHubNaoConheceFalhaParaOLadoSeguroEPedeAprovacao(t *testing.T) {
 	m := manipularComMapa(dispositivo.Elemento{ID: "e1", Nome: "Novo"})
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e99"}) {
+		t.Error("id fora do mapa não pediu aprovação")
+	}
+	vazio := manipularComMapa()
+	if !vazio.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("mapa vazio (WS reconectou) não pediu aprovação")
+	}
+}
 
-	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e99"}) {
-		t.Error("id desconhecido pediu aprovação")
+func TestIdSemFonteDeMapaTambemPedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("id sem como conferir não pediu aprovação")
+	}
+}
+
+func TestNomeInocenteSemIdNaoPedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "nome": "Novo"}) {
+		t.Error("clicar em Novo por nome pediu aprovação")
 	}
 }
 

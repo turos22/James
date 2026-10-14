@@ -166,14 +166,31 @@ class TelaLinux:
 
     # --- cliques ------------------------------------------------------------------
 
+    def _elementos_agora(self, superficie) -> list:
+        """Elementos da tela neste instante, para a recusa do clique por
+        coordenada. Não usa o retrato do ver_tela: o retrato morre a cada troca
+        de janela, e é justamente aí que o clique em cima de "Excluir" passaria.
+        Sem árvore (Spotify, jogo) ou com o AT-SPI fora, devolve vazio e o
+        clique por pixel segue sendo o caminho."""
+        try:
+            janelas = self._kwin.listar()
+            ativa = next((j for j in janelas if j.ativa), None)
+            varredura = self._laco.executar(lambda: acessibilidade.varrer(
+                self._listar_apps(), janelas, superficie, ativa.id if ativa else None))
+            return varredura.mapa.elementos
+        except Exception:  # noqa: BLE001 — a conferência é extra; sem ela o clique por pixel ainda vale
+            logger.warning("não consegui conferir a tela antes do clique por coordenada", exc_info=True)
+            return []
+
     def _mapa_valido(self, superficie) -> bool:
         if self._mapa is None:
             return False
         ativa = self._kwin.ativa()
         return self._mapa.valido_para(superficie.id, ativa.id if ativa else None)
 
-    def _elemento_no_ponto(self, gx: int, gy: int):
-        for elemento in self._mapa.elementos:
+    @staticmethod
+    def _elemento_no_ponto(elementos_da_tela, gx: int, gy: int):
+        for elemento in elementos_da_tela:
             esquerda, topo, direita, base = elemento.retangulo
             if esquerda <= gx < direita and topo <= gy < base:
                 return elemento
@@ -185,11 +202,10 @@ class TelaLinux:
         if not (0 <= x < superficie.largura and 0 <= y < superficie.altura):
             raise ValueError(f"({x},{y}) fora dos limites de {superficie.id} ({superficie.largura}x{superficie.altura})")
         gx, gy = superficies.para_global(superficie, x, y)
-        if self._mapa_valido(superficie):
-            debaixo = self._elemento_no_ponto(gx, gy)
-            if debaixo is not None:
-                raise ValueError(f'o ponto ({x},{y}) cai em "{debaixo.nome}" ({debaixo.tipo}, {debaixo.id}): '
-                                 f"use clicar_elemento com o id {debaixo.id}")
+        debaixo = self._elemento_no_ponto(self._elementos_agora(superficie), gx, gy)
+        if debaixo is not None:
+            raise ValueError(f'o ponto ({x},{y}) cai em "{debaixo.nome}" ({debaixo.tipo}): '
+                             "use clicar_elemento (chame ver_tela antes para pegar o id)")
         self._portal.mover(gx, gy)
         self._portal.clicar()
         return {"saida": f"cliquei em ({x},{y}) de {superficie.id}"}

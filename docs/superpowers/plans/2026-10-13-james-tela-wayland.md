@@ -390,3 +390,18 @@ Script: `docs/superpowers/spikes/2026-10-13-tela-wayland/verificar_b2.py` (mesma
 | CA10 | ok: Spotify em foco → aviso de app sem elementos + imagem |
 | CA12 | ok: focar 12 ms, `clicar_elemento` 8 ms, `digitar` 23 ms, `ver_tela` 154 ms (medianas) |
 | CA3 | não rodado: mexe na música do Arthur, fica para a Task 18 |
+
+### Task 19: code-review (xhigh, 2026-10-13): 8 achados
+
+| # | Achado | Desfecho |
+|---|---|---|
+| 1 | Aprovação do clique usa o mapa do Hub, que diverge do device (WS reconecta a cada 2 s e zera; ver_tela com timeout) | **corrigido**: id que o Hub não conhece conta como destrutivo e pede aprovação (falha para o lado seguro); ver_tela com erro, timeout ou cancelamento zera o mapa |
+| 2 | Recusa do `click` por coordenada só valia com o mapa válido (troca de janela a desliga) | **corrigido**: o `click` varre a tela NA HORA (~150 ms); sem árvore ou AT-SPI fora, o clique por pixel segue |
+| 3 | Restauração da área de transferência achata HTML e `text/uri-list` | **corrigido**: formato rico (imagem, HTML, arquivos) bloqueia o colar |
+| 4 | Espera de 0,3 s depois de inserção que já falhou | **corrigido**: o retorno de `inserir` pula a espera |
+| 5 | `_travas_por_fluxo` nunca limpa | **não aplicado**: um dict de inteiros por sessão do portal, sem efeito prático; anotado |
+| 6 | Estado "abrindo" dizia "falta permissão" | **corrigido**: mensagem própria |
+| 7 | `_normalizar` duplicada em kwin.py e abrir.py | **não aplicado**: 3 linhas, e juntar criaria dependência entre módulos sem relação |
+| 8 | `abrir` aceita qualquer esquema de URL | **corrigido**: só http, https e mailto |
+
+Efeito colateral útil: o `ExecutorKWin` ganhou caminho D-Bus único por instância (os testes ao vivo juntos colidiam na conexão compartilhada). Mutação do achado 2 (voltar ao mapa velho) derruba 2 testes.

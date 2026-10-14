@@ -335,3 +335,14 @@ def test_ao_vivo_move_o_mouse_ao_centro_de_cada_monitor():
             assert abs(x - alvo[0]) <= 1 and abs(y - alvo[1]) <= 1
     finally:
         laco.encerrar()
+
+
+def test_acao_enquanto_a_sessao_abre_nao_diz_que_falta_permissao(token):
+    portal = _portal(CanalPortal_falso := CanalFalso(), token)
+    portal.estado = "abrindo"
+
+    with pytest.raises(SemPermissao) as erro:
+        portal.clicar()
+
+    assert "abrindo" in str(erro.value)
+    assert "clique em Permitir" not in str(erro.value)

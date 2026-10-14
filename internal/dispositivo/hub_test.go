@@ -351,7 +351,10 @@ func TestVerTelaGuardaOUltimoMapaETrocaACadaVarredura(t *testing.T) {
 	}
 }
 
-func TestVerTelaComErroNaoTrocaOMapa(t *testing.T) {
+func TestVerTelaComErroZeraOMapa(t *testing.T) {
+	// O device pode ter varrido de novo (ids renumerados) mesmo quando o
+	// resultado não chegou: manter o mapa velho faria "e7" apontar para o
+	// elemento errado na hora de pedir aprovação.
 	h := NovoHub()
 	conexao := &conexaoFalsa{}
 	h.Registrar(conexao)
@@ -359,8 +362,24 @@ func TestVerTelaComErroNaoTrocaOMapa(t *testing.T) {
 
 	verTela(t, h, conexao, Resposta{Erro: "sem permissão"})
 
-	if mapa := h.UltimoMapa(); len(mapa) != 1 || mapa[0].Nome != "Novo" {
-		t.Errorf("UltimoMapa = %+v", mapa)
+	if mapa := h.UltimoMapa(); len(mapa) != 0 {
+		t.Errorf("UltimoMapa = %+v, queria vazio depois de um ver_tela com erro", mapa)
+	}
+}
+
+func TestVerTelaComTimeoutZeraOMapa(t *testing.T) {
+	h := NovoHub()
+	h.Timeout = 20 * time.Millisecond
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	verTela(t, h, conexao, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Novo"}}})
+
+	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"}) // ninguém responde
+	if err == nil {
+		t.Fatal("esperava timeout")
+	}
+	if len(h.UltimoMapa()) != 0 {
+		t.Error("o mapa velho sobreviveu ao timeout")
 	}
 }
 

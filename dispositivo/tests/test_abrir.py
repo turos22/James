@@ -156,3 +156,14 @@ def test_vs_code_falado_casa_com_o_id_real():
 def test_alvo_so_de_pontuacao_nao_casa_com_tudo():
     with pytest.raises(ErroDeAbrir, match="não achei nenhum app"):
         Abrir(Lancador(APPS)).executar("!!!")
+
+
+@pytest.mark.parametrize("url", ["ssh://servidor/x", "smb://nas/pasta", "vscode://file/etc/passwd", "x-scheme://a"])
+def test_so_http_https_e_mailto_viram_url(url):
+    with pytest.raises(ErroDeAbrir, match="esquema"):
+        classificar(url)
+
+
+@pytest.mark.parametrize("url", ["https://a.com", "http://a.com", "mailto:fulano@exemplo.com", "www.a.com"])
+def test_esquemas_permitidos(url):
+    assert classificar(url)[0] == "url"

@@ -192,7 +192,6 @@ class ExecutorKWin:
     execução tem uma chave própria, então dois scripts ao mesmo tempo não
     misturam as linhas."""
 
-    _CAMINHO = "/org/james/kwin"
     _INTERFACE = "org.james.Device.KWin"
     _XML = (f"<node><interface name='{_INTERFACE}'><method name='receber'>"
             "<arg type='s' direction='in'/></method></interface></node>")
@@ -202,6 +201,10 @@ class ExecutorKWin:
 
         self._laco = laco
         self._conexao = conexao
+        # Caminho único por instância: a conexão com o barramento da sessão é
+        # compartilhada, e dois executores no mesmo processo não podem
+        # registrar o mesmo objeto.
+        self._CAMINHO = "/org/james/kwin/" + uuid.uuid4().hex
         self._pendentes: dict[str, tuple[list[str], threading.Event]] = {}
         self._trava = threading.Lock()
         info = Gio.DBusNodeInfo.new_for_xml(self._XML).interfaces[0]

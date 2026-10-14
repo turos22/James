@@ -410,3 +410,47 @@ def test_inserir_conferindo_sem_caret_insere_no_fim():
     doc = Qt("abc", caret=-1)
     assert inserir_conferindo(doc, "ç") is True
     assert doc.texto == "abcç"
+
+
+# --- achados do code-review ------------------------------------------------------------
+
+def test_insercao_que_nao_conferiu_nao_gasta_a_espera_e_cai_direto_para_colar():
+    class Recusa(Campo):
+        def inserir(self, texto):
+            self.inseridos.append(texto)
+            return False  # inserir_conferindo já provou que não entrou
+
+    campo, area = Recusa("trin"), Area()
+    esperas = []
+
+    def esperar(condicao, segundos):
+        esperas.append(segundos)
+        return condicao()
+
+    digitar(FRASE, campo, area, _colar_em(campo, area), esperar=esperar, dormir=lambda s: None)
+
+    assert 0.3 not in esperas, "esperou o prazo da inserção que já tinha falhado"
+
+
+@pytest.mark.parametrize("tipos", [
+    ["text/plain;charset=utf-8", "text/html"],
+    ["text/uri-list", "text/plain"],
+    ["text/plain", "image/png"],
+    ["text/x-moz-url", "text/plain"],
+    ["application/x-qt-image", "text/plain"],
+])
+def test_area_com_formato_rico_nao_e_sobrescrita(tipos):
+    campo, area = Campo("", aceita_insercao=False), Area(tipos=tuple(tipos))
+
+    with pytest.raises(ErroDeTexto, match="formato"):
+        digitar(FRASE, campo, area, lambda: None, esperar=_esperar, dormir=lambda s: None)
+
+    assert area.historico == []
+
+
+def test_area_so_com_texto_simples_continua_valendo():
+    campo, area = Campo("", aceita_insercao=False), Area(tipos=("text/plain;charset=utf-8", "STRING", "text/plain"))
+
+    digitar(FRASE, campo, area, _colar_em(campo, area), esperar=_esperar, dormir=lambda s: None)
+
+    assert campo.texto == FRASE

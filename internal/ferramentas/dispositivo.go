@@ -83,19 +83,29 @@ func (m *ManipularInterface) DescricaoDaConfirmacao(args map[string]any) string 
 
 // nomeDoElemento resolve o nome pelo id no último mapa, ou usa o nome dos
 // argumentos. Os dois contam: se qualquer um for destrutivo, pede.
+//
+// Falha para o lado seguro: id que o Hub não conhece (WS reconectou e zerou o
+// mapa, ver_tela estourou o timeout, ou não há fonte de mapa) conta como
+// destrutivo e pede aprovação. O device mantém o próprio mapa, e o Hub não
+// tem como saber o nome do que o id aponta lá.
 func (m *ManipularInterface) nomeDoElemento(args map[string]any) string {
 	nome, _ := args["nome"].(string)
 	id, _ := args["elemento_id"].(string)
-	if id == "" || m.Mapa == nil {
+	if id == "" {
 		return nome
 	}
-	for _, e := range m.Mapa.UltimoMapa() {
-		if e.ID == id {
-			return e.Nome + " " + nome
+	if m.Mapa != nil {
+		for _, e := range m.Mapa.UltimoMapa() {
+			if e.ID == id {
+				return e.Nome + " " + nome
+			}
 		}
 	}
-	return nome
+	return nome + " " + nomeDesconhecido
 }
+
+// nomeDesconhecido casa com o vocabulário destrutivo de propósito.
+const nomeDesconhecido = "excluir"
 
 func (m *ManipularInterface) Declaracao() Declaracao {
 	return Declaracao{

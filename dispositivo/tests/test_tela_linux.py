@@ -228,11 +228,11 @@ def test_ver_tela_com_captura_quebrada_ainda_manda_a_lista(mundo):
 # --- click por coordenada ---------------------------------------------------------------
 
 def test_click_converte_imagem_para_global_e_clica(mundo):
-    r = mundo.executar_acao({"acao": "click", "x": 640, "y": 600})
+    r = mundo.executar_acao({"acao": "click", "x": 640, "y": 100})
 
-    assert ("mover", 960, 900) in mundo.eventos
+    assert ("mover", 960, 150) in mundo.eventos
     assert mundo.eventos[-1] == ("clicar",)
-    assert "cliquei em (640,600) de HDMI-A-1" in r["saida"]
+    assert "cliquei em (640,100) de HDMI-A-1" in r["saida"]
 
 
 def test_click_fora_da_imagem_e_erro(mundo):
@@ -245,7 +245,7 @@ def test_click_em_cima_de_elemento_listado_e_recusado(mundo):
 
     r = mundo.executar_acao({"acao": "click", "x": 197, "y": 149})
 
-    assert "use clicar_elemento" in r["erro"] and "e1" in r["erro"]
+    assert "use clicar_elemento" in r["erro"] and "Novo" in r["erro"]
     assert ("clicar",) not in mundo.eventos
 
 
@@ -381,3 +381,38 @@ def test_abrir_com_e_sem_linha(mundo):
     mundo.executar_acao({"acao": "abrir", "alvo": "/tmp/a.go", "linha": 10})
 
     assert mundo._abrir.pedidos == [("dolphin", None), ("/tmp/a.go", 10)]
+
+
+# --- achados do code-review -----------------------------------------------------
+
+def test_click_em_cima_de_elemento_e_recusado_mesmo_com_o_mapa_invalido(mundo):
+    # ver_tela, depois o foco muda (o mapa deixa de valer): o clique por
+    # coordenada no "Novo" não pode passar só porque o retrato velho morreu.
+    mundo.executar_acao({"acao": "ver_tela"})
+    mundo._kwin.ativa_id = ID_FF
+
+    r = mundo.executar_acao({"acao": "click", "x": 197, "y": 149, "superficie": "HDMI-A-1"})
+
+    assert "use clicar_elemento" in r["erro"]
+    assert ("clicar",) not in mundo.eventos
+
+
+def test_click_sem_nenhum_ver_tela_antes_tambem_confere_a_tela_agora(mundo):
+    r = mundo.executar_acao({"acao": "click", "x": 197, "y": 149})
+
+    assert "use clicar_elemento" in r["erro"]
+
+
+def test_click_onde_nao_ha_elemento_passa(mundo):
+    r = mundo.executar_acao({"acao": "click", "x": 640, "y": 100})
+
+    assert "cliquei" in r["saida"]
+
+
+def test_click_com_a_varredura_quebrada_ainda_clica(mundo):
+    # Spotify e jogo: sem árvore, o clique por coordenada é o único caminho.
+    mundo._listar_apps = lambda: (_ for _ in ()).throw(RuntimeError("AT-SPI fora"))
+
+    r = mundo.executar_acao({"acao": "click", "x": 640, "y": 100})
+
+    assert "cliquei" in r["saida"]

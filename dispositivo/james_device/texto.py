@@ -63,8 +63,18 @@ def _entrou(campo, antes: str | None, texto: str) -> bool:
     return depois is not None and depois != antes and _sem_espaco(texto) in _sem_espaco(depois)
 
 
+_FORMATOS_RICOS = ("image/", "application/x-qt-image", "text/html", "text/uri-list", "text/x-moz-url")
+
+
 def _e_texto(tipo: str) -> bool:
     return tipo.startswith("text/") or tipo in _TIPOS_DE_TEXTO
+
+
+def _tem_formato_rico(tipos: list[str]) -> bool:
+    """A restauração devolve só texto simples (o Klipper recebe uma string).
+    Arquivos copiados, HTML e imagens se perderiam, e o James dizia 'voltou
+    ao que era'."""
+    return any(t.startswith(_FORMATOS_RICOS) for t in tipos)
 
 
 def digitar(texto: str, campo, area, colar, esperar=_esperar, dormir=time.sleep) -> str:
@@ -76,17 +86,20 @@ def digitar(texto: str, campo, area, colar, esperar=_esperar, dormir=time.sleep)
     if campo is not None:
         try:
             antes = campo.ler()
-            campo.inserir(texto)
-            if esperar(lambda: _entrou(campo, antes, texto), ESPERA_DEPOIS_DE_INSERIR):
+            # False = inserir_conferindo já provou que não entrou (barra do
+            # Firefox): esperar o prazo só atrasaria o colar em 300 ms.
+            if campo.inserir(texto) is not False and esperar(
+                    lambda: _entrou(campo, antes, texto), ESPERA_DEPOIS_DE_INSERIR):
                 return f"digitei {len(texto)} caracteres no campo em foco (AT-SPI)"
         except NoIlegivel:
             campo = None  # o campo sumiu: tenta colar, sem como conferir
 
     tipos = area.tipos()
-    if tipos and not any(_e_texto(t) for t in tipos):
+    if tipos and (not any(_e_texto(t) for t in tipos) or _tem_formato_rico(tipos)):
         raise ErroDeTexto(
             "não consegui escrever direto no campo, e a área de transferência tem algo que não é texto "
-            "(imagem ou arquivo): não vou sobrescrever o que o Arthur copiou")
+            "simples (imagem, arquivo ou texto formatado) e se perderia: não vou sobrescrever o que o Arthur "
+            "copiou; o formato precisa ser texto puro")
     original = area.ler() if tipos else None
     antes = campo.ler() if campo is not None else None
     try:

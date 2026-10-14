@@ -48,9 +48,12 @@ _TIPO_MONITOR = 1
 _PERSISTIR_ATE_REVOGAR = 2
 
 
+MENSAGEM_ABRINDO = "ainda estou abrindo a sessão de tela; tente de novo em alguns segundos"
+
+
 class SemPermissao(Exception):
-    def __init__(self) -> None:
-        super().__init__(MENSAGEM_SEM_PERMISSAO)
+    def __init__(self, mensagem: str = MENSAGEM_SEM_PERMISSAO) -> None:
+        super().__init__(mensagem)
 
 
 class RecusaDoPortal(Exception):
@@ -196,6 +199,10 @@ class Portal:
     def _garantir(self) -> None:
         if self.estado == "aberto":
             return
+        if self.estado == "abrindo":
+            # Subindo, ou esperando o Arthur no aviso do KDE: dizer "falta
+            # permissão" a quem já permitiu (e só espera a sessão) confunde.
+            raise SemPermissao(MENSAGEM_ABRINDO)
         if self.estado == "fechado":
             self.abrir(TIMEOUT_REABRIR)
             if self.estado == "aberto":

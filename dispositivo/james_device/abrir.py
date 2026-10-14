@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _ESQUEMA = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _CARA_DE_CAMINHO = ("/", "~", "./", "../")
+_ESQUEMAS_PERMITIDOS = frozenset({"http", "https", "mailto"})
 
 
 class ErroDeAbrir(ValueError):
@@ -52,6 +53,11 @@ def classificar(alvo: str) -> tuple[str, str]:
     if not texto:
         raise ErroDeAbrir("alvo vazio para abrir")
     if _ESQUEMA.match(texto) or texto.lower().startswith("mailto:"):
+        esquema = texto.split(":", 1)[0].lower()
+        if esquema not in _ESQUEMAS_PERMITIDOS:
+            # ssh://, smb://, vscode:// etc. acionam o programa registrado para
+            # o esquema sem ninguém ter pedido: só web e e-mail.
+            raise ErroDeAbrir(f"esquema {esquema}:// não permitido (só http, https e mailto)")
         return "url", texto
     if texto.lower().startswith("www."):
         return "url", "https://" + texto

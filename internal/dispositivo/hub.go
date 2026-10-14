@@ -195,6 +195,7 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 	select {
 	case r := <-espera:
 		if r.Erro != "" {
+			h.esquecerMapaSeVerTela(acao, conexao)
 			return Resultado{}, fmt.Errorf("device: %s", r.Erro)
 		}
 		if acao.Acao == "ver_tela" {
@@ -206,9 +207,25 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 		}
 		return Resultado{Saida: r.Saida, Imagem: r.Imagem, Elementos: r.Elementos}, nil
 	case <-ctx.Done():
+		h.esquecerMapaSeVerTela(acao, conexao)
 		return Resultado{}, ctx.Err()
 	case <-time.After(h.timeoutDe(acao.Acao)):
+		h.esquecerMapaSeVerTela(acao, conexao)
 		return Resultado{}, fmt.Errorf("timeout esperando resultado_acao do device")
+	}
+}
+
+// esquecerMapaSeVerTela: um ver_tela que não chegou inteiro pode ter
+// renumerado os ids no device. O mapa velho passaria a dizer o nome errado de
+// "e7" na hora de decidir se o clique pede aprovação.
+func (h *Hub) esquecerMapaSeVerTela(acao AcaoTela, conexao Conexao) {
+	if acao.Acao != "ver_tela" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.conexao == conexao {
+		h.ultimoMapa = nil
 	}
 }
 
