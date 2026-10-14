@@ -264,7 +264,6 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 		*sessaoID = sessao.ID
 	}
 
-	tamanhoAntes := len(*historico)
 	janela := s.Memoria.Montar(*historico)
 	entrada := agente.Mensagem{Papel: agente.PapelUsuario, Texto: texto}
 
@@ -332,8 +331,13 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 		"cache", resp.Uso.CacheLeitura, "pensamento", resp.Uso.Pensamento,
 		"primeiro_delta_ms", primeiroDelta, "dur_ms", time.Since(inicioDoTurno).Milliseconds())
 
+	// O loop devolve as mensagens a partir da JANELA (janela + entrada + o que
+	// veio do turno), não do histórico completo: quando a conversa passa do
+	// orçamento a janela é mais curta, e usar len(*historico) como ponto de
+	// partida estourava o slice (panic) ou pulava mensagens novas sem erro. O
+	// que é novo começa depois da janela.
 	*historico = mensagens
-	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, tamanhoAntes)
+	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, len(janela))
 
 	// Na voz quem fala é o device, frase a frase, enquanto o modelo escreve.
 	// Gerar áudio aqui também faria o James falar duas vezes (device e app).
