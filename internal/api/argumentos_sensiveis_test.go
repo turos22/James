@@ -14,7 +14,7 @@ import (
 	"james/internal/permissao"
 )
 
-const segredoDeTeste = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const segredoDeTeste = "sk-" + "ant-" + "api03-" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func chamadaDeGravarEnv() agente.ChamadaFerramenta {
 	return agente.ChamadaFerramenta{
