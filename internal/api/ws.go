@@ -475,10 +475,10 @@ func (s *Servidor) descricaoDaConfirmacao(chamada agente.ChamadaFerramenta) stri
 	return ""
 }
 
-// argumentosParaRegistro devolve os argumentos como podem sair do jamesd para o
-// cartão de aprovação e para o Postgres: a ferramenta que sabe que o conteúdo
-// pode ser segredo (ArgumentosRegistraveis) esconde os valores. A chamada que o
-// loop executa não é tocada.
+// argumentosParaRegistro devolve os argumentos como podem ser GRAVADOS no
+// Postgres (tabela aprovacoes e coluna chamadas): a ferramenta que sabe que o
+// conteúdo pode ser segredo (ArgumentosRegistraveis) esconde os valores. O
+// cartão de aprovação não usa isto, e a chamada que o loop executa não é tocada.
 func (s *Servidor) argumentosParaRegistro(chamada agente.ChamadaFerramenta) map[string]any {
 	if s.Loop == nil || s.Loop.Ferramentas == nil {
 		return chamada.Args
@@ -515,7 +515,11 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 		// roda antes de qualquer validação de argumento, então uma chamada
 		// sem parâmetros chegaria ao front como argumentos: null — e o card
 		// de aprovação itera esse valor. "Sem argumentos" é objeto vazio.
-		argumentos := registrados
+		// O cartão leva o texto REAL, não o mascarado: é a tela do Arthur e a
+		// única barreira antes do disco. Escondido, um
+		// "credential_process = curl ... | sh" num ~/.aws/config passaria como
+		// se fosse uma chave qualquer.
+		argumentos := chamada.Args
 		if argumentos == nil {
 			argumentos = map[string]any{}
 		}

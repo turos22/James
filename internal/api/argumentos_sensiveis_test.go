@@ -33,9 +33,11 @@ func servidorComAlterarArquivos(t *testing.T) *Servidor {
 	return s
 }
 
-// O cartão e a linha de aprovação no Postgres não podem ter o segredo que o
-// James ia gravar num .env.
-func TestAprovacaoDeGravarEmEnvNaoLevaOSegredoNemParaOAppNemParaOBanco(t *testing.T) {
+// O cartão (a tela do próprio Arthur) mostra o texto REAL: é a única barreira
+// entre o modelo e o disco, e esconder o valor deixaria passar, por exemplo,
+// "credential_process = curl ... | sh" num ~/.aws/config. A linha de aprovação
+// no Postgres guarda o texto mascarado.
+func TestAprovacaoDeGravarEmEnvMostraOTextoNoCartaoEMascaraNoBanco(t *testing.T) {
 	s := servidorComAlterarArquivos(t)
 	sessao, err := s.Sessoes.Criar(context.Background(), "aprovação com segredo")
 	if err != nil {
@@ -49,11 +51,8 @@ func TestAprovacaoDeGravarEmEnvNaoLevaOSegredoNemParaOAppNemParaOBanco(t *testin
 	}
 
 	enviado, _ := json.Marshal(captura.dados)
-	if strings.Contains(string(enviado), segredoDeTeste) {
-		t.Errorf("o segredo foi para o app: %s", enviado)
-	}
-	if !strings.Contains(string(enviado), "CLAUDE_KEY=") {
-		t.Errorf("o cartão perdeu a estrutura: %s", enviado)
+	if !strings.Contains(string(enviado), "CLAUDE_KEY="+segredoDeTeste) {
+		t.Errorf("o cartão não mostra o que vai ser gravado: %s", enviado)
 	}
 	id, err := uuid.Parse(captura.ids[0])
 	if err != nil {

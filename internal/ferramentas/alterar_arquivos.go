@@ -217,9 +217,10 @@ func (a *AlterarArquivos) DescricaoDaConfirmacao(args map[string]any) string {
 var camposDeConteudo = []string{"conteudo", "trecho_antigo", "trecho_novo"}
 
 // ArgumentosParaRegistro implementa ArgumentosRegistraveis: em arquivo sensível
-// (.env, .aws/credentials, chave), o texto gravado vai com os valores
-// escondidos, como na leitura. A estrutura continua legível no cartão, então
-// quem aprova ainda vê QUE chaves serão escritas.
+// (.env, .aws/credentials, chave), o registro no Postgres guarda o texto com os
+// valores escondidos, como na leitura. O cartão de aprovação mostra o texto
+// real: aprovar às cegas deixaria passar valor que executa comando
+// (credential_process, LD_PRELOAD).
 func (a *AlterarArquivos) ArgumentosParaRegistro(args map[string]any) map[string]any {
 	caminho, _ := args["caminho"].(string)
 	if !CaminhoSensivel(caminho) {

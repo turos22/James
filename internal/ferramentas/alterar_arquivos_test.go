@@ -307,8 +307,8 @@ func TestLogRegistraAcaoECaminhoNuncaOConteudo(t *testing.T) {
 	}
 }
 
-// O que o James grava num arquivo de segredo não pode ir parar no Postgres nem
-// no cartão de aprovação em claro: só a estrutura fica legível.
+// O que o James grava num arquivo de segredo não pode ir parar no Postgres em
+// claro: só a estrutura fica legível. (O cartão mostra o texto real.)
 func TestArgumentosParaRegistroMascaraConteudoDeArquivoSensivel(t *testing.T) {
 	const segredo = "sk-" + "ant-" + "api03-" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	original := map[string]any{
