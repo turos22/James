@@ -76,3 +76,32 @@ func TestCaminhoSensivelVazioEFalso(t *testing.T) {
 		t.Error("caminho vazio é sensível")
 	}
 }
+
+// --- achado do code-review: nomes comuns de arquivo de segredo ----------------
+
+func TestCaminhoSensivelNomesComunsDeArquivoDeSegredo(t *testing.T) {
+	for _, caminho := range []string{
+		"/x/producao.env", "/x/staging.ENV", "/x/app.env",
+		"/x/secrets.yaml", "/x/secrets.yml", "/x/Secrets.TOML", "/x/secrets.json", "/x/secrets",
+		"/x/credentials.json", "/x/credentials", "/x/credentials.ini", "/x/credential.txt",
+		"/x/senhas.txt",
+		"/x/client_secret_123456.json", "/x/service-account-prod.json", "/x/serviceaccount.json",
+	} {
+		if !CaminhoSensivel(caminho) {
+			t.Errorf("CaminhoSensivel(%q) = false, queria true", caminho)
+		}
+	}
+}
+
+func TestCaminhoSensivelNaoPegaCodigoNemModelo(t *testing.T) {
+	for _, caminho := range []string{
+		"/x/secrets.go", "/x/credentials.go", "/x/credentials_test.go", "/x/secrets_manager.go",
+		"/x/secrets.example.yaml", "/x/credentials.sample.json", "/x/app.env.example", "/x/secrets.template.toml",
+		"/x/environment.go", "/x/client_secret_handler.go", "/x/service-account.md", "/x/secretsmanager.py",
+		"/x/README.md", "/x/app.example.env", "/x/client_secret.sample.json", "/x/service-account.template.json",
+	} {
+		if CaminhoSensivel(caminho) {
+			t.Errorf("CaminhoSensivel(%q) = true, queria false", caminho)
+		}
+	}
+}
