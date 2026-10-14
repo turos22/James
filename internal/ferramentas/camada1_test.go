@@ -135,3 +135,15 @@ func TestDeclaracoesDaCamada1(t *testing.T) {
 		}
 	}
 }
+
+func TestJanelasDescreveOFechar(t *testing.T) {
+	if d := NovoJanelas(nil).DescricaoDaConfirmacao(map[string]any{"acao": "fechar", "alvo": "Dolphin"}); d != `fechar a janela "Dolphin"` {
+		t.Errorf("descrição = %q", d)
+	}
+}
+
+// As duas ferramentas que pedem aprovação por argumento também descrevem.
+var (
+	_ DescreveConfirmacao = (*ManipularInterface)(nil)
+	_ DescreveConfirmacao = (*Janelas)(nil)
+)

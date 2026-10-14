@@ -52,6 +52,35 @@ func (m *ManipularInterface) ConfirmacaoNecessaria(args map[string]any) bool {
 	return false
 }
 
+// DescricaoDaConfirmacao implementa DescreveConfirmacao para o que pede
+// aprovação: o clique destrutivo e a tecla Delete.
+func (m *ManipularInterface) DescricaoDaConfirmacao(args map[string]any) string {
+	acao, _ := args["acao"].(string)
+	switch acao {
+	case "clicar_elemento":
+		nome, _ := args["nome"].(string)
+		tipo, _ := args["tipo"].(string)
+		if id, _ := args["elemento_id"].(string); id != "" && m.Mapa != nil {
+			for _, e := range m.Mapa.UltimoMapa() {
+				if e.ID == id {
+					nome, tipo = e.Nome, e.Tipo
+				}
+			}
+		}
+		if nome == "" {
+			return ""
+		}
+		if tipo == "" {
+			return fmt.Sprintf("clicar em %q", nome)
+		}
+		return fmt.Sprintf("clicar em %q (%s)", nome, tipo)
+	case "tecla":
+		texto, _ := args["texto"].(string)
+		return "apertar a tecla " + texto
+	}
+	return ""
+}
+
 // nomeDoElemento resolve o nome pelo id no último mapa, ou usa o nome dos
 // argumentos. Os dois contam: se qualquer um for destrutivo, pede.
 func (m *ManipularInterface) nomeDoElemento(args map[string]any) string {

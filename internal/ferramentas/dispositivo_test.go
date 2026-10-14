@@ -176,3 +176,20 @@ func TestClickEDigitarNaoPedemAprovacao(t *testing.T) {
 		}
 	}
 }
+
+func TestDescricaoDaConfirmacaoDizOQueVaiAcontecer(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e7", Nome: "Excluir", Tipo: "Button"})
+
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}); d != `clicar em "Excluir" (Button)` {
+		t.Errorf("clicar_elemento por id: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "clicar_elemento", "nome": "Apagar"}); d != `clicar em "Apagar"` {
+		t.Errorf("clicar_elemento por nome: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "tecla", "texto": "shift+delete"}); d != "apertar a tecla shift+delete" {
+		t.Errorf("tecla: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "click"}); d != "" {
+		t.Errorf("click: %q", d)
+	}
+}

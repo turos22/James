@@ -412,6 +412,22 @@ func (s *Servidor) gerarAudioDaResposta(ctx context.Context, texto string) strin
 	return id
 }
 
+// descricaoDaConfirmacao pergunta à ferramenta o que a chamada vai fazer,
+// em português, para o cartão de aprovação (ferramentas.DescreveConfirmacao).
+func (s *Servidor) descricaoDaConfirmacao(chamada agente.ChamadaFerramenta) string {
+	if s.Loop == nil || s.Loop.Ferramentas == nil {
+		return ""
+	}
+	ferramenta, ok := s.Loop.Ferramentas.Buscar(chamada.Nome)
+	if !ok {
+		return ""
+	}
+	if descreve, ok := ferramenta.(ferramentas.DescreveConfirmacao); ok {
+		return descreve.DescricaoDaConfirmacao(chamada.Args)
+	}
+	return ""
+}
+
 // criarSolicitarAprovacao devolve o callback que o Loop chama quando um
 // perfil Restrito pede uma ferramenta perigosa: cria a aprovação pendente,
 // avisa os clientes Privilegiado, e espera decisão ou timeout (R4).
@@ -434,7 +450,7 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 			argumentos = map[string]any{}
 		}
 
-		s.Clientes.BroadcastAprovacaoRequerida(aprovacao.ID.String(), map[string]any{
+		dados := map[string]any{
 			// Duplicado de propósito: o ClienteWS do frontend só repassa o
 			// campo "dados" do envelope pros manipuladores registrados via
 			// .on() (contrato testado em ws.test.ts, não muda) — o id do
@@ -445,7 +461,12 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 			"id":         aprovacao.ID.String(),
 			"ferramenta": chamada.Nome,
 			"argumentos": argumentos,
-		})
+		}
+		// Só quando a ferramenta descreve: sem ela, o evento é igual ao de antes.
+		if descricao := s.descricaoDaConfirmacao(chamada); descricao != "" {
+			dados["descricao"] = descricao
+		}
+		s.Clientes.BroadcastAprovacaoRequerida(aprovacao.ID.String(), dados)
 
 		select {
 		case aprovado := <-espera:

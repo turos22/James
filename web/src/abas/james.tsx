@@ -49,6 +49,11 @@ export function AbaJames({ estado, saidaVerTela, aoDecidir, analisador }: Props)
       <div className="w-full max-w-xl">
         {conteudo === "aprovacao" && estado.aprovacao && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            {estado.aprovacao.descricao && (
+              <p data-descricao-aprovacao className="mb-1 text-base font-medium text-app-text">
+                {estado.aprovacao.descricao}
+              </p>
+            )}
             <p className="mb-2 text-sm text-app-text">
               O James quer executar <strong className="font-serif">{estado.aprovacao.ferramenta}</strong>
             </p>

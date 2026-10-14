@@ -42,6 +42,15 @@ func (j *Janelas) ConfirmacaoNecessaria(args map[string]any) bool {
 	return acao == "fechar"
 }
 
+// DescricaoDaConfirmacao implementa DescreveConfirmacao para o fechar.
+func (j *Janelas) DescricaoDaConfirmacao(args map[string]any) string {
+	if acao, _ := args["acao"].(string); acao != "fechar" {
+		return ""
+	}
+	alvo, _ := args["alvo"].(string)
+	return fmt.Sprintf("fechar a janela %q", alvo)
+}
+
 var acoesDeJanela = map[string]string{"listar": "janelas_listar", "focar": "janela_focar", "fechar": "janela_fechar"}
 
 func (j *Janelas) Executar(ctx context.Context, args map[string]any) (string, error) {
