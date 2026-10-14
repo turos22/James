@@ -95,11 +95,11 @@ export function AbaMensagens({ estado, conexao, tentativa, aoEnviar, aoNovaSessa
         </button>
       </header>
 
-      <div ref={listaRef} onScroll={aoRolar} className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+      <div ref={listaRef} onScroll={aoRolar} className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-6 py-6">
         {estado.mensagens.map((m, i) => (
           <div key={i} className={`flex ${m.papel === "usuario" ? "justify-end" : "justify-start"}`}>
             <div
-              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-left text-sm leading-relaxed ${
+              className={`min-w-0 max-w-[75%] rounded-2xl px-4 py-2.5 text-left text-sm leading-relaxed [overflow-wrap:anywhere] ${
                 m.papel === "usuario"
                   ? "rounded-br-sm bg-app-blue text-app-blue-foreground"
                   : "rounded-bl-sm bg-white/5 text-app-text"
