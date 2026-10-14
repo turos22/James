@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"james/internal/config"
 	"james/internal/ferramentas"
+	"james/internal/memoria"
 )
 
 // TestConstruirComandoSistemaAplicaConfig é o teste que a Task 8 deixou sem
@@ -149,5 +153,62 @@ func TestConstruirSintetizadorEscolhePeloMotor(t *testing.T) {
 
 	if _, err := construirSintetizador(&config.Config{MotorVoz: "festival"}, "audios"); err == nil {
 		t.Error("motor desconhecido deveria devolver erro")
+	}
+}
+
+func TestRegistrarArquivosNaoRegistraQuandoNaoSuportado(t *testing.T) {
+	registro := ferramentas.NovoRegistro()
+
+	if err := registrarArquivos(registro, ferramentas.NovoSegredosLidos(), false); err != nil {
+		t.Fatalf("registrarArquivos devolveu erro: %v", err)
+	}
+
+	for _, nome := range []string{"arquivos", "alterar_arquivos"} {
+		if _, ok := registro.Buscar(nome); ok {
+			t.Errorf("%s registrada numa plataforma sem suporte", nome)
+		}
+	}
+}
+
+func TestRegistrarArquivosRegistraAsDuasQuandoSuportado(t *testing.T) {
+	registro := ferramentas.NovoRegistro()
+
+	if err := registrarArquivos(registro, ferramentas.NovoSegredosLidos(), true); err != nil {
+		t.Fatalf("registrarArquivos devolveu erro: %v", err)
+	}
+
+	for _, nome := range []string{"arquivos", "alterar_arquivos"} {
+		if _, ok := registro.Buscar(nome); !ok {
+			t.Errorf("%s não registrada", nome)
+		}
+	}
+}
+
+// O ponto da spec: o revelar e o salvar_na_memoria falam do MESMO SegredosLidos
+// no registro de verdade, não só nos testes de cada ferramenta.
+func TestRevelarEMemoriaNoRegistroRealCompartilhamOSegredo(t *testing.T) {
+	pasta := t.TempDir()
+	env := filepath.Join(pasta, ".env")
+	if err := os.WriteFile(env, []byte("CHAVE=abcdef123456\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	segredos := ferramentas.NovoSegredosLidos()
+	registro := ferramentas.NovoRegistro()
+	if err := registrarArquivos(registro, segredos, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrarMemoria(registro, memoria.NovoVault(filepath.Join(pasta, "Memoria"), 2000), segredos); err != nil {
+		t.Fatal(err)
+	}
+	arquivos, _ := registro.Buscar("arquivos")
+	salvar, _ := registro.Buscar("salvar_na_memoria")
+
+	if _, err := arquivos.Executar(context.Background(), map[string]any{"acao": "revelar", "caminho": env}); err != nil {
+		t.Fatalf("revelar: %v", err)
+	}
+	_, err := salvar.Executar(context.Background(), map[string]any{"assunto": "projeto", "texto": "a chave é abcdef123456"})
+
+	if err == nil || !strings.Contains(err.Error(), "valor secreto") {
+		t.Fatalf("a memória aceitou o valor revelado: %v", err)
 	}
 }

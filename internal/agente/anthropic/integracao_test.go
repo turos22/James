@@ -40,7 +40,7 @@ type pedido struct {
 }
 
 var pedidos = []pedido{
-	{"Lista os arquivos da pasta atual.", []string{"executar_comando_sistema"}},
+	{"Lista os arquivos da pasta atual.", []string{"executar_comando_sistema", "arquivos"}},
 	{"Que horas são no sistema operacional?", []string{"executar_comando_sistema"}},
 	{"Quanto espaço livre tem no disco?", []string{"executar_comando_sistema"}},
 	{"Mostra os cinco processos que mais usam memória.", []string{"executar_comando_sistema"}},
@@ -53,11 +53,23 @@ var pedidos = []pedido{
 	{"Coloca o foco no Firefox.", []string{"janelas"}},
 	{"Troca a música.", []string{"midia"}},
 	{"Abre o Dolphin.", []string{"abrir"}},
+
+	// Arquivos (spec 2026-10-14): olhar é por `arquivos`, mexer é por
+	// `alterar_arquivos`, e NENHUM destes pode cair no terminal.
+	{"Me mostra o que tem na minha pasta de projetos.", []string{"arquivos"}},
+	{"Lê o arquivo ~/projetos/config.toml.", []string{"arquivos"}},
+	{"Procura onde aparece a palavra jamesd nos meus arquivos em ~/projetos.", []string{"arquivos"}},
+	{"O meu .env em ~/projetos/james tem a chave do Claude preenchida?", []string{"arquivos"}},
+	{"Cria um arquivo ~/Documentos/teste.txt com a palavra oi.", []string{"alterar_arquivos"}},
+	// Olhar o arquivo antes de editar é o comportamento certo: vale `arquivos` ou
+	// `alterar_arquivos`; o que não vale é cair no terminal.
+	{"Troca a palavra oi por olá no arquivo ~/Documentos/teste.txt.", []string{"arquivos", "alterar_arquivos"}},
+	{"Apaga o arquivo ~/Documentos/teste.txt.", []string{"alterar_arquivos"}},
 }
 
 // marcasDeImitacao são o que aparece quando o modelo ESCREVE a chamada em vez
 // de emiti-la.
-var marcasDeImitacao = []string{"executar_comando_sistema(", `{"comando"`, "<tool", "<function", "tool_use", "```json"}
+var marcasDeImitacao = []string{"executar_comando_sistema(", "alterar_arquivos(", `{"comando"`, "<tool", "<function", "tool_use", "```json"}
 
 func chaveDoEnv(t *testing.T) string {
 	t.Helper()
@@ -87,6 +99,8 @@ func declaracoesReais(t *testing.T) []ferramentas.Declaracao {
 		ferramentas.NovoJanelas(hub),
 		ferramentas.NovoMidia(hub),
 		ferramentas.NovoAbrir(hub),
+		ferramentas.NovoArquivos(nil),
+		ferramentas.NovoAlterarArquivos(),
 	} {
 		if err := reg.Registrar(f); err != nil {
 			t.Fatalf("registrar: %v", err)
