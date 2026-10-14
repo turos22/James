@@ -212,3 +212,57 @@ def test_sem_ocupado_o_comportamento_antigo_continua_igual():
         vad=VadFalso(COMANDO), parametros_fim=ParametrosDeFim(), executor=ExecutorSincrono(),
     )
     assert comandos == ["ok"]
+
+
+# --- o áudio do turno de TEXTO começa DENTRO de uma coleta já aberta ----------
+#
+# Achado do Arthur no aceite do B2: mandou uma segunda mensagem no chat dentro
+# da janela de continuação de 6 s da primeira resposta; a segunda resposta
+# tocou no app enquanto a coleta estava aberta, a coleta não consulta
+# ocupado(), e o James entregou a própria fala como comando.
+
+def test_voz_do_james_no_meio_de_uma_coleta_nao_vira_comando():
+    visto = {"ultimo": None}
+    ocupado_base = Ocupado(6)
+
+    def ocupado():
+        return ocupado_base() or visto["ultimo"] == b"eco"
+
+    def fonte():
+        chunks = (
+            [b"wake"] + [bloco(i) for i in range(12)]    # wake + comando 1
+            + [b"wake"] * 6                               # resposta 1 do James
+            + [bloco(100 + i) for i in range(4)]          # guarda de eco
+            + [bloco(150)] * 3                            # janela de continuação aberta, silêncio
+            + [b"eco"] * 8                                # resposta 2 (texto) toca no app
+            + [bloco(180)] * 15                           # depois, silêncio
+        )
+        for c in chunks:
+            visto["ultimo"] = c
+            yield c
+
+    # O VAD vê "voz" no eco, se o eco chegar a ele (decide pelo conteúdo, não
+    # pela ordem das chamadas).
+    class VadQueOuveOEco(VadFalso):
+        def tem_voz(self, pedaco):
+            return True if pedaco == b"eco" else super().tem_voz(pedaco)
+
+    import james_device.escuta as modulo_escuta
+    original = modulo_escuta.escutar
+    roteiro = COMANDO + "." * 40
+    reconhecedor = ReconhecedorWake()
+    comandos = []
+
+    def ao_comando(texto):
+        comandos.append(texto)
+        ocupado_base.acionar()
+
+    original(
+        fonte_audio=fonte(), reconhecedor=reconhecedor,
+        transcrever_comando=TranscritorQueLembra(["primeiro", "A PRÓPRIA FALA DO JAMES"]),
+        ao_acordar=lambda: None, ao_comando=ao_comando, palavra_parada="",
+        vad=VadQueOuveOEco(roteiro), parametros_fim=ParametrosDeFim(), executor=ExecutorSincrono(),
+        ocupado=ocupado, continuacao_s=6.0, guarda_eco_s=0.4,
+    )
+
+    assert comandos == ["primeiro"], f"o James entregou a própria fala como comando: {comandos}"

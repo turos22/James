@@ -120,6 +120,7 @@ class Fala:
             return
         with self._cond:
             self._silencio_ate = max(self._silencio_ate, self._relogio() + min(segundos, TETO_DO_SILENCIO))
+        logger.info("silêncio de %.1fs: o app vai falar (turno de texto)", min(segundos, TETO_DO_SILENCIO))
 
     def ocupado(self) -> bool:
         with self._cond:

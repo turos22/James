@@ -451,7 +451,19 @@ def escutar(
         logger.info("comando entendido: %r", comando)
         _sem_derrubar(lambda: ao_comando(comando), "entregar o comando")
 
+    def vigiada(origem):
+        """A coleta termina assim que o James fica ocupado. Sem isto, uma
+        resposta que começa a tocar DENTRO de uma coleta já aberta (a janela de
+        continuação de 6 s, ou o tempo depois da wake word) é entregue como
+        comando: o James se escuta. O laço principal só consultava ocupado()
+        ENTRE coletas (achado do Arthur no aceite do B2, turno de texto)."""
+        for pedaco in origem:
+            if ocupado is not None and ocupado():
+                return
+            yield pedaco
+
     def coletar(origem, parametros):
+        origem = vigiada(origem)
         return _sem_derrubar(
             lambda: coletar_comando(origem, vad, reconhecedor, transcrever_comando, parametros,
                                     medidor=medidor, executor=executor, palavra_parada=palavra_parada),
