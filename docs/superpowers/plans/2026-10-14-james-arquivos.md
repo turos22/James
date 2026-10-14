@@ -316,3 +316,13 @@ Tasks 0 a 16 feitas, cada uma com teste vermelho antes, mutação do ponto de se
 
 - Task 17 (aceite com o Arthur: voz, cartão de aprovação, lixeira do KDE, celular).
 - Task 18 (revisão, memória, merge e push só com o OK dele).
+
+### Aceite parcial do Arthur (Task 17), 2026-10-14
+
+Passaram: listar e ler, `.env` sem valor, criar com aviso por voz e cartão (negar e aprovar), editar, apagar para a lixeira, e `revelar` com cartão. Dois achados:
+
+- **BUG ANTIGO (2026-08-04) exposto pelo aceite: `persistirNovasMensagens` partia do tamanho do histórico completo, e o loop devolve as mensagens a partir da JANELA de contexto.** Quando a conversa passa do orçamento de 8000 tokens (as ferramentas de arquivo devolvem textos grandes), `todas[24:]` num slice de 9 dava **panic** (`slice bounds out of range [24:9]`: a conexão caía e o app apagava a mensagem, foi o "ele parou, excluiu a mensagem e não fez mais nada" do pedido de guardar a chave na memória) ou, quando o contador não passava do fim, **mensagens novas eram puladas em silêncio** (num teste de 6 turnos, 3 de 12 chegavam ao banco). Corrigido: o que é novo começa em `len(janela)` (`b306d48`). **Como o histórico das conversas longas pode ter ficado furado no banco desde agosto, vale saber disso ao olhar sessões antigas.**
+- **Interface:** texto longo sem espaço (a chave) vazava do balão e abria barra de rolagem horizontal. Medido no navegador com o CSS compilado: `scrollWidth` 998 contra 519 antes, 519 depois (`df4f6f0`).
+- **A recusa da memória não foi verificada ao vivo** (o panic aconteceu antes). Está coberta por teste (CA6), mas o aceite ao vivo do item 5 precisa ser refeito.
+- **A chave revelada no teste** ficou no histórico da conversa (Postgres) e numa captura de tela: o `revelar` fez o que foi pedido, e a rotação da chave na Anthropic é decisão do Arthur.
+- **Observação, não corrigida:** o turno de voz roda numa goroutine (`wsDispositivo`) sem `recover`; um panic ali derruba o jamesd inteiro, e não só a conexão como no texto.
