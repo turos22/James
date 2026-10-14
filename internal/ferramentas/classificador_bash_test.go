@@ -19,7 +19,6 @@ func TestComandoBashPrecisaConfirmacao(t *testing.T) {
 		{"git", "git status", false},
 		{"testes go", "go test ./...", false},
 		{"instalar dependência do projeto", "npm install", false},
-		{"escrever arquivo", "echo 'ação' > notas.txt", false},
 		{"pipeline de leitura", "ps aux | grep james", false},
 		{"disco livre", "df -h", false},
 		{"ip a é leitura e fica fora", "ip a", false},
@@ -195,6 +194,38 @@ func TestOPowerShellNaoMudaComAsRegrasNovasDoBash(t *testing.T) {
 	for _, comando := range []string{"New-Item x", "Set-Content x 1", "Copy-Item a b", "Move-Item a b", "touch a", "cat .env"} {
 		if ComandoPowerShellPrecisaConfirmacao(comando) {
 			t.Errorf("o PowerShell passou a pedir aprovação para %q: o Windows não muda nesta fatia", comando)
+		}
+	}
+}
+
+// --- redirecionamento para arquivo (spec 2026-10-14, D15) ---------------------
+//
+// echo 'ação' > notas.txt, que os testes antigos davam como "passa livre",
+// mudou de lado de propósito: é criar ou sobrescrever arquivo.
+
+func TestShellPedeAprovacaoParaRedirecionarParaArquivo(t *testing.T) {
+	for _, comando := range []string{
+		"echo x > f", "echo 'ação' > notas.txt", "echo x >> f", "echo x>f", "cat a > b", "cmd >| f", "cmd 2> erro.log",
+		"cmd &> f", "cmd &>> f", `cmd > "arquivo com espaço"`, "cat > f <<EOF", "ls && echo a > f", "ls; echo a > f",
+		"cmd >(outro)", "echo x > $ARQUIVO", "echo x >", "cmd >&arquivo", "ls -la > saida.txt 2>&1",
+		"echo a > /etc-nao-existe/x", "echo x > /dev/null-nao-e-o-null", `echo "a" > f`, "(echo a > f)", "{ echo a > f; }",
+	} {
+		if !ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = false, queria true", comando)
+		}
+	}
+}
+
+func TestShellNaoPedeAprovacaoQuandoOMaiorQueNaoEscreveArquivo(t *testing.T) {
+	for _, comando := range []string{
+		"cmd 2>&1", "cmd > /dev/null", "cmd >/dev/null 2>&1", "cmd 2>/dev/null", "cmd &>/dev/null", "cmd &>>/dev/null",
+		"cmd > /dev/stderr", "cmd > /dev/stdout", "cmd 1>&2", "cmd >&2", "cmd 2>&-", `cmd > "/dev/null"`,
+		`grep ">" f`, `grep -n '>' f`, "awk '$1 > 3' f", `echo "a > b"`, "echo 'a >> b'", `echo a \> b`,
+		"cmd < entrada", "cmd <<EOF", "diff <(ls a) <(ls b)", "sort < a", "ls -la | grep x",
+		"ls -la > /dev/null 2>&1 && echo ok",
+	} {
+		if ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = true, queria false", comando)
 		}
 	}
 }

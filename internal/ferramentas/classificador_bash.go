@@ -307,12 +307,76 @@ func comandoEscreve(nome string, args []string) bool {
 	return false
 }
 
+// Destinos de redirecionamento que não criam nem alteram arquivo nenhum.
+var destinosInofensivos = map[string]bool{"/dev/null": true, "/dev/stdout": true, "/dev/stderr": true}
+
+// redirecionaParaArquivo diz se o comando tem um ">" (>>, >|, &>, 2>) que
+// escreve num arquivo. O varredor respeita aspas simples, aspas duplas e
+// barra invertida, porque `grep ">" f` e `awk '$1 > 3'` não escrevem nada.
+// Duplicar descritor (2>&1, >&2, >&-) e escrever em /dev/null, /dev/stdout ou
+// /dev/stderr também não. `>(cmd)` (substituição de processo) e destino que
+// não dá para ler pedem aprovação.
+func redirecionaParaArquivo(comando string) bool {
+	letras := []rune(comando)
+	n := len(letras)
+	for i := 0; i < n; i++ {
+		switch letras[i] {
+		case '\\':
+			i++ // o próximo caractere é literal (\>)
+		case '\'':
+			for i++; i < n && letras[i] != '\''; i++ {
+			}
+		case '"':
+			for i++; i < n && letras[i] != '"'; i++ {
+				if letras[i] == '\\' {
+					i++
+				}
+			}
+		case '>':
+			j := i + 1
+			if j < n && (letras[j] == '>' || letras[j] == '|') {
+				j++
+			}
+			if j < n && letras[j] == '&' {
+				// >&2 e >&- duplicam ou fecham um descritor; >&arquivo escreve.
+				if k := j + 1; k < n && (letras[k] == '-' || (letras[k] >= '0' && letras[k] <= '9')) {
+					i = k
+					continue
+				}
+				j++
+			}
+			for j < n && (letras[j] == ' ' || letras[j] == '\t') {
+				j++
+			}
+			if j >= n || letras[j] == '(' {
+				return true
+			}
+			inicio := j
+			if letras[j] == '"' || letras[j] == '\'' {
+				aspa := letras[j]
+				inicio = j + 1
+				for j++; j < n && letras[j] != aspa; j++ {
+				}
+			} else {
+				for j < n && !strings.ContainsRune(" \t\r\n;|&()<>", letras[j]) {
+					j++
+				}
+			}
+			if !destinosInofensivos[string(letras[inicio:min(j, n)])] {
+				return true
+			}
+			i = j
+		}
+	}
+	return false
+}
+
 // escreveEmArquivoBash é o "extras" da denylist do bash: comandos que criam ou
-// alteram arquivos conforme as opções. Comando que não dá para ler (aspa
-// aberta) pede aprovação.
+// alteram arquivos conforme as opções, ou redirecionam a saída para um
+// arquivo. Comando que não dá para ler (aspa aberta) pede aprovação.
 func escreveEmArquivoBash(comando string) bool {
 	comandos, ok := simplesDoBash(comando)
-	if !ok {
+	if !ok || redirecionaParaArquivo(comando) {
 		return true
 	}
 	for _, tokens := range comandos {
