@@ -175,3 +175,47 @@ func TestLimparParaFala(t *testing.T) {
 		})
 	}
 }
+
+// Ponto seguido de quebra de linha fecha a frase na hora, mesmo no fim do
+// buffer: a quebra é fronteira certa, não há o que esperar. Sem isso, o aviso
+// "Preciso da sua aprovação na tela.\n" só saía depois da aprovação (achado ao
+// medir o aviso de voz do spec 2026-10-14).
+func TestPontoSeguidoDeQuebraDeLinhaFechaAFraseNaHora(t *testing.T) {
+	var q QuebradorDeFrases
+
+	frases := q.Acrescentar("Preciso da sua aprovação na tela.\n")
+
+	if len(frases) != 1 || frases[0] != "Preciso da sua aprovação na tela." {
+		t.Errorf("frases = %q, queria a frase na hora", frases)
+	}
+	if resto := q.Fim(); resto != "" {
+		t.Errorf("sobrou %q no quebrador", resto)
+	}
+}
+
+func TestPontoSeguidoDeQuebraEDeMaisTextoNaoPerdeNada(t *testing.T) {
+	var q QuebradorDeFrases
+
+	frases := q.Acrescentar("Primeira.\nSegunda")
+	frases = append(frases, q.Acrescentar(" frase.\n")...)
+
+	if len(frases) != 2 || frases[0] != "Primeira." || frases[1] != "Segunda frase." {
+		t.Errorf("frases = %q", frases)
+	}
+}
+
+func TestQuebraDeLinhaNaoMudaOPontoNoFimSemQuebra(t *testing.T) {
+	// Sem a quebra, o comportamento antigo continua: espera o próximo caractere
+	// ("Haiku 5." seguido de "5" é a versão 5.5).
+	var q QuebradorDeFrases
+
+	if frases := q.Acrescentar("O Haiku 5."); len(frases) != 0 {
+		t.Errorf("fechou a frase cedo demais: %q", frases)
+	}
+	if frases := q.Acrescentar("5 é rápido."); len(frases) != 0 {
+		t.Errorf("fechou a frase cedo demais: %q", frases)
+	}
+	if resto := q.Fim(); resto != "O Haiku 5.5 é rápido." {
+		t.Errorf("resto = %q", resto)
+	}
+}

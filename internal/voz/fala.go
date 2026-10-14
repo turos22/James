@@ -165,6 +165,11 @@ func proximaFrase(s string, aceitaFimDoBuffer bool) (frase string, consumido int
 				if aceitaFimDoBuffer {
 					return s[:k], len(s), true
 				}
+				if strings.ContainsRune(s[k:m], '\n') {
+					// Ponto e quebra de linha: a quebra é fronteira certa de frase,
+					// não há o que esperar (o aviso de aprovação por voz depende disso).
+					return s[:k], m, true
+				}
 				return "", 0, false // ainda não sei o que vem depois: espera
 			}
 			if r4, _ := utf8.DecodeRuneInString(s[m:]); unicode.IsLower(r4) {

@@ -311,7 +311,18 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	// → ferramentas.
 	ctx = ferramentas.ComSessao(ctx, sessaoID.String())
 
-	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
+	solicitarAprovacao := s.criarSolicitarAprovacao(*sessaoID)
+	if modo == agente.ModoVoz && aoDelta != nil {
+		// Por voz o Arthur não está olhando a tela: sem este aviso o James esperaria o
+		// clique de aprovar (até o timeout de 5 minutos) calado. O "\n" fecha a
+		// frase no quebrador, e ela vai ao device na hora (spec 2026-10-14, D14).
+		interna := solicitarAprovacao
+		solicitarAprovacao = func(ctx context.Context, chamada agente.ChamadaFerramenta) (bool, error) {
+			aoDelta(avisoDeAprovacaoPorVoz + "\n")
+			return interna(ctx, chamada)
+		}
+	}
+	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, solicitarAprovacao)
 	if err != nil {
 		return agente.Resposta{}, "", err
 	}
@@ -459,6 +470,10 @@ func (s *Servidor) descricaoDaConfirmacao(chamada agente.ChamadaFerramenta) stri
 	}
 	return ""
 }
+
+// avisoDeAprovacaoPorVoz é o que o James diz quando um turno falado espera
+// aprovação do Arthur na tela.
+const avisoDeAprovacaoPorVoz = "Preciso da sua aprovação na tela."
 
 // criarSolicitarAprovacao devolve o callback que o Loop chama quando um
 // perfil Restrito pede uma ferramenta perigosa: cria a aprovação pendente,

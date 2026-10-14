@@ -463,3 +463,125 @@ func TestTurnoDeTextoAvisaODeviceParaFicarCalado(t *testing.T) {
 		t.Errorf("segundos = %v (err %v), queria pelo menos 2 (duração estimada + folga)", dados.Segundos, err)
 	}
 }
+
+// --- aviso de voz quando o turno espera aprovação (spec 2026-10-14, D14) ------
+//
+// Toda alteração de arquivo pede aprovação, e por voz o James esperava o
+// clique por até 5 minutos sem dizer nada.
+
+// ferramentaQueExigeAprovacao pede confirmação em toda chamada.
+type ferramentaQueExigeAprovacao struct{}
+
+func (ferramentaQueExigeAprovacao) Declaracao() ferramentas.Declaracao {
+	return ferramentas.Declaracao{Nome: "mexe_em_arquivo"}
+}
+func (ferramentaQueExigeAprovacao) Nivel() ferramentas.Nivel { return ferramentas.NivelPerigoso }
+func (ferramentaQueExigeAprovacao) Executar(context.Context, map[string]any) (string, error) {
+	return "feito", nil
+}
+func (ferramentaQueExigeAprovacao) ConfirmacaoNecessaria(map[string]any) bool { return true }
+
+func servidorComFerramentaQueExigeAprovacao(t *testing.T, rodadas []rodadaDeFala) (*httptest.Server, *Servidor) {
+	t.Helper()
+	servidor, s := servidorDeFala(t, &providerDeFala{rodadas: rodadas})
+	reg := ferramentas.NovoRegistro()
+	_ = reg.Registrar(ferramentaQueExigeAprovacao{})
+	s.Loop.Ferramentas = reg
+	s.TimeoutAprovacao = 100 * time.Millisecond // ninguém clica: o pedido expira e o turno segue
+	return servidor, s
+}
+
+func TestTurnoDeVozAvisaPorVozQuandoEsperaAprovacao(t *testing.T) {
+	servidor, _ := servidorComFerramentaQueExigeAprovacao(t, []rodadaDeFala{
+		{deltas: []string{"Vou apagar."}, resposta: agente.Resposta{
+			Texto: "Vou apagar.", Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: "mexe_em_arquivo"}}}},
+		{deltas: []string{"Não fiz."}, resposta: agente.Resposta{Texto: "Não fiz."}},
+	})
+	conn := conectarDevice(t, servidor)
+
+	falarPeloDevice(t, conn, "apaga aquilo")
+	todas := lerFalaAteOFim(t, conn)
+
+	var textos []string
+	for _, f := range todas {
+		if f.Tipo == "fala_frase" {
+			textos = append(textos, f.Texto)
+		}
+	}
+	esperado := []string{"Vou apagar.", "Preciso da sua aprovação na tela.", "Não fiz."}
+	if len(textos) != len(esperado) {
+		t.Fatalf("frases = %q, queria %q", textos, esperado)
+	}
+	for i := range esperado {
+		if textos[i] != esperado[i] {
+			t.Errorf("frase %d = %q, queria %q (o aviso vem DEPOIS do que o James disse e ANTES de esperar)", i, textos[i], esperado[i])
+		}
+	}
+}
+
+func TestAvisoDeAprovacaoSaiAntesDeAprovacaoExpirar(t *testing.T) {
+	// A aprovação demora (timeout longo): o aviso tem de chegar ENQUANTO se espera,
+	// não só depois.
+	servidor, s := servidorComFerramentaQueExigeAprovacao(t, []rodadaDeFala{
+		{resposta: agente.Resposta{Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: "mexe_em_arquivo"}}}},
+		{deltas: []string{"Ok."}, resposta: agente.Resposta{Texto: "Ok."}},
+	})
+	s.TimeoutAprovacao = 30 * time.Second
+	conn := conectarDevice(t, servidor)
+
+	falarPeloDevice(t, conn, "apaga")
+	aviso := lerFala(t, conn) // com a aprovação ainda pendente
+
+	if aviso.Tipo != "fala_frase" || aviso.Texto != "Preciso da sua aprovação na tela." {
+		t.Fatalf("primeiro evento = %+v, queria o aviso de aprovação", aviso)
+	}
+}
+
+func TestTurnoDeTextoNaoFalaPeloDeviceQuandoEsperaAprovacao(t *testing.T) {
+	servidor, _ := servidorComFerramentaQueExigeAprovacao(t, []rodadaDeFala{
+		{resposta: agente.Resposta{Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: "mexe_em_arquivo"}}}},
+		{deltas: []string{"Ok."}, resposta: agente.Resposta{Texto: "Ok."}},
+	})
+	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
+	app, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar o app: %v", err)
+	}
+	defer app.Close()
+	doApp := leitorDoApp(app)
+	device := conectarDevice(t, servidor)
+
+	if err := app.WriteJSON(Envelope{Tipo: "mensagem", ID: "t1", Dados: codificarDados(map[string]string{"texto": "apaga"})}); err != nil {
+		t.Fatal(err)
+	}
+	coletarEventosDoApp(t, doApp)
+
+	_ = device.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	var env Envelope
+	if err := device.ReadJSON(&env); err == nil {
+		t.Errorf("o device recebeu %q num turno de texto: o aviso é só da voz", env.Tipo)
+	}
+}
+
+func TestTurnoDeVozSemAprovacaoNaoGanhaAviso(t *testing.T) {
+	servidor, s := servidorDeFala(t, &providerDeFala{rodadas: []rodadaDeFala{
+		{deltas: []string{"Vou ver."}, resposta: agente.Resposta{
+			Texto: "Vou ver.", Chamadas: []agente.ChamadaFerramenta{{ID: "1", Nome: "lenta"}}}},
+		{deltas: []string{"Pronto."}, resposta: agente.Resposta{Texto: "Pronto."}},
+	}})
+	liberar := make(chan struct{})
+	close(liberar)
+	reg := ferramentas.NovoRegistro()
+	_ = reg.Registrar(&ferramentaLenta{liberar: liberar})
+	s.Loop.Ferramentas = reg
+	conn := conectarDevice(t, servidor)
+
+	falarPeloDevice(t, conn, "olha")
+	todas := lerFalaAteOFim(t, conn)
+
+	for _, f := range todas {
+		if strings.Contains(f.Texto, "aprovação") {
+			t.Errorf("aviso de aprovação onde não havia aprovação: %+v", f)
+		}
+	}
+}
