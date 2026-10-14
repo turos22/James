@@ -56,6 +56,15 @@ type DescreveConfirmacao interface {
 	DescricaoDaConfirmacao(args map[string]any) string
 }
 
+// ArgumentosRegistraveis é implementada por ferramenta cujos argumentos podem
+// carregar segredo (o conteúdo que o James grava num .env). Devolve uma CÓPIA
+// dos argumentos própria para o cartão de aprovação e para o Postgres; o mapa
+// original, que a ferramenta executa, nunca é alterado. Mesmo contrato aditivo
+// de ExigeConfirmacao: quem não implementa registra os argumentos como são.
+type ArgumentosRegistraveis interface {
+	ArgumentosParaRegistro(args map[string]any) map[string]any
+}
+
 // FerramentaComImagem é implementada pela ferramenta que vê a tela (Fase 5,
 // Task 9) — hoje nenhuma implementa.
 //

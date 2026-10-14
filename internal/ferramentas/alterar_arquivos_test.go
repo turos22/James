@@ -306,3 +306,50 @@ func TestLogRegistraAcaoECaminhoNuncaOConteudo(t *testing.T) {
 		}
 	}
 }
+
+// O que o James grava num arquivo de segredo não pode ir parar no Postgres nem
+// no cartão de aprovação em claro: só a estrutura fica legível.
+func TestArgumentosParaRegistroMascaraConteudoDeArquivoSensivel(t *testing.T) {
+	const segredo = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	original := map[string]any{
+		"acao": "criar", "caminho": "/home/x/projeto/.env",
+		"conteudo": "CLAUDE_KEY=" + segredo + "\nPORTA=8080\n",
+	}
+	saida := NovoAlterarArquivos().ArgumentosParaRegistro(original)
+
+	conteudo, _ := saida["conteudo"].(string)
+	if strings.Contains(conteudo, segredo) {
+		t.Errorf("o segredo continua no registro: %q", conteudo)
+	}
+	if !strings.Contains(conteudo, "CLAUDE_KEY=") || !strings.Contains(conteudo, "PORTA=") {
+		t.Errorf("a estrutura sumiu junto: %q", conteudo)
+	}
+	if saida["acao"] != "criar" || saida["caminho"] != "/home/x/projeto/.env" {
+		t.Errorf("campos que não são conteúdo mudaram: %v", saida)
+	}
+	if !strings.Contains(original["conteudo"].(string), segredo) {
+		t.Error("o mapa ORIGINAL foi alterado: a execução gravaria o conteúdo mascarado")
+	}
+}
+
+func TestArgumentosParaRegistroMascaraTrechosDaEdicao(t *testing.T) {
+	saida := NovoAlterarArquivos().ArgumentosParaRegistro(map[string]any{
+		"acao": "editar", "caminho": "/home/x/.aws/credentials",
+		"trecho_antigo": "aws_secret_access_key = ANTIGAANTIGAANTIGA1",
+		"trecho_novo":   "aws_secret_access_key = NOVANOVANOVANOVA22",
+	})
+	for _, campo := range []string{"trecho_antigo", "trecho_novo"} {
+		v, _ := saida[campo].(string)
+		if strings.Contains(v, "ANTIGA") || strings.Contains(v, "NOVA") || !strings.Contains(v, "aws_secret_access_key") {
+			t.Errorf("%s = %q", campo, v)
+		}
+	}
+}
+
+func TestArgumentosParaRegistroNaoMexeEmArquivoComum(t *testing.T) {
+	original := map[string]any{"acao": "criar", "caminho": "/home/x/notas.md", "conteudo": "a = b\n"}
+	saida := NovoAlterarArquivos().ArgumentosParaRegistro(original)
+	if saida["conteudo"] != "a = b\n" {
+		t.Errorf("mascarou arquivo comum: %v", saida["conteudo"])
+	}
+}

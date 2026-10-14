@@ -475,6 +475,24 @@ func (s *Servidor) descricaoDaConfirmacao(chamada agente.ChamadaFerramenta) stri
 	return ""
 }
 
+// argumentosParaRegistro devolve os argumentos como podem sair do jamesd para o
+// cartão de aprovação e para o Postgres: a ferramenta que sabe que o conteúdo
+// pode ser segredo (ArgumentosRegistraveis) esconde os valores. A chamada que o
+// loop executa não é tocada.
+func (s *Servidor) argumentosParaRegistro(chamada agente.ChamadaFerramenta) map[string]any {
+	if s.Loop == nil || s.Loop.Ferramentas == nil {
+		return chamada.Args
+	}
+	ferramenta, ok := s.Loop.Ferramentas.Buscar(chamada.Nome)
+	if !ok {
+		return chamada.Args
+	}
+	if registravel, ok := ferramenta.(ferramentas.ArgumentosRegistraveis); ok {
+		return registravel.ArgumentosParaRegistro(chamada.Args)
+	}
+	return chamada.Args
+}
+
 // avisoDeAprovacaoPorVoz é o que o James diz quando um turno falado espera
 // aprovação do Arthur na tela.
 const avisoDeAprovacaoPorVoz = "Preciso da sua aprovação na tela."
@@ -484,7 +502,8 @@ const avisoDeAprovacaoPorVoz = "Preciso da sua aprovação na tela."
 // avisa os clientes Privilegiado, e espera decisão ou timeout (R4).
 func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarAprovacao {
 	return func(ctx context.Context, chamada agente.ChamadaFerramenta) (bool, error) {
-		argumentosJSON, _ := json.Marshal(chamada.Args)
+		registrados := s.argumentosParaRegistro(chamada)
+		argumentosJSON, _ := json.Marshal(registrados)
 		aprovacao, err := s.Aprovacoes.Criar(ctx, sessaoID, chamada.Nome, argumentosJSON, "cliente-restrito")
 		if err != nil {
 			return false, err
@@ -496,7 +515,7 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 		// roda antes de qualquer validação de argumento, então uma chamada
 		// sem parâmetros chegaria ao front como argumentos: null — e o card
 		// de aprovação itera esse valor. "Sem argumentos" é objeto vazio.
-		argumentos := chamada.Args
+		argumentos := registrados
 		if argumentos == nil {
 			argumentos = map[string]any{}
 		}
@@ -553,7 +572,12 @@ func (s *Servidor) persistirNovasMensagens(ctx context.Context, sessaoID uuid.UU
 		var chamadasJSON []byte
 		switch {
 		case len(m.Chamadas) > 0:
-			chamadasJSON, _ = json.Marshal(m.Chamadas)
+			registradas := make([]agente.ChamadaFerramenta, len(m.Chamadas))
+			for i, c := range m.Chamadas {
+				registradas[i] = c
+				registradas[i].Args = s.argumentosParaRegistro(c)
+			}
+			chamadasJSON, _ = json.Marshal(registradas)
 		case len(m.Resultados) > 0:
 			chamadasJSON, _ = json.Marshal(m.Resultados)
 		}

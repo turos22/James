@@ -213,6 +213,30 @@ func (a *AlterarArquivos) DescricaoDaConfirmacao(args map[string]any) string {
 	return plano.descricao
 }
 
+// camposDeConteudo são os argumentos que carregam o texto gravado no arquivo.
+var camposDeConteudo = []string{"conteudo", "trecho_antigo", "trecho_novo"}
+
+// ArgumentosParaRegistro implementa ArgumentosRegistraveis: em arquivo sensível
+// (.env, .aws/credentials, chave), o texto gravado vai com os valores
+// escondidos, como na leitura. A estrutura continua legível no cartão, então
+// quem aprova ainda vê QUE chaves serão escritas.
+func (a *AlterarArquivos) ArgumentosParaRegistro(args map[string]any) map[string]any {
+	caminho, _ := args["caminho"].(string)
+	if !CaminhoSensivel(caminho) {
+		return args
+	}
+	copia := make(map[string]any, len(args))
+	for k, v := range args {
+		copia[k] = v
+	}
+	for _, campo := range camposDeConteudo {
+		if texto, ok := args[campo].(string); ok {
+			copia[campo], _ = Mascarar(texto, true)
+		}
+	}
+	return copia
+}
+
 // Executar RECONFERE o pedido inteiro antes de escrever: entre o cartão e o
 // clique de aprovar o arquivo pode ter mudado, e a aprovação vale para o que
 // foi mostrado, não para o que existir na hora.
