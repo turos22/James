@@ -27,7 +27,7 @@ import (
 // emitir um bloco tool_use. A chamada então nunca roda e nenhum erro aparece.
 //
 // Este teste chama o modelo de verdade, com o sistema.md real e as
-// declarações reais das ferramentas, e exige tool_use em 10 de 10 pedidos.
+// declarações reais das ferramentas, e exige tool_use em todos os pedidos.
 //
 // Roda só sob demanda (gasta frações de centavo):
 //
@@ -50,6 +50,9 @@ var pedidos = []pedido{
 	{"O que tem na minha tela agora?", []string{"ver_tela"}},
 	{"Clica no ponto 100, 100 da tela.", []string{"manipular_interface", "ver_tela"}},
 	{"Pergunta ao Claude Code o que este projeto faz.", []string{"perguntar_ao_claude_code"}},
+	{"Coloca o foco no Firefox.", []string{"janelas"}},
+	{"Troca a música.", []string{"midia"}},
+	{"Abre o Dolphin.", []string{"abrir"}},
 }
 
 // marcasDeImitacao são o que aparece quando o modelo ESCREVE a chamada em vez
@@ -81,6 +84,9 @@ func declaracoesReais(t *testing.T) []ferramentas.Declaracao {
 		ferramentas.NovoManipularInterface(hub),
 		ferramentas.NovoVerTela(hub),
 		ferramentas.NovoSalvarNaMemoria(vault),
+		ferramentas.NovoJanelas(hub),
+		ferramentas.NovoMidia(hub),
+		ferramentas.NovoAbrir(hub),
 	} {
 		if err := reg.Registrar(f); err != nil {
 			t.Fatalf("registrar: %v", err)

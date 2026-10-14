@@ -262,3 +262,65 @@ def test_mensagem_de_erro_toca_depois_das_frases_que_ja_chegaram(montar):
 
     assert fala.aguardar_fim_do_turno(3)
     assert rep.tocadas == ["primeira", "segunda", "falhou"]
+
+
+# --- silêncio pedido pelo jamesd: o áudio do turno de TEXTO toca no app --------
+
+def test_silencio_deixa_a_escuta_surda_pelo_tempo_pedido(montar):
+    class Relogio:
+        agora = 100.0
+
+        def __call__(self):
+            return self.agora
+
+    relogio = Relogio()
+    fala, _, _ = montar(relogio=relogio)
+    assert not fala.ocupado()
+
+    fala.silencio(4.0)
+
+    assert fala.ocupado()
+    relogio.agora += 3.9
+    assert fala.ocupado()
+    relogio.agora += 0.2
+    assert not fala.ocupado()
+
+
+def test_silencio_maior_vence_e_menor_nao_encurta(montar):
+    class Relogio:
+        agora = 0.0
+
+        def __call__(self):
+            return self.agora
+
+    relogio = Relogio()
+    fala, _, _ = montar(relogio=relogio)
+
+    fala.silencio(10.0)
+    fala.silencio(2.0)  # um aviso menor depois não pode encurtar o anterior
+
+    relogio.agora = 5.0
+    assert fala.ocupado()
+
+
+def test_silencio_invalido_e_ignorado(montar):
+    fala, _, _ = montar()
+    for ruim in (0, -3, None, "x", float("nan"), float("inf")):
+        fala.silencio(ruim)
+    assert not fala.ocupado()
+
+
+def test_silencio_tem_teto_para_nao_deixar_o_james_surdo_para_sempre(montar):
+    class Relogio:
+        agora = 0.0
+
+        def __call__(self):
+            return self.agora
+
+    relogio = Relogio()
+    fala, _, _ = montar(relogio=relogio)
+
+    fala.silencio(10_000_000)
+
+    relogio.agora = 130.0  # teto de 2 minutos
+    assert not fala.ocupado()

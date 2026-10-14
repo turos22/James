@@ -24,6 +24,7 @@ class ConexaoJames:
         conectar=conectar_padrao,
         ao_fala_frase=None,
         ao_fala_fim=None,
+        ao_silencio=None,
         ao_fala_erro=None,
     ):
         self.url = url
@@ -35,6 +36,7 @@ class ConexaoJames:
         # fala (device sem voz, ou testes da ponte de tela).
         self._ao_fala_frase = ao_fala_frase
         self._ao_fala_fim = ao_fala_fim
+        self._ao_silencio = ao_silencio
         self._ao_fala_erro = ao_fala_erro
         self._parar = threading.Event()
         self._ws_atual = None
@@ -124,6 +126,11 @@ class ConexaoJames:
         if tipo == "fala_fim":
             if self._ao_fala_fim is not None:
                 self._ao_fala_fim()
+            return
+        if tipo == "silencio":
+            segundos = (envelope.get("dados") or {}).get("segundos")
+            if self._ao_silencio is not None and isinstance(segundos, (int, float)):
+                self._ao_silencio(segundos)
             return
         if tipo == "fala_erro":
             mensagem = (envelope.get("dados") or {}).get("mensagem")

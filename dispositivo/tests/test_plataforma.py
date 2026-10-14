@@ -50,15 +50,76 @@ def test_linux_sem_pw_play_nao_levanta(monkeypatch, caplog):
     assert "pw-play" in caplog.text
 
 
-def test_linux_ponte_de_tela_recusa_sem_levantar():
+def test_linux_ponte_de_tela_recusa_sem_levantar_quando_nao_ha_tela(monkeypatch):
+    monkeypatch.setattr(linux, "TELA_DISPONIVEL", False)
+    monkeypatch.setattr(linux, "MOTIVO_SEM_TELA", "a sessão não é Wayland (XDG_SESSION_TYPE=x11)")
     ponte = linux.ponte_de_tela()
     resposta = ponte({"acao": "click", "x": 1, "y": 1})
     assert set(resposta) == {"erro"}
     assert "indisponível" in resposta["erro"]
+    assert "Wayland" in resposta["erro"]
 
 
-def test_linux_declara_tela_indisponivel():
-    assert linux.TELA_DISPONIVEL is False
+KDE_WAYLAND = {"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "KDE"}
+
+
+def _gi_ok():
+    return None
+
+
+def test_tela_so_com_wayland_kde_e_gi():
+    assert linux.motivo_sem_tela(KDE_WAYLAND, _gi_ok) is None
+
+
+def test_sem_wayland_nao_ha_tela():
+    assert "Wayland" in linux.motivo_sem_tela({**KDE_WAYLAND, "XDG_SESSION_TYPE": "x11"}, _gi_ok)
+    assert "Wayland" in linux.motivo_sem_tela({"XDG_CURRENT_DESKTOP": "KDE"}, _gi_ok)
+
+
+def test_sem_kde_nao_ha_tela():
+    assert "KDE" in linux.motivo_sem_tela({**KDE_WAYLAND, "XDG_CURRENT_DESKTOP": "GNOME"}, _gi_ok)
+
+
+def test_kde_em_lista_de_desktops_conta():
+    assert linux.motivo_sem_tela({**KDE_WAYLAND, "XDG_CURRENT_DESKTOP": "KDE:plasma"}, _gi_ok) is None
+
+
+def test_sem_gi_nao_ha_tela():
+    def sem_gi():
+        raise ImportError("No module named 'gi'")
+
+    assert "gi" in linux.motivo_sem_tela(KDE_WAYLAND, sem_gi)
+
+
+def test_ponte_que_nao_monta_vira_recusa_e_nao_derruba(monkeypatch, caplog):
+    monkeypatch.setattr(linux, "TELA_DISPONIVEL", True)
+
+    def quebrar():
+        raise RuntimeError("D-Bus fora")
+
+    monkeypatch.setattr(linux, "_montar_ponte", quebrar)
+    resposta = linux.ponte_de_tela()({"acao": "ver_tela"})
+    assert "indisponível" in resposta["erro"]
+    assert "D-Bus fora" in caplog.text
+
+
+# --- Windows: ações novas respondem indisponível, o resto passa intacto -----------
+
+def test_windows_recusa_as_acoes_so_do_linux_e_delega_o_resto():
+    recebidas = []
+
+    def executar_acao(dados):
+        recebidas.append(dados)
+        return {"saida": "ok"}
+
+    ponte = plataforma.recusar_acoes_novas(executar_acao, "Windows")
+
+    for acao in ("janelas_listar", "janela_focar", "janela_fechar", "midia", "abrir"):
+        resposta = ponte({"acao": acao})
+        assert resposta == {"erro": "indisponível neste sistema (Windows)"}
+    for acao in ("ver_tela", "click", "clicar_elemento", "digitar", "tecla"):
+        assert ponte({"acao": acao, "x": 1}) == {"saida": "ok"}
+    assert recebidas == [{"acao": a, "x": 1} for a in ("ver_tela", "click", "clicar_elemento", "digitar", "tecla")]
 
 
 def test_main_importa_sem_puxar_tela_nem_playsound():

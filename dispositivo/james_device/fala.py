@@ -12,6 +12,7 @@ turno, falha, prazo) é testável sem Piper e sem alto-falante.
 """
 
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -26,6 +27,9 @@ TIMEOUT_RESPOSTA_PADRAO = 30.0
 class _MedidorMudo:
     def marca(self, nome):
         pass
+
+
+TETO_DO_SILENCIO = 120.0
 
 
 class Fala:
@@ -48,6 +52,7 @@ class Fala:
         self._marcou_primeira_frase = False
         self._fechar_reprodutor = False
         self._ultima_atividade = 0.0
+        self._silencio_ate = 0.0  # o app está falando (turno de texto): a escuta não pode ouvir
         self._geracao = 0  # sobe a cada turno; deixa um áudio atrasado do turno anterior sem efeito no novo
         self._parar = False
 
@@ -104,8 +109,23 @@ class Fala:
             self._fim = True
             self._cond.notify_all()
 
+    def silencio(self, segundos) -> None:
+        """O jamesd avisa que o APP vai tocar um áudio por `segundos` (turno de
+        texto). A meia-duplex só cobria a fala tocada aqui no device, e o James
+        escutava a si mesmo saindo da caixa de som. O maior prazo vence, e há
+        um teto: aviso absurdo não pode deixar o James surdo para sempre."""
+        if isinstance(segundos, bool) or not isinstance(segundos, (int, float)):
+            return
+        if not math.isfinite(segundos) or segundos <= 0:
+            return
+        with self._cond:
+            self._silencio_ate = max(self._silencio_ate, self._relogio() + min(segundos, TETO_DO_SILENCIO))
+        logger.info("silêncio de %.1fs: o app vai falar (turno de texto)", min(segundos, TETO_DO_SILENCIO))
+
     def ocupado(self) -> bool:
         with self._cond:
+            if self._relogio() < self._silencio_ate:
+                return True
             if not self._ocupado:
                 return False
             if self._falando or self._fim or self._ha_o_que_tocar_locked():

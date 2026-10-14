@@ -90,6 +90,15 @@ func executar() error {
 	if err := registro.Registrar(ferramentas.NovoVerTela(dispositivoHub)); err != nil {
 		return fmt.Errorf("registrar ver_tela: %w", err)
 	}
+	for _, f := range []ferramentas.Ferramenta{
+		ferramentas.NovoJanelas(dispositivoHub),
+		ferramentas.NovoMidia(dispositivoHub),
+		ferramentas.NovoAbrir(dispositivoHub),
+	} {
+		if err := registro.Registrar(f); err != nil {
+			return fmt.Errorf("registrar %s: %w", f.Declaracao().Nome, err)
+		}
+	}
 
 	vaultMemoria := memoria.NovoVault(cfg.MemoriaDiretorio, cfg.OrcamentoNotas)
 	if err := registro.Registrar(ferramentas.NovoSalvarNaMemoria(vaultMemoria)); err != nil {

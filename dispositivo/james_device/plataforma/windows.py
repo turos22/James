@@ -184,6 +184,7 @@ def tocar_som(caminho: str) -> None:
 
 def ponte_de_tela():
     # Import tardio: tela importa pyautogui, que só existe no Windows.
+    from james_device.plataforma import recusar_acoes_novas
     from james_device.tela import executar_acao
 
-    return executar_acao
+    return recusar_acoes_novas(executar_acao, "Windows")

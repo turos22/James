@@ -27,6 +27,14 @@ func (c *conexaoFalsa) Enviar(envelope []byte) error {
 	return c.erro
 }
 
+// limpar esquece o que foi enviado, para o próximo esperarEnvelopeID pegar
+// o envelope da próxima ação.
+func (c *conexaoFalsa) limpar() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.enviados = nil
+}
+
 // primeiroEnviado devolve o primeiro envelope enviado e true, ou nil e false
 // se ainda não chegou nada — usado pelo polling que simula o device.
 func (c *conexaoFalsa) primeiroEnviado() ([]byte, bool) {
@@ -77,7 +85,7 @@ func TestEnviarAcaoComDispositivoConectadoDevolveResultado(t *testing.T) {
 	go func() {
 		// Simula o endpoint WS do device recebendo o envelope e respondendo.
 		id := esperarEnvelopeID(t, conexao)
-		h.ResolverResultado(id, "clique feito", "", nil)
+		h.ResolverResultado(id, Resposta{Saida: "clique feito"})
 	}()
 
 	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "click", X: 10, Y: 20})
@@ -96,7 +104,7 @@ func TestEnviarAcaoPropagaErroDoDevice(t *testing.T) {
 
 	go func() {
 		id := esperarEnvelopeID(t, conexao)
-		h.ResolverResultado(id, "", "tecla inválida", nil)
+		h.ResolverResultado(id, Resposta{Erro: "tecla inválida"})
 	}()
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "tecla", Texto: "xyz"})
@@ -135,15 +143,15 @@ func TestEnviarAcaoEstouraTimeoutSemResposta(t *testing.T) {
 func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
 	h := NovoHub()
 	const id = "id-de-teste"
-	espera := make(chan resultadoAcao, 1)
+	espera := make(chan Resposta, 1)
 	h.mu.Lock()
 	h.pendentes[id] = espera
 	h.mu.Unlock()
 
 	feito := make(chan struct{})
 	go func() {
-		h.ResolverResultado(id, "primeiro", "", nil)
-		h.ResolverResultado(id, "segundo", "", nil) // pendente já devia ter sido removido — tem que ser no-op
+		h.ResolverResultado(id, Resposta{Saida: "primeiro"})
+		h.ResolverResultado(id, Resposta{Saida: "segundo"}) // pendente já devia ter sido removido — tem que ser no-op
 		close(feito)
 	}()
 
@@ -155,7 +163,7 @@ func TestResolverResultadoDuploMesmoIdNaoTrava(t *testing.T) {
 
 	select {
 	case r := <-espera:
-		if r.saida != "primeiro" {
+		if r.Saida != "primeiro" {
 			t.Errorf("valor entregue no canal = %+v, queria saida=primeiro (só a primeira resolução deve valer)", r)
 		}
 	default:
@@ -214,7 +222,7 @@ func TestEnviarAcaoDevolveImagemDoResultado(t *testing.T) {
 	imagem := []byte{0x89, 'P', 'N', 'G'}
 	go func() {
 		id := esperarEnvelopeID(t, conexao)
-		h.ResolverResultado(id, "e1 Button \"Salvar\" (820,455)", "", imagem)
+		h.ResolverResultado(id, Resposta{Saida: "e1 Button \"Salvar\" (820,455)", Imagem: imagem})
 	}()
 
 	resultado, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"})
@@ -236,7 +244,7 @@ func TestAcaoTelaSerializaCamposDeElementoESuperficie(t *testing.T) {
 
 	go func() {
 		id := esperarEnvelopeID(t, conexao)
-		h.ResolverResultado(id, "ok", "", nil)
+		h.ResolverResultado(id, Resposta{Saida: "ok"})
 	}()
 
 	_, err := h.EnviarAcao(context.Background(), AcaoTela{
@@ -279,5 +287,153 @@ func TestTimeoutPorAcaoSobrepoeOGlobal(t *testing.T) {
 	}
 	if decorrido < 250*time.Millisecond {
 		t.Errorf("desistiu em %v — usou o Timeout global em vez do da ação", decorrido)
+	}
+}
+
+// --- B2: protocolo aditivo e último mapa (spec 2026-10-13, 4.1) -------------
+
+func TestAcaoTelaSemCamposNovosSerializaIgualAntes(t *testing.T) {
+	bruto, err := json.Marshal(AcaoTela{Acao: "click", X: 1, Y: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(bruto) != `{"acao":"click","x":1,"y":2}` {
+		t.Errorf("JSON mudou para ações antigas: %s", bruto)
+	}
+	bruto, _ = json.Marshal(AcaoTela{Acao: "abrir", Alvo: "main.go", Linha: 12})
+	if string(bruto) != `{"acao":"abrir","alvo":"main.go","linha":12}` {
+		t.Errorf("JSON com alvo e linha: %s", bruto)
+	}
+}
+
+func verTela(t *testing.T, h *Hub, conexao *conexaoFalsa, resposta Resposta) Resultado {
+	t.Helper()
+	conexao.limpar()
+	go func() {
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, resposta)
+	}()
+	r, _ := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"})
+	return r
+}
+
+func TestResultadoTrazOsElementosDoVerTela(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	elementos := []Elemento{{ID: "e1", Nome: "Excluir", Tipo: "Button"}}
+
+	r := verTela(t, h, conexao, Resposta{Saida: "lista", Elementos: elementos})
+
+	if len(r.Elementos) != 1 || r.Elementos[0] != elementos[0] {
+		t.Errorf("Elementos = %+v", r.Elementos)
+	}
+}
+
+func TestVerTelaGuardaOUltimoMapaETrocaACadaVarredura(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	if len(h.UltimoMapa()) != 0 {
+		t.Fatal("Hub novo já tem mapa")
+	}
+	verTela(t, h, conexao, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Novo", Tipo: "Button"}}})
+	verTela(t, h, conexao, Resposta{Saida: "b", Elementos: []Elemento{{ID: "e1", Nome: "Excluir", Tipo: "Button"}}})
+
+	mapa := h.UltimoMapa()
+	if len(mapa) != 1 || mapa[0].Nome != "Excluir" {
+		t.Errorf("UltimoMapa = %+v, queria o da segunda varredura", mapa)
+	}
+	mapa[0].Nome = "mexido por fora"
+	if h.UltimoMapa()[0].Nome != "Excluir" {
+		t.Error("UltimoMapa devolveu a fatia interna: quem chama consegue alterar o mapa do Hub")
+	}
+}
+
+func TestVerTelaComErroZeraOMapa(t *testing.T) {
+	// O device pode ter varrido de novo (ids renumerados) mesmo quando o
+	// resultado não chegou: manter o mapa velho faria "e7" apontar para o
+	// elemento errado na hora de pedir aprovação.
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	verTela(t, h, conexao, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Novo"}}})
+
+	verTela(t, h, conexao, Resposta{Erro: "sem permissão"})
+
+	if mapa := h.UltimoMapa(); len(mapa) != 0 {
+		t.Errorf("UltimoMapa = %+v, queria vazio depois de um ver_tela com erro", mapa)
+	}
+}
+
+func TestVerTelaComTimeoutZeraOMapa(t *testing.T) {
+	h := NovoHub()
+	h.Timeout = 20 * time.Millisecond
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	verTela(t, h, conexao, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Novo"}}})
+
+	_, err := h.EnviarAcao(context.Background(), AcaoTela{Acao: "ver_tela"}) // ninguém responde
+	if err == nil {
+		t.Fatal("esperava timeout")
+	}
+	if len(h.UltimoMapa()) != 0 {
+		t.Error("o mapa velho sobreviveu ao timeout")
+	}
+}
+
+func TestOutraAcaoNaoTrocaOMapa(t *testing.T) {
+	h := NovoHub()
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+	verTela(t, h, conexao, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Novo"}}})
+
+	conexao.limpar()
+	go func() {
+		id := esperarEnvelopeID(t, conexao)
+		h.ResolverResultado(id, Resposta{Saida: "cliquei", Elementos: []Elemento{{ID: "x", Nome: "outro"}}})
+	}()
+	_, _ = h.EnviarAcao(context.Background(), AcaoTela{Acao: "clicar_elemento", ElementoID: "e1"})
+
+	if mapa := h.UltimoMapa(); len(mapa) != 1 || mapa[0].Nome != "Novo" {
+		t.Errorf("UltimoMapa = %+v", mapa)
+	}
+}
+
+func TestDeviceNovoNaoHerdaOMapaDoVelho(t *testing.T) {
+	h := NovoHub()
+	velha := &conexaoFalsa{}
+	h.Registrar(velha)
+	verTela(t, h, velha, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Excluir"}}})
+
+	h.Registrar(&conexaoFalsa{})
+	if len(h.UltimoMapa()) != 0 {
+		t.Error("a conexão nova herdou o mapa da velha")
+	}
+
+	h2 := NovoHub()
+	unica := &conexaoFalsa{}
+	h2.Registrar(unica)
+	verTela(t, h2, unica, Resposta{Saida: "a", Elementos: []Elemento{{ID: "e1", Nome: "Excluir"}}})
+	h2.Desregistrar(unica)
+	if len(h2.UltimoMapa()) != 0 {
+		t.Error("o mapa sobreviveu à saída do device")
+	}
+}
+
+func TestEnviarAoDeviceMandaOEnvelopeEDevolveAusenteSemDevice(t *testing.T) {
+	h := NovoHub()
+	if err := h.Enviar([]byte(`{"tipo":"silencio"}`)); !errors.Is(err, ErroDispositivoAusente) {
+		t.Fatalf("sem device: err = %v", err)
+	}
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	if err := h.Enviar([]byte(`{"tipo":"silencio"}`)); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if bruto, ok := conexao.primeiroEnviado(); !ok || string(bruto) != `{"tipo":"silencio"}` {
+		t.Errorf("enviado = %q", bruto)
 	}
 }

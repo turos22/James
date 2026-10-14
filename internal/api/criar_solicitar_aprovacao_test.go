@@ -10,6 +10,7 @@ import (
 
 	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
+	"james/internal/ferramentas"
 	"james/internal/permissao"
 )
 
@@ -284,5 +285,59 @@ func TestCriarSolicitarAprovacaoArgumentosNuloViraObjetoVazio(t *testing.T) {
 	}
 	if string(argumentos) != "{}" {
 		t.Errorf(`argumentos = %s, queria objeto vazio "{}" (não "null") — JSON completo: %s`, string(argumentos), captura.brutos[0])
+	}
+}
+
+// ferramentaQueDescreve existe só para o teste da descrição no cartão.
+type ferramentaQueDescreve struct{}
+
+func (ferramentaQueDescreve) Declaracao() ferramentas.Declaracao {
+	return ferramentas.Declaracao{Nome: "janelas"}
+}
+func (ferramentaQueDescreve) Nivel() ferramentas.Nivel { return ferramentas.NivelPerigoso }
+func (ferramentaQueDescreve) Executar(context.Context, map[string]any) (string, error) {
+	return "", nil
+}
+func (ferramentaQueDescreve) DescricaoDaConfirmacao(args map[string]any) string {
+	return `fechar a janela "` + args["alvo"].(string) + `"`
+}
+
+func dadosDaAprovacao(t *testing.T, s *Servidor, chamada agente.ChamadaFerramenta) map[string]any {
+	t.Helper()
+	s.TimeoutAprovacao = 20 * time.Millisecond
+	sessao, err := s.Sessoes.Criar(context.Background(), "sessão de teste aprovação — descrição")
+	if err != nil {
+		t.Fatalf("erro ao criar sessão: %v", err)
+	}
+	captura := &clienteCapturaIDEDados{perfil: permissao.Privilegiado}
+	s.Clientes.Registrar(captura)
+	if _, err := s.criarSolicitarAprovacao(sessao.ID)(context.Background(), chamada); err != nil {
+		t.Fatalf("solicitar: %v", err)
+	}
+	return captura.dados[0].(map[string]any)
+}
+
+func TestAprovacaoLevaADescricaoQuandoAFerramentaDescreve(t *testing.T) {
+	s := servidorDeTesteParaAprovacao(t)
+	registro := ferramentas.NovoRegistro()
+	if err := registro.Registrar(ferramentaQueDescreve{}); err != nil {
+		t.Fatal(err)
+	}
+	s.Loop = &agente.Loop{Ferramentas: registro}
+
+	dados := dadosDaAprovacao(t, s, agente.ChamadaFerramenta{Nome: "janelas", Args: map[string]any{"acao": "fechar", "alvo": "Dolphin"}})
+
+	if dados["descricao"] != `fechar a janela "Dolphin"` {
+		t.Errorf("descricao = %#v", dados["descricao"])
+	}
+}
+
+func TestAprovacaoSemDescricaoFicaIgualAntes(t *testing.T) {
+	s := servidorDeTesteParaAprovacao(t)
+
+	dados := dadosDaAprovacao(t, s, agente.ChamadaFerramenta{Nome: "ferramenta-perigosa"})
+
+	if _, existe := dados["descricao"]; existe {
+		t.Errorf("evento ganhou descricao sem a ferramenta descrever: %#v", dados)
 	}
 }

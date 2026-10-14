@@ -44,6 +44,9 @@ export interface DadosAprovacaoRequerida {
   id: string;
   ferramenta: string;
   argumentos: Record<string, unknown>;
+  // O que a chamada vai fazer, em português ("clicar em \"Excluir\" (Button)").
+  // Só vem quando a ferramenta sabe descrever (spec 2026-10-13 B2, Task 16).
+  descricao?: string;
 }
 
 // DadosSessaoRetomada carregava só a CONTAGEM de mensagens (`mensagens:

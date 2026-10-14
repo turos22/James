@@ -46,6 +46,16 @@ type ExigeConfirmacao interface {
 	ConfirmacaoNecessaria(args map[string]any) bool
 }
 
+// DescreveConfirmacao é implementada por ferramenta que sabe dizer, em
+// português, o que a chamada vai fazer: é o que o cartão de aprovação mostra
+// em destaque ("clicar em \"Excluir\" (Button)"), em vez de só o JSON dos
+// argumentos. Mesmo contrato aditivo de ExigeConfirmacao: ferramenta que não
+// implementa se comporta exatamente como antes, e string vazia = sem
+// descrição.
+type DescreveConfirmacao interface {
+	DescricaoDaConfirmacao(args map[string]any) string
+}
+
 // FerramentaComImagem é implementada pela ferramenta que vê a tela (Fase 5,
 // Task 9) — hoje nenhuma implementa.
 //

@@ -95,7 +95,8 @@ func TestResultadoAcaoDecodificaImagemBase64(t *testing.T) {
 		t.Fatalf("erro ao montar dados: %v", err)
 	}
 
-	saida, erro, decodificada := decodificarResultadoAcao(bruto)
+	r := decodificarResultadoAcao(bruto)
+	saida, erro, decodificada := r.Saida, r.Erro, r.Imagem
 
 	if erro != "" {
 		t.Errorf("erro = %q, queria vazio", erro)
@@ -111,7 +112,8 @@ func TestResultadoAcaoDecodificaImagemBase64(t *testing.T) {
 func TestResultadoAcaoComJSONDeTopoQuebradoVideraErro(t *testing.T) {
 	bruto := []byte(`{"saida": "texto", "erro": [1,2]}`) // erro não é string, unmarshal falha
 
-	saida, erro, imagem := decodificarResultadoAcao(bruto)
+	r := decodificarResultadoAcao(bruto)
+	saida, erro, imagem := r.Saida, r.Erro, r.Imagem
 
 	if saida != "" {
 		t.Errorf("saida = %q, queria vazio (payload não confiável)", saida)
@@ -127,7 +129,8 @@ func TestResultadoAcaoComJSONDeTopoQuebradoVideraErro(t *testing.T) {
 func TestResultadoAcaoComBase64InvalidaSegueSemImagem(t *testing.T) {
 	bruto := []byte(`{"saida":"ok","imagem_b64":"não é base64!!!"}`)
 
-	saida, erro, imagem := decodificarResultadoAcao(bruto)
+	r := decodificarResultadoAcao(bruto)
+	saida, erro, imagem := r.Saida, r.Erro, r.Imagem
 
 	// Imagem quebrada não pode derrubar o turno: o texto ainda serve.
 	if saida != "ok" {
@@ -442,5 +445,28 @@ func TestTurnoDeVozPassaModoVozETurnoDeTextoPassaModoTexto(t *testing.T) {
 	capturarEventosDeUmTurnoNoServidor(t, servidor, "que horas são")
 	if got := anota.ultimoModo(t); got != agente.ModoTexto {
 		t.Errorf("turno de texto: modo = %v, queria ModoTexto", got)
+	}
+}
+
+func TestResultadoAcaoLeOsElementosDoVerTela(t *testing.T) {
+	r := decodificarResultadoAcao([]byte(`{"saida":"lista","elementos":[{"id":"e1","nome":"Excluir","tipo":"Button"}]}`))
+
+	if len(r.Elementos) != 1 || r.Elementos[0] != (dispositivo.Elemento{ID: "e1", Nome: "Excluir", Tipo: "Button"}) {
+		t.Errorf("Elementos = %+v", r.Elementos)
+	}
+}
+
+func TestResultadoAcaoSemElementosDaListaVazia(t *testing.T) {
+	if r := decodificarResultadoAcao([]byte(`{"saida":"cliquei"}`)); len(r.Elementos) != 0 || r.Saida != "cliquei" {
+		t.Errorf("resposta = %+v", r)
+	}
+}
+
+func TestResultadoAcaoComElementosQuebradosSegueSemElementos(t *testing.T) {
+	// Mesma tolerância da imagem: a lista quebrada não derruba o texto.
+	r := decodificarResultadoAcao([]byte(`{"saida":"lista","elementos":"não é lista"}`))
+
+	if r.Saida != "lista" || r.Erro != "" || len(r.Elementos) != 0 {
+		t.Errorf("resposta = %+v", r)
 	}
 }

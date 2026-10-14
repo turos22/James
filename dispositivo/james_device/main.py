@@ -156,10 +156,11 @@ def configurar(env: Mapping) -> ConfiguracaoDeVoz:
 def configurar_ou_degradar(env: Mapping, tela_disponivel: bool) -> "ConfiguracaoDeVoz | None":
     """configurar() com a política de falha certa pra cada sistema.
 
-    Com ponte de tela (Windows), configuração de voz inválida desliga SÓ a voz,
-    em voz alta: o controle de tela não tem nada a ver com áudio e não pode
-    morrer por um JAMES_STT digitado errado. Sem ponte de tela (Linux hoje) o
-    device é só voz, então sem voz não há o que manter de pé: falha na partida."""
+    Com ponte de tela (Windows, e Linux com KDE Wayland desde a fatia B2),
+    configuração de voz inválida desliga SÓ a voz, em voz alta: o controle de
+    tela não tem nada a ver com áudio e não pode morrer por um JAMES_STT
+    digitado errado. Sem ponte de tela (outro desktop Linux) o device é só voz,
+    então sem voz não há o que manter de pé: falha na partida."""
     try:
         return configurar(env)
     except ValueError as erro:
@@ -297,7 +298,8 @@ def main():
     # fala (ver configurar_ou_degradar pra política de cada sistema).
     config = configurar_ou_degradar(os.environ, plataforma.TELA_DISPONIVEL)
     if not plataforma.TELA_DISPONIVEL:
-        logger.warning("ponte de tela desligada neste sistema (%s); voz segue normal", sys.platform)
+        motivo = getattr(plataforma, "MOTIVO_SEM_TELA", None) or sys.platform
+        logger.warning("ponte de tela desligada: %s; voz segue normal", motivo)
     medidor = Medidor(assincrono=True)
     fala = _montar_fala(medidor) if config is not None else None
     conexao = ConexaoJames(
@@ -305,6 +307,7 @@ def main():
         manipulador_acao=plataforma.ponte_de_tela(),
         ao_fala_frase=fala.frase if fala else None,
         ao_fala_fim=fala.fim if fala else None,
+        ao_silencio=fala.silencio if fala else None,
         ao_fala_erro=fala.erro if fala else None,
     )
     if config is not None:

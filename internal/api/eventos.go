@@ -60,6 +60,12 @@ type payloadFalaFrase struct {
 	Indice int    `json:"indice"`
 }
 
+// payloadSilencio é o formato de "silencio": o app vai tocar um áudio por
+// aproximadamente este tempo e o device não pode escutar a si mesmo.
+type payloadSilencio struct {
+	Segundos float64 `json:"segundos"`
+}
+
 // payloadFalaErro é o formato de "fala_erro": o turno falhou e o device fala
 // esta mensagem (a mesma, segura, que o app mostra na tela).
 type payloadFalaErro struct {

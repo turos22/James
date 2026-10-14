@@ -108,3 +108,108 @@ func TestManipularInterfaceNivelPerigoso(t *testing.T) {
 		t.Error("manipular_interface deve ser NivelPerigoso")
 	}
 }
+
+// --- B2: aprovação para clique e tecla destrutivos (D10) ---------------------
+
+type ponteComMapa struct {
+	ponteFalsa
+	mapa []dispositivo.Elemento
+}
+
+func (p *ponteComMapa) UltimoMapa() []dispositivo.Elemento { return p.mapa }
+
+func manipularComMapa(elementos ...dispositivo.Elemento) *ManipularInterface {
+	return NovoManipularInterface(&ponteComMapa{mapa: elementos})
+}
+
+func TestClicarElementoDestrutivoPeloIdPedeAprovacao(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e7", Nome: "Excluir", Tipo: "Button"},
+		dispositivo.Elemento{ID: "e1", Nome: "Novo", Tipo: "Button"})
+
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("clicar em Excluir pelo id não pediu aprovação")
+	}
+	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e1"}) {
+		t.Error("clicar em Novo pediu aprovação")
+	}
+}
+
+func TestClicarElementoDestrutivoPeloNomePedeAprovacaoMesmoSemMapa(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "nome": "Mover para a lixeira"}) {
+		t.Error("nome destrutivo nos argumentos não pediu aprovação")
+	}
+}
+
+// Achado do code-review: o Hub zera o mapa quando o WS reconecta (a cada 2 s,
+// é normal) e o device mantém o dele; sem o mapa, o id não diz o que é. Na
+// dúvida, pede aprovação: o custo é um clique do Arthur, o contrário é
+// apagar sem avisar.
+func TestIdQueOHubNaoConheceFalhaParaOLadoSeguroEPedeAprovacao(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e1", Nome: "Novo"})
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e99"}) {
+		t.Error("id fora do mapa não pediu aprovação")
+	}
+	vazio := manipularComMapa()
+	if !vazio.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("mapa vazio (WS reconectou) não pediu aprovação")
+	}
+}
+
+func TestIdSemFonteDeMapaTambemPedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("id sem como conferir não pediu aprovação")
+	}
+}
+
+func TestNomeInocenteSemIdNaoPedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "nome": "Novo"}) {
+		t.Error("clicar em Novo por nome pediu aprovação")
+	}
+}
+
+func TestTeclaDeletePedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	for _, tecla := range []string{"delete", "Delete", "shift+delete", "Shift + Delete", "del"} {
+		if !m.ConfirmacaoNecessaria(map[string]any{"acao": "tecla", "texto": tecla}) {
+			t.Errorf("tecla %q não pediu aprovação", tecla)
+		}
+	}
+	for _, tecla := range []string{"enter", "ctrl+l", "backspace"} {
+		if m.ConfirmacaoNecessaria(map[string]any{"acao": "tecla", "texto": tecla}) {
+			t.Errorf("tecla %q pediu aprovação", tecla)
+		}
+	}
+}
+
+func TestClickEDigitarNaoPedemAprovacao(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e1", Nome: "Excluir"})
+	for _, args := range []map[string]any{
+		{"acao": "click", "x": 1.0, "y": 1.0},
+		{"acao": "digitar", "texto": "excluir tudo"},
+	} {
+		if m.ConfirmacaoNecessaria(args) {
+			t.Errorf("%v pediu aprovação", args)
+		}
+	}
+}
+
+func TestDescricaoDaConfirmacaoDizOQueVaiAcontecer(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e7", Nome: "Excluir", Tipo: "Button"})
+
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}); d != `clicar em "Excluir" (Button)` {
+		t.Errorf("clicar_elemento por id: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "clicar_elemento", "nome": "Apagar"}); d != `clicar em "Apagar"` {
+		t.Errorf("clicar_elemento por nome: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "tecla", "texto": "shift+delete"}); d != "apertar a tecla shift+delete" {
+		t.Errorf("tecla: %q", d)
+	}
+	if d := m.DescricaoDaConfirmacao(map[string]any{"acao": "click"}); d != "" {
+		t.Errorf("click: %q", d)
+	}
+}

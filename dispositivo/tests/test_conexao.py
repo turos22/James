@@ -254,6 +254,28 @@ def test_fala_fim_e_fala_erro_chegam_aos_callbacks():
     assert eventos == ["fim", ("erro", "não consegui completar esse turno")]
 
 
+def test_silencio_chega_ao_callback_com_os_segundos():
+    ws = _fala_ws({"tipo": "silencio", "id": "", "dados": {"segundos": 6.5}})
+    pedidos = []
+    conexao = ConexaoJames("ws://x", lambda d: {}, ao_silencio=pedidos.append)
+
+    conexao._sessao(ws)
+
+    assert pedidos == [6.5]
+    assert ws.enviados == []
+
+
+def test_silencio_sem_callback_ou_malformado_nao_derruba():
+    conexao = ConexaoJames("ws://x", lambda d: {})
+    conexao._sessao(_fala_ws({"tipo": "silencio", "id": "", "dados": {"segundos": 3}}))
+
+    pedidos = []
+    conexao = ConexaoJames("ws://x", lambda d: {}, ao_silencio=pedidos.append)
+    conexao._sessao(_fala_ws({"tipo": "silencio", "id": "", "dados": {"segundos": "muito"}},
+                             {"tipo": "silencio", "id": "", "dados": None}))
+    assert pedidos == []
+
+
 def test_acao_de_tela_continua_funcionando_junto_com_a_fala():
     ws = _fala_ws(
         {"tipo": "fala_frase", "id": "v1", "dados": {"texto": "Vou ver.", "indice": 0}},

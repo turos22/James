@@ -33,6 +33,24 @@ describe("Aba James", () => {
     expect(screen.getByRole("button", { name: "Aprovar" })).toBeTruthy();
   });
 
+  it("com descrição, o cartão diz em português o que vai acontecer", () => {
+    const comDescricao = { ...APROVACAO, ferramenta: "manipular_interface", descricao: 'clicar em "Excluir" (Button)' };
+
+    render(<AbaJames estado={comEstado({ aprovacao: comDescricao })} saidaVerTela={null} aoDecidir={vi.fn()} analisador={null} />);
+
+    expect(screen.getByText('clicar em "Excluir" (Button)')).toBeTruthy();
+    expect(screen.getByText("manipular_interface")).toBeTruthy();
+  });
+
+  it("sem descrição, o cartão fica como antes", () => {
+    const { container } = render(
+      <AbaJames estado={comEstado({ aprovacao: APROVACAO })} saidaVerTela={null} aoDecidir={vi.fn()} analisador={null} />,
+    );
+
+    expect(container.querySelector("[data-descricao-aprovacao]")).toBeNull();
+    expect(screen.getByText(/Remove-Item x/)).toBeTruthy();
+  });
+
   it("aprovar e negar avisam quem decidiu", () => {
     const aoDecidir = vi.fn();
     render(

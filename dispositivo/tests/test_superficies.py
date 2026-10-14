@@ -104,3 +104,66 @@ def test_primaria_com_lista_vazia_levanta_com_mensagem_util():
 
     with pytest.raises(RuntimeError, match="nenhuma superfície"):
         primaria([])
+
+
+# --- fator: espaço da imagem → lógico (D9 da spec 2026-10-13 B2) -------------
+#
+# No Linux a coordenada do protocolo é o pixel da imagem que o modelo recebe
+# (1280 de largura), e o desktop trabalha em lógico. Geometria real desta
+# máquina no Fedora: HDMI-A-1 lógico 1920x1080 em (0,0); HDMI-A-2 lógico
+# 1422x800 em (1920,588), escala 1,35.
+
+from james_device.superficies import tamanho_da_imagem  # noqa: E402
+
+HDMI1 = Superficie(id="HDMI-A-1", largura=1280, altura=720, origem_x=0, origem_y=0,
+                   escala=1.0, primaria=True, fator=1920 / 1280)
+HDMI2 = Superficie(id="HDMI-A-2", largura=1280, altura=720, origem_x=1920, origem_y=588,
+                   escala=1.35, primaria=False, fator=1422 / 1280)
+
+
+def test_fator_padrao_e_1_e_nao_muda_o_windows():
+    assert DISPLAY1.fator == 1.0
+    assert para_global(DISPLAY7, 100, 100) == (2020, 355)
+
+
+def test_para_global_com_fator_escala_antes_de_somar_a_origem():
+    assert para_global(HDMI1, 640, 360) == (960, 540)
+
+
+def test_centro_da_imagem_do_monitor_escalado_vai_ao_centro_medido_no_spike():
+    # Centro lógico de HDMI-A-2 medido pelo KWin no spike: (2631, 988).
+    assert para_global(HDMI2, 640, 360) == (2631, 988)
+
+
+def test_para_local_com_fator_desfaz_para_global():
+    assert para_local(HDMI2, 2631, 988) == (640, 360)
+    assert para_local(HDMI1, 960, 540) == (640, 360)
+
+
+def test_para_global_arredonda_em_vez_de_truncar():
+    # 1 px da imagem = 1,5 lógico: 1 → 1,5 → 2 (truncar daria 1).
+    assert para_global(HDMI1, 1, 1) == (2, 2)
+
+
+def test_ultimo_pixel_da_imagem_continua_dentro_do_monitor():
+    x, y = para_global(HDMI2, 1279, 719)
+    assert contendo([HDMI1, HDMI2], x, y) is HDMI2
+
+
+def test_contendo_usa_a_extensao_logica_quando_ha_fator():
+    # (1900, 1000) é lógico do HDMI-A-1; sem o fator, a largura 1280 da
+    # imagem deixaria esse ponto de fora.
+    assert contendo([HDMI1, HDMI2], 1900, 1000) is HDMI1
+    assert contendo([HDMI1, HDMI2], 3300, 1380) is HDMI2
+    assert contendo([HDMI1, HDMI2], 3342, 1000) is None
+
+
+def test_tamanho_da_imagem_mantem_a_proporcao():
+    assert tamanho_da_imagem(1920, 1080) == (1280, 720, 1.5)
+    largura, altura, fator = tamanho_da_imagem(1422, 800)
+    assert (largura, altura) == (1280, 720)
+    assert abs(fator - 1422 / 1280) < 1e-9
+
+
+def test_tamanho_da_imagem_nao_amplia_monitor_menor():
+    assert tamanho_da_imagem(1024, 768) == (1024, 768, 1.0)
