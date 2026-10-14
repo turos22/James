@@ -178,6 +178,9 @@ func prepararEdicao(caminho, antigo, novo string, todas bool) (edicao, error) {
 	if info.IsDir() {
 		return edicao{}, fmt.Errorf("%s é uma pasta", caminho)
 	}
+	if !info.Mode().IsRegular() {
+		return edicao{}, fmt.Errorf("%s não é um arquivo comum (pipe, dispositivo ou socket); não edito", caminho)
+	}
 	if info.Size() > tetoDeEscrita {
 		return edicao{}, fmt.Errorf("%s tem mais de 1 MB; não edito arquivo desse tamanho", caminho)
 	}

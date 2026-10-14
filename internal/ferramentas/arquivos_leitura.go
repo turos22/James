@@ -162,6 +162,10 @@ func lerArquivo(caminho string, aPartirDaLinha, linhas int, revelar bool) (resul
 	if info.IsDir() {
 		return resultadoLeitura{}, fmt.Errorf("%s é uma pasta, use listar", caminho)
 	}
+	if !info.Mode().IsRegular() {
+		// Abrir um pipe com nome bloqueia até alguém escrever nele.
+		return resultadoLeitura{}, fmt.Errorf("%s não é um arquivo comum (pipe, dispositivo ou socket); não leio", caminho)
+	}
 	arquivo, err := os.Open(caminho)
 	if err != nil {
 		return resultadoLeitura{}, erroDeLeitura(caminho, err)
@@ -369,6 +373,9 @@ func buscarArquivos(raiz string, o opcoesBusca) (string, error) {
 		}
 		if o.Nome != "" && !casaNome(nome, o.Nome) {
 			return nil
+		}
+		if o.Conteudo != "" && !d.Type().IsRegular() {
+			return nil // ler o conteúdo de um pipe trava a busca
 		}
 		if o.Conteudo == "" {
 			resultados = append(resultados, "arquivo  "+caminho)

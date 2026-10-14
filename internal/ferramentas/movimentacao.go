@@ -193,6 +193,9 @@ func copiarLink(origem, destino string) error {
 // temporário e só então troca de nome: queda no meio não deixa arquivo pela
 // metade no destino.
 func copiarArquivoComum(origem, destino string, modo fs.FileMode) error {
+	if info, err := os.Lstat(origem); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("%s não é um arquivo comum (pipe, dispositivo ou socket); não copio", origem)
+	}
 	entrada, err := os.Open(origem)
 	if err != nil {
 		return erroDeLeitura(origem, err)
