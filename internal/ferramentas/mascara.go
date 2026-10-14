@@ -43,6 +43,20 @@ var (
 	reNetrc = regexp.MustCompile(`(?i)(\bpassword\s+)(\S+)`)
 )
 
+// fechamento acha a primeira aspa `aspa` que NÃO está escapada (precedida de um
+// número ímpar de barras invertidas). -1 se o valor não fecha.
+func fechamento(s string, aspa byte) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case aspa:
+			return i
+		}
+	}
+	return -1
+}
+
 func substituto(valor string) string {
 	return fmt.Sprintf("%s (oculto, %d caracteres)", marcaOculta, utf8.RuneCountInString(valor))
 }
@@ -55,7 +69,7 @@ func esconderValor(resto string, minimo int) (novo, original string, ok bool) {
 		return resto, "", false
 	}
 	if aspa := resto[0]; aspa == '"' || aspa == '\'' {
-		if fim := strings.IndexByte(resto[1:], aspa); fim >= 0 {
+		if fim := fechamento(resto[1:], aspa); fim >= 0 {
 			interno := resto[1 : 1+fim]
 			if utf8.RuneCountInString(interno) < minimo || strings.HasPrefix(interno, marcaOculta) {
 				return resto, "", false
@@ -90,12 +104,9 @@ func mascararLinhaSensivel(linha string) (nova string, ocultos []string) {
 		}
 		return linha + terminacao, nil
 	}
-	if m := reAtribuicao.FindStringSubmatch(linha); m != nil {
-		if novo, original, ok := esconderValor(m[2], 1); ok {
-			return m[1] + novo + terminacao, []string{original}
-		}
-		return linha + terminacao, nil
-	}
+	// JSON ANTES da atribuição: a chave da atribuição aceita qualquer coisa até
+	// o primeiro "=", e num JSON minificado com "=" no valor (base64 com padding)
+	// ela tomaria o começo do segredo como nome da chave e o deixaria à mostra.
 	if strings.Contains(linha, `":`) && reJSON.MatchString(linha) {
 		nova = reJSON.ReplaceAllStringFunc(linha, func(trecho string) string {
 			m := reJSON.FindStringSubmatch(trecho)
@@ -106,6 +117,12 @@ func mascararLinhaSensivel(linha string) (nova string, ocultos []string) {
 			return m[1] + `"` + substituto(m[2]) + `"`
 		})
 		return nova + terminacao, ocultos
+	}
+	if m := reAtribuicao.FindStringSubmatch(linha); m != nil {
+		if novo, original, ok := esconderValor(m[2], 1); ok {
+			return m[1] + novo + terminacao, []string{original}
+		}
+		return linha + terminacao, nil
 	}
 	if m := reYAML.FindStringSubmatch(linha); m != nil {
 		if novo, original, ok := esconderValor(strings.TrimSpace(m[2]), 1); ok {
@@ -125,6 +142,44 @@ func mascararLinhaSensivel(linha string) (nova string, ocultos []string) {
 		return nova + terminacao, ocultos
 	}
 	return linha + terminacao, nil
+}
+
+// aspaAbertaNaLinha diz se a linha começa uma atribuição cujo valor abre aspas
+// e NÃO as fecha na mesma linha (valor em várias linhas). Devolve a aspa, ou 0.
+func aspaAbertaNaLinha(linha string) byte {
+	linha = strings.TrimSuffix(linha, "\r")
+	if strings.HasPrefix(strings.TrimSpace(linha), "#") {
+		return 0
+	}
+	m := reAtribuicao.FindStringSubmatch(linha)
+	if m == nil || m[2] == "" {
+		return 0
+	}
+	if aspa := m[2][0]; (aspa == '"' || aspa == '\'') && fechamento(m[2][1:], aspa) < 0 {
+		return aspa
+	}
+	return 0
+}
+
+// mascararContinuacao esconde uma linha que está DENTRO de um valor entre
+// aspas de várias linhas. Se a aspa fecha nela, só o que vem antes da aspa é
+// valor (o resto, como um comentário, fica). Devolve também se o valor fechou.
+func mascararContinuacao(linha string, aspa byte) (nova string, fechou bool, oculto string) {
+	terminacao := ""
+	if strings.HasSuffix(linha, "\r") {
+		linha, terminacao = strings.TrimSuffix(linha, "\r"), "\r"
+	}
+	fim := fechamento(linha, aspa)
+	if fim < 0 {
+		if strings.TrimSpace(linha) == "" {
+			return linha + terminacao, false, ""
+		}
+		return substituto(linha) + terminacao, false, linha
+	}
+	if fim == 0 {
+		return linha + terminacao, true, ""
+	}
+	return substituto(linha[:fim]) + linha[fim+1:] + terminacao, true, linha[:fim]
 }
 
 // Mascarar esconde os valores secretos de um texto lido de arquivo.
@@ -152,7 +207,20 @@ func Mascarar(conteudo string, sensivel bool) (texto string, ocultos []string) {
 
 	if sensivel {
 		linhas := strings.Split(texto, "\n")
+		var aberta byte // aspa de um valor em várias linhas que ainda não fechou
 		for i, linha := range linhas {
+			if aberta != 0 {
+				nova, fechou, achado := mascararContinuacao(linha, aberta)
+				linhas[i] = nova
+				if achado != "" {
+					ocultos = append(ocultos, achado)
+				}
+				if fechou {
+					aberta = 0
+				}
+				continue
+			}
+			aberta = aspaAbertaNaLinha(linha) // olha a linha CRUA, antes de mascarar
 			nova, achados := mascararLinhaSensivel(linha)
 			linhas[i] = nova
 			ocultos = append(ocultos, achados...)

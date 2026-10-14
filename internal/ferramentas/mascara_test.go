@@ -183,3 +183,85 @@ func TestMascararVariasCredenciaisSaemNaOrdemDoTexto(t *testing.T) {
 		t.Errorf("ocultos = %v", ocultos)
 	}
 }
+
+// --- achados do code-review ----------------------------------------------------
+
+func TestMascararJSONMinificadoComIgualNoValor(t *testing.T) {
+	// A regra de atribuição tomava tudo até o primeiro "=" como nome da chave e
+	// deixava o começo do valor à mostra. Base64 com padding é o caso típico.
+	casos := []string{
+		`{"token":"abc123XYZ=padding=="}`,
+		`{"a":"x","b":"segredo=com=igual"}`,
+		`{"auth":"dXNlcjpwYXNz=="}`,
+	}
+	for _, entrada := range casos {
+		saida, ocultos := Mascarar(entrada, true)
+		for _, vazou := range []string{"abc123XYZ", "padding", "segredo", "com=igual", "dXNlcjpwYXNz"} {
+			if strings.Contains(saida, vazou) {
+				t.Errorf("entrada %s\n  vazou %q: %s", entrada, vazou, saida)
+			}
+		}
+		if len(ocultos) == 0 {
+			t.Errorf("entrada %s: nenhum valor registrado como oculto", entrada)
+		}
+	}
+}
+
+func TestMascararJSONComEspacosContinuaIgual(t *testing.T) {
+	saida, _ := Mascarar(`{"token": "valor1", "outro": 3}`, true)
+	if saida != `{"token": "`+oculto4+` (oculto, 6 caracteres)", "outro": 3}` {
+		t.Errorf("saida = %q", saida)
+	}
+}
+
+func TestMascararValorComAspasEmVariasLinhas(t *testing.T) {
+	entrada := "ANTES=ok123\nCREDENCIAL=\"primeira linha secreta\nsegunda linha secreta\nterceira linha secreta\" # nota\nDEPOIS=final99\n"
+
+	saida, ocultos := Mascarar(entrada, true)
+
+	for _, vazou := range []string{"primeira linha", "segunda linha", "terceira linha"} {
+		if strings.Contains(saida, vazou) {
+			t.Errorf("vazou %q:\n%s", vazou, saida)
+		}
+	}
+	for _, mantido := range []string{"ANTES=", "CREDENCIAL=", "# nota", "DEPOIS="} {
+		if !strings.Contains(saida, mantido) {
+			t.Errorf("sumiu %q:\n%s", mantido, saida)
+		}
+	}
+	if strings.Contains(saida, "final99") || strings.Contains(saida, "ok123") {
+		t.Errorf("as linhas de fora do valor também devem ser mascaradas como atribuição:\n%s", saida)
+	}
+	if len(ocultos) < 3 {
+		t.Errorf("ocultos = %v, queria as três linhas do valor entre aspas", ocultos)
+	}
+}
+
+func TestMascararMultilinhaEEstavelENaoAfetaAspasFechadas(t *testing.T) {
+	entrada := "A=\"uma\nduas\"\nB=\"fechada\"\nC=solta\n"
+	uma, _ := Mascarar(entrada, true)
+
+	duas, achados := Mascarar(uma, true)
+
+	if uma != duas || len(achados) != 0 {
+		t.Errorf("a segunda passada mudou o texto ou achou valores:\n%q\n%q\n%v", uma, duas, achados)
+	}
+	if strings.Contains(uma, "duas") || strings.Contains(uma, "fechada") || strings.Contains(uma, "solta") {
+		t.Errorf("vazou:\n%s", uma)
+	}
+}
+
+func TestMascararAspaEscapadaNaoFechaOValor(t *testing.T) {
+	saida, _ := Mascarar("K=\"abc \\\" ainda dentro\nfim do valor\" \nOUTRA=x\n", true)
+
+	if strings.Contains(saida, "ainda dentro") || strings.Contains(saida, "fim do valor") {
+		t.Errorf("vazou:\n%s", saida)
+	}
+}
+
+func TestMascararMultilinhaSoEmArquivoSensivel(t *testing.T) {
+	entrada := "A=\"uma\nduas\"\n"
+	if saida, _ := Mascarar(entrada, false); saida != entrada {
+		t.Errorf("arquivo comum mudou: %q", saida)
+	}
+}
