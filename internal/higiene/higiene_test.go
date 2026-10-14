@@ -3,6 +3,7 @@ package higiene
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -359,5 +360,99 @@ func TestVarrerIgnoraBytecodePython(t *testing.T) {
 	}
 	if len(achados) != 0 {
 		t.Errorf("__pycache__ deveria ser ignorado, vieram %d achados: %+v", len(achados), achados)
+	}
+}
+
+// --- TrechosDeCredencial / ParecaCredencial (spec 2026-10-14 arquivos, D17) ---
+
+// chaveAnthropic monta uma chave no formato real em tempo de execução, pelo
+// mesmo motivo de chaveFalsa: o literal não pode aparecer neste arquivo.
+func chaveAnthropic() string {
+	return "sk-" + "ant-" + "api03-" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+}
+
+func TestTrechosDeCredencialAchaCadaFormato(t *testing.T) {
+	casos := map[string]string{
+		"google":     chaveFalsa(),
+		"tavily":     "tvly" + "-" + "abcdef1234567890",
+		"nvidia":     "nvapi" + "-" + "abcdef1234567890",
+		"openrouter": "sk-or-" + "v1-" + "abcdef1234567890",
+		"anthropic":  chaveAnthropic(),
+		"aws":        "AKIA" + "ABCDEFGHIJKLMNOP",
+		"github":     "ghp" + "_" + strings.Repeat("a1", 20),
+		"jwt":        "eyJ" + "hbGciOi.eyJzdWIiOi.abc123DEF",
+		"pem":        "-----BEGIN " + "RSA PRIVATE KEY-----",
+	}
+	for nome, credencial := range casos {
+		texto := "antes " + credencial + " depois"
+		trechos := TrechosDeCredencial(texto)
+		if len(trechos) == 0 {
+			t.Errorf("%s: nenhum trecho achado em %q", nome, texto)
+			continue
+		}
+		if !ParecaCredencial(texto) {
+			t.Errorf("%s: ParecaCredencial devolveu false", nome)
+		}
+		for _, tr := range trechos {
+			if tr[0] < 0 || tr[1] > len(texto) || tr[0] >= tr[1] {
+				t.Errorf("%s: trecho inválido %v em um texto de %d bytes", nome, tr, len(texto))
+			}
+		}
+	}
+}
+
+func TestTrechoDaChaveVaiDoPrefixoAteOFimDoToken(t *testing.T) {
+	chave := chaveAnthropic()
+	texto := `CLAUDE_API_KEY="` + chave + `" # comentário`
+
+	trechos := TrechosDeCredencial(texto)
+
+	if len(trechos) != 1 {
+		t.Fatalf("trechos = %v", trechos)
+	}
+	if got := texto[trechos[0][0]:trechos[0][1]]; got != chave {
+		t.Errorf("trecho = %q, queria exatamente a chave", got)
+	}
+}
+
+func TestTrechoDaUrlComSenhaEASenha(t *testing.T) {
+	texto := "postgres://james:" + "segredo123" + "@localhost:5434/james"
+
+	trechos := TrechosDeCredencial(texto)
+
+	if len(trechos) != 1 {
+		t.Fatalf("trechos = %v", trechos)
+	}
+	if got := texto[trechos[0][0]:trechos[0][1]]; got != "segredo123" {
+		t.Errorf("trecho = %q, queria só a senha", got)
+	}
+}
+
+func TestTextoComumNaoParecemCredencial(t *testing.T) {
+	for _, texto := range []string{
+		"o projeto usa uma chave de API",
+		"localhost:8080",
+		"password",
+		"https://exemplo.com/a?b=1",
+		"sk-",
+		"sk-ant-teste", // fixture curta de teste: não tem o corpo de uma chave real
+		"",
+	} {
+		if ParecaCredencial(texto) {
+			t.Errorf("ParecaCredencial(%q) = true, queria false", texto)
+		}
+	}
+}
+
+func TestVarrerAcusaChaveDaAnthropic(t *testing.T) {
+	raiz := t.TempDir()
+	if err := os.WriteFile(filepath.Join(raiz, "x.go"), []byte(`const k = "`+chaveAnthropic()+`"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	achados, err := Varrer(raiz)
+
+	if err != nil || len(achados) != 1 || achados[0].Padrao != "chave-anthropic" {
+		t.Errorf("achados = %+v, err = %v", achados, err)
 	}
 }
