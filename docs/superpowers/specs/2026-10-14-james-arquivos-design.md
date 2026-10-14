@@ -1,6 +1,6 @@
 # James: autonomia nos arquivos
 
-Status: **rascunho para aprovação do Arthur** (2026-10-14)
+Status: **aprovada pelo Arthur** (2026-10-14)
 Branch: `feat/arquivos` (a partir de `main` em `67237dd`)
 Origem: `docs/superpowers/decisoes/2026-10-13-james-autonomia-no-sistema.md`
 

@@ -1,6 +1,6 @@
 # Autonomia nos arquivos: plano de implementação
 
-> **Para quem executa:** um task por vez, na ordem. TDD em todos: escrever o teste, rodar e **ver falhar pelo motivo certo**, implementar, rodar e ver passar, commitar. A saída de cada "rodar" vai no relato. Não rodou, diz que não rodou. Modo trabalho: `/code-review` e `/security-review` antes do merge (Task 15).
+> **Para quem executa:** um task por vez, na ordem. TDD em todos: escrever o teste, rodar e **ver falhar pelo motivo certo**, implementar, rodar e ver passar, commitar. A saída de cada "rodar" vai no relato. Não rodou, diz que não rodou. Modo trabalho: `/code-review` e `/security-review` antes do merge (Task 16).
 
 **Objetivo:** o James olha o disco sem pedir (`arquivos`), mexe nele só com aprovação (`alterar_arquivos`), o shell deixa de ter o buraco de criar e editar, e o que ele lê de arquivo sensível não vai para a memória.
 
