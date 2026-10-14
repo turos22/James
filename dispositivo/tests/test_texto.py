@@ -141,6 +141,64 @@ def test_falha_ao_colar_propaga_e_a_area_volta():
     assert area.conteudo == "o que o Arthur copiou"
 
 
+class AreaLenta(Area):
+    """O Klipper leva um instante para assumir a área de transferência: as
+    primeiras leituras depois de gravar ainda devolvem o conteúdo antigo
+    (medido ao vivo: o Ctrl+V cedo demais colou o texto velho)."""
+
+    def __init__(self, atraso_leituras=2, **kw):
+        super().__init__(**kw)
+        self._velho = self.conteudo
+        self._faltam = 0
+        self._atraso = atraso_leituras
+
+    def gravar(self, texto):
+        self._velho = self.conteudo
+        super().gravar(texto)
+        self._faltam = self._atraso
+
+    def ler(self):
+        if self._faltam > 0:
+            self._faltam -= 1
+            return self._velho
+        return self.conteudo
+
+
+def _esperar_de_verdade(condicao, segundos):
+    for _ in range(50):
+        if condicao():
+            return True
+    return False
+
+
+def test_so_cola_depois_que_a_area_tem_o_texto_do_james():
+    campo, area = Campo("", aceita_insercao=False), AreaLenta()
+    vistos_no_colar = []
+
+    def colar():
+        vistos_no_colar.append(area.ler())
+        campo.texto += area.conteudo
+
+    digitar(FRASE, campo, area, colar, esperar=_esperar_de_verdade, dormir=lambda s: None)
+
+    assert vistos_no_colar == [FRASE]
+    assert campo.texto == FRASE
+    assert area.conteudo == "o que o Arthur copiou"
+
+
+def test_area_que_nao_aceita_o_texto_e_erro_e_nao_cola():
+    class Teimosa(Area):
+        def ler(self):
+            return "o que o Arthur copiou"
+
+    campo, area = Campo("", aceita_insercao=False), Teimosa()
+    colados = []
+
+    with pytest.raises(ErroDeTexto, match="não aceitou"):
+        digitar(FRASE, campo, area, lambda: colados.append(1), esperar=_esperar, dormir=lambda s: None)
+    assert colados == []
+
+
 def test_texto_vazio_e_recusado():
     with pytest.raises(ErroDeTexto, match="vazio"):
         digitar("", Campo(), Area(), lambda: None, esperar=_esperar, dormir=lambda s: None)
@@ -228,18 +286,31 @@ def test_ao_vivo_escreve_com_acento_pelo_atspi_e_colando_e_devolve_a_area():
                     return x
                 pilha.extend(x.filhos())
 
-        novo = laco.executar(lambda: achar(app, lambda n: n.nome() == "Novo" and n.papel() in ("button", "push button")))
+        # A tela de boas-vindas tem duas versões: "Novo" na barra, ou "Novo
+        # arquivo" quando há arquivos recentes. Só vale o que está visível.
+        novo = laco.executar(lambda: achar(app, lambda n: n.nome() in ("Novo arquivo", "Novo")
+                                           and n.papel() in ("button", "push button") and "showing" in n.estados()))
         x, y, w, h = laco.executar(novo.retangulo)
         cx, cy = minha.cliente[:2]
         portal.mover(cx + x + w / 2, cy + y + h / 2)
         portal.clicar()
         time.sleep(0.8)
 
-        campo = laco.executar(lambda: campo_em_foco(app, envolver=lambda no: CampoAtspi(no, laco.executar)))
+        campo, fim = None, time.monotonic() + 3
+        while campo is None and time.monotonic() < fim:
+            campo = laco.executar(lambda: campo_em_foco(app, envolver=lambda no: CampoAtspi(no, laco.executar)))
+            time.sleep(0.2)
         assert campo is not None, "nenhum campo editável em foco depois de clicar em Novo"
         saida = digitar(frase, campo, area, lambda: portal.teclas(para_keysyms("ctrl+v")))
         print(saida)
         assert campo.ler().strip() == frase
+        # Sem lixo: com o comprimento em bytes, o Qt inseria caracteres nulos.
+        from james_device.texto import _DocumentoAtspi
+        documento = _DocumentoAtspi(campo)
+        assert laco.executar(documento.contar) == len(frase)
+        for _ in range(2):  # inserções seguidas no mesmo campo (falhavam antes)
+            assert "AT-SPI" in digitar(" mais", campo, area, lambda: portal.teclas(para_keysyms("ctrl+v")))
+        assert laco.executar(documento.contar) == len(frase) + 2 * len(" mais")
 
         class SemInsercao(CampoAtspi):
             def inserir(self, conteudo):
@@ -249,16 +320,93 @@ def test_ao_vivo_escreve_com_acento_pelo_atspi_e_colando_e_devolve_a_area():
         portal.teclas(para_keysyms("ctrl+a"))
         portal.teclas(para_keysyms("delete"))
         time.sleep(0.3)
-        saida = digitar(frase, campo_forcado, area, lambda: portal.teclas(para_keysyms("ctrl+v")))
-        print(saida)
-        assert campo.ler().strip() == frase
-        assert "colei" in saida
+        so_texto = not tipos_antes or any(t.startswith("text/") or t in ("STRING", "UTF8_STRING") for t in tipos_antes)
+        if not so_texto:
+            # Imagem ou arquivo copiado: o James recusa colar por cima (e o teste
+            # não destrói o que o Arthur copiou só para provar o caminho).
+            with pytest.raises(ErroDeTexto, match="não é texto"):
+                digitar(frase, campo_forcado, area, lambda: portal.teclas(para_keysyms("ctrl+v")))
+            print("área de transferência com imagem: colar recusado, como deve")
+        else:
+            saida = digitar(frase, campo_forcado, area, lambda: portal.teclas(para_keysyms("ctrl+v")))
+            print(saida)
+            assert campo.ler().strip() == frase
+            assert "colei" in saida
 
         if area_antes is None:
             assert area.tipos() == [] or area.ler() == ""
         else:
             assert area.ler() == area_antes, "a área de transferência do Arthur não voltou"
     finally:
-        editor.terminate()
+        editor.kill()  # documento alterado: o KWrite demora a sair com SIGTERM
         editor.wait(5)
         laco.encerrar()
+
+
+# --- inserir conferindo: cada toolkit conta o comprimento de um jeito ---------------
+#
+# Medido ao vivo (Task 17): o Qt conta o comprimento do insert_text em
+# CARACTERES e, com o comprimento em bytes, insere o texto mais caracteres
+# nulos; o GTK conta em bytes; a barra do Firefox ignora a inserção.
+
+from james_device.texto import inserir_conferindo  # noqa: E402
+
+
+class _Documento:
+    def __init__(self, texto="", caret=None):
+        self.texto = texto
+        self._caret = len(texto) if caret is None else caret
+
+    def contar(self):
+        return len(self.texto)
+
+    def caret(self):
+        return self._caret
+
+    def ler(self, inicio, fim):
+        return self.texto[inicio:fim]
+
+    def apagar(self, inicio, fim):
+        self.texto = self.texto[:inicio] + self.texto[fim:]
+
+
+class Qt(_Documento):
+    def inserir(self, posicao, conteudo, comprimento):
+        trecho = conteudo[:comprimento] + "\0" * max(0, comprimento - len(conteudo))
+        self.texto = self.texto[:posicao] + trecho + self.texto[posicao:]
+        return True
+
+
+class Gtk(_Documento):
+    def inserir(self, posicao, conteudo, comprimento):
+        trecho = conteudo.encode("utf-8")[:comprimento].decode("utf-8", "ignore")
+        self.texto = self.texto[:posicao] + trecho + self.texto[posicao:]
+        return True
+
+
+class Ignora(_Documento):
+    def inserir(self, posicao, conteudo, comprimento):
+        return True
+
+
+@pytest.mark.parametrize("toolkit", [Qt, Gtk])
+@pytest.mark.parametrize("frase", ["ação ", "abc", FRASE])
+def test_inserir_conferindo_acerta_no_qt_e_no_gtk_sem_deixar_lixo(toolkit, frase):
+    doc = toolkit("antes|depois", caret=6)
+
+    assert inserir_conferindo(doc, frase) is True
+
+    assert doc.texto == "antes|" + frase + "depois"
+    assert "\0" not in doc.texto
+
+
+def test_inserir_conferindo_ignorado_devolve_false_e_nao_mexe():
+    doc = Ignora("trin")
+    assert inserir_conferindo(doc, "ação") is False
+    assert doc.texto == "trin"
+
+
+def test_inserir_conferindo_sem_caret_insere_no_fim():
+    doc = Qt("abc", caret=-1)
+    assert inserir_conferindo(doc, "ç") is True
+    assert doc.texto == "abcç"

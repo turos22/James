@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 ESPERA_DEPOIS_DE_INSERIR = 0.3
 PRAZO_DO_COLAR = 1.5
+PRAZO_DA_AREA = 0.5
 ESPERA_SEM_CONFIRMACAO = 0.5
 _TIPOS_DE_TEXTO = frozenset({"STRING", "UTF8_STRING", "TEXT", "COMPOUND_TEXT"})
 _TETO_NOS = 4000
@@ -90,6 +91,10 @@ def digitar(texto: str, campo, area, colar, esperar=_esperar, dormir=time.sleep)
     antes = campo.ler() if campo is not None else None
     try:
         area.gravar(texto)
+        # O Klipper leva um instante para assumir a área de transferência; o
+        # Ctrl+V antes disso cola o conteúdo antigo (medido ao vivo).
+        if not esperar(lambda: area.ler() == texto, PRAZO_DA_AREA):
+            raise ErroDeTexto("a área de transferência não aceitou o texto; não colei nada")
         colar()
         if campo is not None:
             if not esperar(lambda: _entrou(campo, antes, texto), PRAZO_DO_COLAR):
@@ -103,6 +108,37 @@ def digitar(texto: str, campo, area, colar, esperar=_esperar, dormir=time.sleep)
             area.limpar()
         else:
             area.gravar(original)
+
+
+def inserir_conferindo(documento, conteudo: str) -> bool:
+    """Insere `conteudo` no cursor e CONFERE; se não conferir, desfaz.
+
+    Medido ao vivo (Task 17): o Qt conta o comprimento do insert_text em
+    CARACTERES, e com o comprimento em bytes (o que a libatspi documenta)
+    insere o texto e mais caracteres NULOS no documento; o GTK conta em
+    bytes. Por isso tenta em caracteres, confere que o documento cresceu
+    exatamente o texto e que o trecho é o texto, desfaz o que entrou errado,
+    e tenta em bytes. Nada conferiu: o documento volta ao que era e quem
+    chamou cai para colar.
+
+    `documento` dá contar(), caret(), ler(ini, fim), inserir(pos, texto,
+    comprimento) e apagar(ini, fim)."""
+    tentativas = [len(conteudo)]
+    em_bytes = len(conteudo.encode("utf-8"))
+    if em_bytes != len(conteudo):
+        tentativas.append(em_bytes)
+    for comprimento in tentativas:
+        antes = documento.contar()
+        posicao = documento.caret()
+        if posicao < 0 or posicao > antes:
+            posicao = antes
+        documento.inserir(posicao, conteudo, comprimento)
+        cresceu = documento.contar() - antes
+        if cresceu == len(conteudo) and documento.ler(posicao, posicao + cresceu) == conteudo:
+            return True
+        if cresceu > 0:
+            documento.apagar(posicao, posicao + cresceu)
+    return False
 
 
 def campo_em_foco(raiz, envolver=None):
@@ -166,16 +202,46 @@ class CampoAtspi:
         return self._executar(lambda: self._inserir(conteudo))
 
     def _inserir(self, conteudo: str) -> bool:
-        from gi.repository import Atspi, GLib
+        from gi.repository import GLib
 
-        texto = self._iface(self._no.acessivel.get_text_iface)
-        editavel = self._iface(self._no.acessivel.get_editable_text_iface)
         try:
-            posicao = Atspi.Text.get_caret_offset(texto)
-            # O comprimento é em BYTES (libatspi), não em caracteres.
-            return Atspi.EditableText.insert_text(editavel, posicao, conteudo, len(conteudo.encode("utf-8")))
+            return inserir_conferindo(_DocumentoAtspi(self), conteudo)
         except GLib.Error as erro:
             raise NoIlegivel(erro.message) from erro
+
+
+class _DocumentoAtspi:
+    """O documento de um CampoAtspi para inserir_conferindo. Roda dentro do
+    laço (CampoAtspi.inserir já entrou nele)."""
+
+    def __init__(self, campo: CampoAtspi) -> None:
+        self._texto = campo._iface(campo._no.acessivel.get_text_iface)
+        self._editavel = campo._iface(campo._no.acessivel.get_editable_text_iface)
+
+    def contar(self) -> int:
+        from gi.repository import Atspi
+
+        return Atspi.Text.get_character_count(self._texto)
+
+    def caret(self) -> int:
+        from gi.repository import Atspi
+
+        return Atspi.Text.get_caret_offset(self._texto)
+
+    def ler(self, inicio: int, fim: int) -> str:
+        from gi.repository import Atspi
+
+        return Atspi.Text.get_text(self._texto, inicio, fim)
+
+    def inserir(self, posicao: int, conteudo: str, comprimento: int) -> bool:
+        from gi.repository import Atspi
+
+        return Atspi.EditableText.insert_text(self._editavel, posicao, conteudo, comprimento)
+
+    def apagar(self, inicio: int, fim: int) -> None:
+        from gi.repository import Atspi
+
+        Atspi.EditableText.delete_text(self._editavel, inicio, fim)
 
 
 class AreaKlipper:
