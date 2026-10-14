@@ -22,6 +22,10 @@ var ErroDispositivoAusente = errors.New("máquina física indisponível: james-d
 // AcaoTela é o pedido de ação de tela que vira mensagem WS pro james-device.
 // X e Y são LOCAIS à superfície (D15 da spec da Fase 5) — o device soma a
 // origem do monitor antes de agir.
+//
+// Alvo e Linha entraram com a fatia B2 (janelas, mídia, abrir). Todos os
+// campos novos são omitempty: o JSON das ações antigas não muda, e device
+// velho com jamesd novo continua funcionando.
 type AcaoTela struct {
 	Acao       string `json:"acao"`
 	X          int    `json:"x,omitempty"`
@@ -31,13 +35,33 @@ type AcaoTela struct {
 	ElementoID string `json:"elemento_id,omitempty"`
 	Nome       string `json:"nome,omitempty"`
 	Tipo       string `json:"tipo,omitempty"`
+	Alvo       string `json:"alvo,omitempty"`
+	Linha      int    `json:"linha,omitempty"`
 }
 
-// Resultado é o que o device devolve. A imagem só vem preenchida em
-// ver_tela; as outras ações devolvem só texto.
+// Elemento é um item da lista do ver_tela, do jeito que o device mandou.
+// É o que deixa o jamesd saber o NOME de "e7" antes de clicar, e pedir
+// aprovação quando o nome é destrutivo (D10 da spec 2026-10-13 B2).
+type Elemento struct {
+	ID   string `json:"id"`
+	Nome string `json:"nome"`
+	Tipo string `json:"tipo"`
+}
+
+// Resultado é o que o device devolve. A imagem e os elementos só vêm
+// preenchidos em ver_tela; as outras ações devolvem só texto.
 type Resultado struct {
-	Saida  string
-	Imagem []byte
+	Saida     string
+	Imagem    []byte
+	Elementos []Elemento
+}
+
+// Resposta é o resultado_acao decodificado, como chega do WS.
+type Resposta struct {
+	Saida     string
+	Erro      string
+	Imagem    []byte
+	Elementos []Elemento
 }
 
 // Conexao é o suficiente do lado WS que o Hub precisa — internal/api
@@ -52,18 +76,17 @@ type Ponte interface {
 	EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error)
 }
 
-type resultadoAcao struct {
-	saida  string
-	erro   string
-	imagem []byte
-}
-
 // Hub é a ponte com o james-device: mantém a conexão WS atual e casa cada
 // EnviarAcao pendente com o resultado_acao correspondente pelo id.
 type Hub struct {
 	mu        sync.Mutex
 	conexao   Conexao
-	pendentes map[string]chan resultadoAcao
+	pendentes map[string]chan Resposta
+
+	// ultimoMapa é a lista do último ver_tela bem-sucedido do device ATUAL.
+	// Troca a cada ver_tela e zera quando o device muda: o "e7" de um device
+	// não diz nada sobre a tela de outro.
+	ultimoMapa []Elemento
 
 	// Timeout é quanto EnviarAcao espera por um resultado_acao antes de
 	// desistir (R4). Deve ser ajustado antes do Hub entrar em uso
@@ -81,7 +104,7 @@ type Hub struct {
 // NovoHub cria um Hub pronto pra uso, sem device conectado.
 func NovoHub() *Hub {
 	return &Hub{
-		pendentes:      make(map[string]chan resultadoAcao),
+		pendentes:      make(map[string]chan Resposta),
 		Timeout:        10 * time.Second,
 		TimeoutPorAcao: make(map[string]time.Duration),
 	}
@@ -94,6 +117,9 @@ func NovoHub() *Hub {
 func (h *Hub) Registrar(c Conexao) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.conexao != c {
+		h.ultimoMapa = nil
+	}
 	h.conexao = c
 }
 
@@ -117,7 +143,15 @@ func (h *Hub) Desregistrar(c Conexao) {
 	defer h.mu.Unlock()
 	if h.conexao == c {
 		h.conexao = nil
+		h.ultimoMapa = nil
 	}
+}
+
+// UltimoMapa devolve uma cópia da lista do último ver_tela bem-sucedido.
+func (h *Hub) UltimoMapa() []Elemento {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]Elemento(nil), h.ultimoMapa...)
 }
 
 // timeoutDe devolve o timeout específico da ação, se houver um cadastrado em
@@ -140,7 +174,7 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 	}
 
 	id := uuid.NewString()
-	espera := make(chan resultadoAcao, 1)
+	espera := make(chan Resposta, 1)
 	h.mu.Lock()
 	h.pendentes[id] = espera
 	h.mu.Unlock()
@@ -160,10 +194,17 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 
 	select {
 	case r := <-espera:
-		if r.erro != "" {
-			return Resultado{}, fmt.Errorf("device: %s", r.erro)
+		if r.Erro != "" {
+			return Resultado{}, fmt.Errorf("device: %s", r.Erro)
 		}
-		return Resultado{Saida: r.saida, Imagem: r.imagem}, nil
+		if acao.Acao == "ver_tela" {
+			h.mu.Lock()
+			if h.conexao == conexao {
+				h.ultimoMapa = append([]Elemento(nil), r.Elementos...)
+			}
+			h.mu.Unlock()
+		}
+		return Resultado{Saida: r.Saida, Imagem: r.Imagem, Elementos: r.Elementos}, nil
 	case <-ctx.Done():
 		return Resultado{}, ctx.Err()
 	case <-time.After(h.timeoutDe(acao.Acao)):
@@ -182,10 +223,10 @@ func (h *Hub) EnviarAcao(ctx context.Context, acao AcaoTela) (Resultado, error) 
 // real (Task 18), ResolverResultado roda dentro da única goroutine que lê a
 // conexão do device; travar aqui trava a leitura da conexão inteira.
 //
-// imagem passa a pertencer ao Hub a partir desta chamada — quem chama não
+// A imagem passa a pertencer ao Hub a partir desta chamada — quem chama não
 // deve reutilizar o buffer depois (a slice é entregue direto pro consumidor
 // de EnviarAcao, sem cópia).
-func (h *Hub) ResolverResultado(id, saida, erro string, imagem []byte) {
+func (h *Hub) ResolverResultado(id string, resposta Resposta) {
 	h.mu.Lock()
 	espera, ok := h.pendentes[id]
 	if ok {
@@ -196,7 +237,7 @@ func (h *Hub) ResolverResultado(id, saida, erro string, imagem []byte) {
 		return
 	}
 	select {
-	case espera <- resultadoAcao{saida: saida, erro: erro, imagem: imagem}:
+	case espera <- resposta:
 	default:
 		// Ninguém mais está esperando nesse channel (não deveria acontecer
 		// já que acabamos de tirá-lo de pendentes sob lock, mas o select

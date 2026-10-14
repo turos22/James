@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"james/internal/agente"
+	"james/internal/dispositivo"
 	"james/internal/permissao"
 )
 
@@ -54,25 +55,36 @@ const tempoSemNoticiaDoDevice = 50 * time.Second
 // outra história: se "saida" e "erro" não decodificam, nada no payload é
 // confiável, e devolver sucesso vazio em silêncio esconderia uma falha real
 // do device — por isso vira erro explícito, não string vazia.
-func decodificarResultadoAcao(bruto []byte) (saida, erro string, imagem []byte) {
+func decodificarResultadoAcao(bruto []byte) dispositivo.Resposta {
 	var dados struct {
-		Saida     string `json:"saida"`
-		Erro      string `json:"erro"`
-		ImagemB64 string `json:"imagem_b64"`
+		Saida     string          `json:"saida"`
+		Erro      string          `json:"erro"`
+		ImagemB64 string          `json:"imagem_b64"`
+		Elementos json.RawMessage `json:"elementos"`
 	}
 	if err := json.Unmarshal(bruto, &dados); err != nil {
 		slog.Warn("resultado_acao com payload ilegível do device, tratando como erro", "erro", err)
-		return "", "resultado_acao ilegível do device", nil
+		return dispositivo.Resposta{Erro: "resultado_acao ilegível do device"}
 	}
+	resposta := dispositivo.Resposta{Saida: dados.Saida, Erro: dados.Erro}
 	if dados.ImagemB64 != "" {
 		decodificada, err := base64.StdEncoding.DecodeString(dados.ImagemB64)
 		if err != nil {
 			slog.Warn("imagem_b64 inválida no resultado_acao, seguindo sem imagem", "erro", err)
 		} else {
-			imagem = decodificada
+			resposta.Imagem = decodificada
 		}
 	}
-	return dados.Saida, dados.Erro, imagem
+	// Elementos à parte (RawMessage): uma lista quebrada não pode invalidar o
+	// payload inteiro. Sem ela, o clique destrutivo ainda é pego pelo nome
+	// passado nos argumentos, e o device recusa id desconhecido.
+	if len(dados.Elementos) > 0 {
+		if err := json.Unmarshal(dados.Elementos, &resposta.Elementos); err != nil {
+			slog.Warn("elementos inválidos no resultado_acao, seguindo sem a lista", "erro", err)
+			resposta.Elementos = nil
+		}
+	}
+	return resposta
 }
 
 func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
@@ -124,8 +136,7 @@ func (s *Servidor) wsDispositivo(w http.ResponseWriter, r *http.Request) {
 				// Resolvido aqui mesmo, dentro da leitura: ResolverResultado é
 				// não-bloqueante por contrato (ver hub.go), então não reintroduz
 				// o travamento que este desenho existe pra evitar.
-				saida, erroDoDevice, imagem := decodificarResultadoAcao(envelope.Dados)
-				s.DispositivoHub.ResolverResultado(envelope.ID, saida, erroDoDevice, imagem)
+				s.DispositivoHub.ResolverResultado(envelope.ID, decodificarResultadoAcao(envelope.Dados))
 
 			case "entrada_voz":
 				// Envio não-bloqueante, e é o ponto todo: se a leitura travar
