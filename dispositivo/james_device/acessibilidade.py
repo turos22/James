@@ -14,6 +14,13 @@ Três coisas que o Wayland muda, todas medidas no spike:
   Spotify não montam nunca. `em_foco_sem_elementos` é o que permite ao
   ver_tela avisar em vez de dizer "não há nada aqui".
 
+CACHE DA LIBATSPI: ela guarda a árvore e só a atualiza processando eventos
+no contexto GLib a que está ligada. Sem `vincular_ao_laco`, a árvore fica
+congelada no primeiro acesso (achado na Task 8: o clique abriu o editor e o
+James continuava vendo a tela de boas-vindas). Depois de vincular, TODA
+chamada ao Atspi roda dentro do laço (laco.executar), e quem espera a tela
+mudar espera FORA do laço, senão trava o próprio laço que atualiza a árvore.
+
 Fronteira: o Atspi só é tocado em NoAtspi e listar_apps. Erro de leitura de
 um nó (GLib.Error, o app fechou no meio) vira NoIlegivel e pula o nó; erro
 de programação (AttributeError, TypeError) NÃO é engolido: no spike, um
@@ -268,6 +275,17 @@ class NoAtspi:
             if filho is not None:
                 filhos.append(NoAtspi(filho))
         return filhos
+
+
+def vincular_ao_laco(laco) -> None:
+    """Liga a libatspi ao contexto do laço GLib, para o cache da árvore
+    acompanhar a tela. Chamar uma vez, ao subir."""
+    import gi
+
+    gi.require_version("Atspi", "2.0")
+    from gi.repository import Atspi
+
+    laco.executar(lambda: Atspi.set_main_context(laco.contexto))
 
 
 def listar_apps() -> list[NoAtspi]:

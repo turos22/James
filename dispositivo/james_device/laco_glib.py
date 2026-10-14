@@ -32,6 +32,10 @@ class LacoGlib:
         self._encerrado = False
 
     @property
+    def contexto(self):
+        return self._contexto
+
+    @property
     def ident(self) -> int | None:
         return self._thread.ident if self._thread else None
 
