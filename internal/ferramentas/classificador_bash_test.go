@@ -18,8 +18,6 @@ func TestComandoBashPrecisaConfirmacao(t *testing.T) {
 		{"buscar texto", "grep -r foo .", false},
 		{"git", "git status", false},
 		{"testes go", "go test ./...", false},
-		{"criar pasta", "mkdir -p projeto/src", false},
-		{"copiar", "cp origem.txt destino.txt", false},
 		{"instalar dependência do projeto", "npm install", false},
 		{"escrever arquivo", "echo 'ação' > notas.txt", false},
 		{"pipeline de leitura", "ps aux | grep james", false},
@@ -130,5 +128,73 @@ func TestAsDuasDenylistsSaoIndependentes(t *testing.T) {
 	}
 	if ComandoPowerShellPrecisaConfirmacao("systemctl status sshd") {
 		t.Error("PowerShell não deveria conhecer systemctl")
+	}
+}
+
+// --- a regra do Arthur para arquivos (spec 2026-10-14, D15) -------------------
+//
+// Criar, copiar, mover e editar pedem aprovação; olhar não. mkdir e cp, que
+// estavam acima como "passa livre", mudaram de lado de propósito.
+
+func TestShellPedeAprovacaoParaCriarCopiarMoverEEditar(t *testing.T) {
+	for _, comando := range []string{
+		"touch a", "mkdir -p projeto/src", "cp origem.txt destino.txt", "cp -r a b", "mv a b",
+		"ln -s a b", "install -m 644 a b", "echo x | tee f", "tee -a f", "rsync -a a/ b/",
+		"patch -p1 < x.diff", "zip a.zip f", "split -b 1M f",
+		"unzip a.zip", "gzip f", "gunzip f.gz", "bzip2 f", "xz f", "unxz f.xz", "zstd f", "7z x a.7z", "7z a a.7z f",
+		"tar -czf a.tgz d", "tar xf a.tar", "tar xzf a.tgz", "tar --extract -f a.tar", "tar --create -f a.tar d", "tar -rf a.tar f",
+		"sed -i s/a/b/ f", "sed -i.bak s/a/b/ f", "sed --in-place s/a/b/ f", "sed --in-place=.bak s/a/b/ f",
+		"sed -ni 3p f", "sed -Ei s/a/b/ f", "perl -pi -e 's/a/b/' f", "perl -i -pe 's/a/b/' f", "perl -pie 's/a/b/' f",
+		"perl -lpi -e 's/a/b/' f", "awk -i inplace '{print}' f", "gawk -i inplace '{print}' f",
+		"/usr/bin/touch a", "FOO=1 touch a", "env FOO=1 mv a b", "ls && cp a b", "cat x | xargs gzip",
+	} {
+		if !ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = false, queria true", comando)
+		}
+	}
+}
+
+func TestShellNaoPedeAprovacaoParaOlhar(t *testing.T) {
+	for _, comando := range []string{
+		"ls", "ls -la ~/projetos", "cat f", "head -n 3 f", "grep -i x f", "find . -name '*.go'",
+		"sed s/a/b/ f", "sed -n 3p f", "sed -E 's/a|b/c/' f", "sed -e 's/a/b/' f",
+		"perl -e 'print 1'", "perl -Mstrict -e 'print 1'", "perl -lane 'print $F[0]' f", "perl -ne 'print if /x/' f",
+		"awk '{print $1}' f", "awk -F: '{print $1}' f",
+		"tar -tf a.tar", "tar --list -f a.tar", "tar tzf a.tgz", "tar -tvf a.tar",
+		"unzip -l a.zip", "unzip -p a.zip x", "unzip -t a.zip", "zcat f.gz", "gzip -c f", "gzip -dc f.gz", "gzip -l f.gz",
+		"xz -l a.xz", "zstd -c f", "7z l a.7z", "7z t a.7z",
+		"touchscreen-x", "ls .venv", "pip install requests", "npm install", "go test ./...", "git status",
+		"python3 -c 'print(1)'", "echo oi", "du -k .", "df -h",
+	} {
+		if ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = true, queria false", comando)
+		}
+	}
+}
+
+func TestShellPedeAprovacaoParaLerArquivoDeSegredo(t *testing.T) {
+	for _, comando := range []string{
+		"cat .env", "cat /home/a/projeto/.env", "cat .env.production", "head .env",
+		"cat ~/.aws/credentials", "ls ~/.aws/", "less ~/.netrc", "cat ~/.git-credentials", "cat ~/.npmrc", "cat ~/.pypirc",
+		"cat id_rsa", "cat ~/.gnupg/pubring.kbx", "ls .gnupg/", "cat id_ed25519", "cat id_ecdsa.pub",
+	} {
+		if !ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = false, queria true: o shell leria o segredo sem a máscara", comando)
+		}
+	}
+}
+
+func TestShellComAspasMalFechadasPedeAprovacao(t *testing.T) {
+	// Sem como saber o que roda, falha para o lado seguro.
+	if !ComandoBashPrecisaConfirmacao("tar -tf 'a.tar") {
+		t.Error("aspa aberta devia pedir aprovação")
+	}
+}
+
+func TestOPowerShellNaoMudaComAsRegrasNovasDoBash(t *testing.T) {
+	for _, comando := range []string{"New-Item x", "Set-Content x 1", "Copy-Item a b", "Move-Item a b", "touch a", "cat .env"} {
+		if ComandoPowerShellPrecisaConfirmacao(comando) {
+			t.Errorf("o PowerShell passou a pedir aprovação para %q: o Windows não muda nesta fatia", comando)
+		}
 	}
 }
