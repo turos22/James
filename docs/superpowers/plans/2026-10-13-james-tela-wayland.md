@@ -353,3 +353,14 @@ Só o Arthur pode fazer: voz, aprovação no app, diálogo do KDE.
 - Camada 1 no Windows (`janelas`/`midia`/`abrir`) e o desvio de coordenada da imagem nativa no Windows (R8 da spec).
 - Árvore de elementos do VS Code e do Spotify.
 - GNOME, X11, outros compositores.
+
+---
+
+## Registro da execução
+
+### Desvios e achados
+
+- **Task 2:** "o laço continua atendendo" só vale depois que a função lenta termina (uma thread só). O teste prova isso: quem chamou recebe `TimeoutError` na hora, e o laço atende a próxima chamada quando a lenta acaba. Mutação (tirar `push_thread_default`) pega 2 testes.
+- **Task 3:** mutação (tirar a validação do id antes de montar o JS) pega 4 testes. `focar` ao vivo: 3 ms.
+- **D6 mudou: área de transferência pelo Klipper, não pelo portal `Clipboard`.** O portal é assíncrono (o device teria de servir os dados a cada `SelectionTransfer` e ficaria dono da área de transferência enquanto vivesse). O Klipper (`org.kde.klipper /klipper setClipboardContents/getClipboardContents`) é síncrono e guarda o conteúdo depois que o device sai. Medido em 2026-10-13: o texto gravado aparece na hora no `wl-paste`, e o conteúdo original volta byte a byte. Conteúdo que não é texto (detectado por `wl-paste --list-types`, que não vira daemon) faz o James **recusar** o caminho de colar, para não destruir uma imagem copiada. Fica na Task 8; a Task 4 não tem área de transferência.
+- **Task 4, permissão do KDE:** a tabela `remote-desktop` do `PermissionStore` guarda as concessões para o app id `''` (todo programa fora de sandbox). A sessão do teste ao vivo, sem token, abriu em 1,5 s e criou uma concessão nova. Consequência para o CA9: depois da primeira permissão, o diálogo pode não aparecer de novo nem sem token. A fronteira de segurança continua sendo a conta do sistema (como já registrado na Fase 6); o token segue 0600 por defesa em profundidade.
