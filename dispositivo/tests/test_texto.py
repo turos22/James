@@ -432,17 +432,29 @@ def test_insercao_que_nao_conferiu_nao_gasta_a_espera_e_cai_direto_para_colar():
     assert 0.3 not in esperas, "esperou o prazo da inserção que já tinha falhado"
 
 
+def test_texto_formatado_de_pagina_web_deixa_colar_e_devolve_so_o_texto():
+    # Decisão do Arthur (2026-10-13): HTML copiado de página não trava o
+    # digitar; a formatação do que ele copiou se perde, o texto volta.
+    campo = Campo("", aceita_insercao=False)
+    area = Area(tipos=("text/html", "text/plain;charset=utf-8", "STRING"), conteudo="texto copiado da web")
+
+    digitar(FRASE, campo, area, _colar_em(campo, area), esperar=_esperar, dormir=lambda s: None)
+
+    assert campo.texto == FRASE
+    assert area.conteudo == "texto copiado da web"
+
+
 @pytest.mark.parametrize("tipos", [
-    ["text/plain;charset=utf-8", "text/html"],
     ["text/uri-list", "text/plain"],
     ["text/plain", "image/png"],
+    ["text/html", "image/png"],
     ["text/x-moz-url", "text/plain"],
     ["application/x-qt-image", "text/plain"],
 ])
 def test_area_com_formato_rico_nao_e_sobrescrita(tipos):
     campo, area = Campo("", aceita_insercao=False), Area(tipos=tuple(tipos))
 
-    with pytest.raises(ErroDeTexto, match="formato"):
+    with pytest.raises(ErroDeTexto, match="imagem ou arquivos copiados"):
         digitar(FRASE, campo, area, lambda: None, esperar=_esperar, dormir=lambda s: None)
 
     assert area.historico == []

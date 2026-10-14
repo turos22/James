@@ -63,7 +63,10 @@ def _entrou(campo, antes: str | None, texto: str) -> bool:
     return depois is not None and depois != antes and _sem_espaco(texto) in _sem_espaco(depois)
 
 
-_FORMATOS_RICOS = ("image/", "application/x-qt-image", "text/html", "text/uri-list", "text/x-moz-url")
+# text/html NÃO entra (decisão do Arthur): copiar de página web é rotina, e
+# perder só a formatação é aceito. Imagem e lista de arquivos se perderiam por
+# inteiro, e continuam protegidas.
+_FORMATOS_RICOS = ("image/", "application/x-qt-image", "text/uri-list", "text/x-moz-url")
 
 
 def _e_texto(tipo: str) -> bool:
@@ -72,8 +75,8 @@ def _e_texto(tipo: str) -> bool:
 
 def _tem_formato_rico(tipos: list[str]) -> bool:
     """A restauração devolve só texto simples (o Klipper recebe uma string).
-    Arquivos copiados, HTML e imagens se perderiam, e o James dizia 'voltou
-    ao que era'."""
+    Arquivos copiados e imagens se perderiam por inteiro, e o James dizia
+    'voltou ao que era'."""
     return any(t.startswith(_FORMATOS_RICOS) for t in tipos)
 
 
@@ -98,8 +101,8 @@ def digitar(texto: str, campo, area, colar, esperar=_esperar, dormir=time.sleep)
     if tipos and (not any(_e_texto(t) for t in tipos) or _tem_formato_rico(tipos)):
         raise ErroDeTexto(
             "não consegui escrever direto no campo, e a área de transferência tem algo que não é texto "
-            "simples (imagem, arquivo ou texto formatado) e se perderia: não vou sobrescrever o que o Arthur "
-            "copiou; o formato precisa ser texto puro")
+            "(imagem ou arquivos copiados) e se perderia: não vou sobrescrever o que o Arthur copiou. "
+            "Copie um texto qualquer, ou limpe a área de transferência, e peça de novo")
     original = area.ler() if tipos else None
     antes = campo.ler() if campo is not None else None
     try:
