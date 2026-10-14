@@ -21,7 +21,11 @@ requires-python = ">=3.11"
 # vosk/vosk-model-small-pt-0.3 na raiz do repo, fora do versionamento.
 # PyAudio vira dependência direta aqui porque main.py abre o stream sozinho,
 # em vez de passar pelo sr.Microphone do SpeechRecognition.
-dependencies = ["websockets>=13.0", "SpeechRecognition>=3.10", "pyautogui>=0.9.54; sys_platform == 'win32'", "playsound>=1.2.2,<1.3.0; sys_platform == 'win32'", "uiautomation>=2.0.18; sys_platform == 'win32'", "vosk>=0.3.45", "PyAudio>=0.2.14", "piper-tts>=1.8", "pysilero-vad>=3.4", "requests>=2.32"]
+# PyGObject (só Linux): tela e janelas no Wayland (spec 2026-10-13 B2) falam
+# com AT-SPI, GStreamer e D-Bus pelos typelibs do sistema (Atspi-2.0, Gst-1.0,
+# Gio-2.0). O pyatspi do dnf não serve: é do Python do sistema, e o venv usa
+# outro. Compilar exige gobject-introspection-devel e glib2-devel (dnf).
+dependencies = ["websockets>=13.0", "SpeechRecognition>=3.10", "pyautogui>=0.9.54; sys_platform == 'win32'", "playsound>=1.2.2,<1.3.0; sys_platform == 'win32'", "uiautomation>=2.0.18; sys_platform == 'win32'", "vosk>=0.3.45", "PyAudio>=0.2.14", "piper-tts>=1.8", "pysilero-vad>=3.4", "requests>=2.32", "PyGObject>=3.50; sys_platform == 'linux'"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
