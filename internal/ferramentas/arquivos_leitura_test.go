@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // Spec 2026-10-14 arquivos, seção 4 (listar).
@@ -399,5 +400,249 @@ func TestLerSemMascaraDevolveOTextoCruEOsOcultos(t *testing.T) {
 	}
 	if len(r.Ocultos) != 1 || r.Ocultos[0] != "valorSecreto123" {
 		t.Errorf("Ocultos = %v", r.Ocultos)
+	}
+}
+
+// --- buscar (spec 2026-10-14 arquivos, seção 4 e D9) ---------------------------
+
+func buscar(t *testing.T, raiz string, o opcoesBusca) string {
+	t.Helper()
+	saida, err := buscarArquivos(raiz, o)
+	if err != nil {
+		t.Fatalf("erro: %v", err)
+	}
+	return saida
+}
+
+func TestBuscarPorNomeTrechoSemCaixaEGlob(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, "src", "Servidor.go"), "x")
+	escrever(t, filepath.Join(raiz, "src", "util.go"), "x")
+	escrever(t, filepath.Join(raiz, "docs", "LEIA-ME.md"), "x")
+
+	porTrecho := buscar(t, raiz, opcoesBusca{Nome: "servidor"})
+	if !strings.Contains(porTrecho, "Servidor.go") || strings.Contains(porTrecho, "util.go") {
+		t.Errorf("por trecho:\n%s", porTrecho)
+	}
+	porGlob := buscar(t, raiz, opcoesBusca{Nome: "*.GO"})
+	if !strings.Contains(porGlob, "Servidor.go") || !strings.Contains(porGlob, "util.go") || strings.Contains(porGlob, "LEIA-ME") {
+		t.Errorf("por glob:\n%s", porGlob)
+	}
+}
+
+func TestBuscarAcheiPastaPeloNomeTambem(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, "projetos", "x.txt"), "x")
+
+	saida := buscar(t, raiz, opcoesBusca{Nome: "projetos"})
+
+	if !strings.Contains(saida, "pasta") || !strings.Contains(saida, "projetos") {
+		t.Errorf("saida:\n%s", saida)
+	}
+}
+
+func TestBuscarPorConteudoDevolveCaminhoLinhaETrecho(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, "a.txt"), "nada\nUsa o JamesD aqui\nfim\n")
+	escrever(t, filepath.Join(raiz, "b.txt"), "outra coisa\n")
+	escrever(t, filepath.Join(raiz, "longa.txt"), "jamesd "+strings.Repeat("x", 400)+"\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "jamesd"})
+
+	if !strings.Contains(saida, filepath.Join(raiz, "a.txt")+":2: Usa o JamesD aqui") {
+		t.Errorf("faltou a linha de a.txt:\n%s", saida)
+	}
+	if strings.Contains(saida, "b.txt") {
+		t.Error("b.txt não tem o texto e apareceu")
+	}
+	for _, l := range strings.Split(saida, "\n") {
+		if strings.Contains(l, "longa.txt") && utf8.RuneCountInString(l) > len(raiz)+160+30 {
+			t.Errorf("o trecho da linha longa não foi cortado em 160: %d caracteres", utf8.RuneCountInString(l))
+		}
+	}
+}
+
+func TestBuscarPulaBinarioEArquivoGrande(t *testing.T) {
+	raiz := t.TempDir()
+	if err := os.WriteFile(filepath.Join(raiz, "x.bin"), []byte("alvo\x00alvo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escrever(t, filepath.Join(raiz, "enorme.txt"), "alvo\n"+strings.Repeat("y\n", 1_100_000)) // > 2 MB
+	escrever(t, filepath.Join(raiz, "ok.txt"), "alvo\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo"})
+
+	if strings.Contains(saida, "x.bin") || strings.Contains(saida, "enorme.txt") || !strings.Contains(saida, "ok.txt") {
+		t.Errorf("saida:\n%s", saida)
+	}
+}
+
+func TestBuscarNomeEConteudoJuntos(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, "a.go"), "alvo\n")
+	escrever(t, filepath.Join(raiz, "a.txt"), "alvo\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Nome: "*.go", Conteudo: "alvo"})
+
+	if !strings.Contains(saida, "a.go:1") || strings.Contains(saida, "a.txt") {
+		t.Errorf("saida:\n%s", saida)
+	}
+}
+
+func TestBuscarNaoLeVazarOValorDeUmSegredo(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, ".env"), "CLAUDE_API_KEY=valorSecreto123\nPORT=8080\n")
+
+	porNome := buscar(t, raiz, opcoesBusca{Conteudo: "CLAUDE", IncluirOcultos: true})
+	if !strings.Contains(porNome, ".env:1: CLAUDE_API_KEY="+marcaOculta) || strings.Contains(porNome, "valorSecreto123") {
+		t.Errorf("buscar pelo nome da chave:\n%s", porNome)
+	}
+
+	// Sem oráculo: perguntar pelo próprio valor não confirma nem vaza nada.
+	pelovalor := buscar(t, raiz, opcoesBusca{Conteudo: "valorSecreto123", IncluirOcultos: true})
+	if strings.Contains(pelovalor, "valorSecreto123") || strings.Contains(pelovalor, ".env") {
+		t.Errorf("buscar pelo valor virou oráculo:\n%s", pelovalor)
+	}
+	if !strings.Contains(pelovalor, "nenhum resultado") {
+		t.Errorf("saida:\n%s", pelovalor)
+	}
+}
+
+func TestBuscarMascaraCredencialEmArquivoComum(t *testing.T) {
+	raiz := t.TempDir()
+	chave := chaveAnthropicDeTeste()
+	escrever(t, filepath.Join(raiz, "notas.txt"), "minha chave é "+chave+" ok\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "minha chave"})
+
+	if strings.Contains(saida, chave) || !strings.Contains(saida, marcaOculta) {
+		t.Errorf("saida:\n%s", saida)
+	}
+}
+
+func TestBuscarPulaPastasDeCacheMasNaoSeOCaminhoEstaDentro(t *testing.T) {
+	raiz := t.TempDir()
+	for _, pasta := range []string{".git", "node_modules", ".venv", "__pycache__", ".cache", "vendor"} {
+		escrever(t, filepath.Join(raiz, pasta, "dentro.txt"), "alvo\n")
+	}
+	escrever(t, filepath.Join(raiz, "src", "fora.txt"), "alvo\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo", IncluirOcultos: true})
+	if strings.Contains(saida, "dentro.txt") || !strings.Contains(saida, "fora.txt") {
+		t.Errorf("devia pular as pastas de cache:\n%s", saida)
+	}
+
+	dentro := buscar(t, filepath.Join(raiz, "node_modules"), opcoesBusca{Conteudo: "alvo"})
+	if !strings.Contains(dentro, "dentro.txt") {
+		t.Errorf("pediu a pasta de cache e ela foi pulada:\n%s", dentro)
+	}
+}
+
+func TestBuscarOcultosSoComPedido(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, ".oculto", "a.txt"), "alvo\n")
+	escrever(t, filepath.Join(raiz, ".escondido.txt"), "alvo\n")
+
+	if saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo"}); strings.Contains(saida, "a.txt") || strings.Contains(saida, "escondido") {
+		t.Errorf("sem ocultos:\n%s", saida)
+	}
+	if saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo", IncluirOcultos: true}); !strings.Contains(saida, "a.txt") || !strings.Contains(saida, "escondido") {
+		t.Errorf("com ocultos:\n%s", saida)
+	}
+}
+
+func TestBuscarCorta100ResultadosEAvisa(t *testing.T) {
+	raiz := t.TempDir()
+	for i := 0; i < 130; i++ {
+		escrever(t, filepath.Join(raiz, fmt.Sprintf("f%03d.txt", i)), "alvo\n")
+	}
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo"})
+
+	if n := strings.Count(saida, "alvo"); n != 100 {
+		t.Errorf("%d resultados, queria 100", n)
+	}
+	if !strings.Contains(saida, "cortada em 100 resultados") {
+		t.Errorf("sem aviso de corte:\n...%s", saida[len(saida)-120:])
+	}
+}
+
+func TestBuscarCortaPorTempoEAvisa(t *testing.T) {
+	raiz := t.TempDir()
+	for i := 0; i < 10; i++ {
+		escrever(t, filepath.Join(raiz, fmt.Sprintf("f%d.txt", i)), "alvo\n")
+	}
+	instante := time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
+	chamadas := 0
+	relogio := func() time.Time {
+		chamadas++
+		if chamadas > 5 {
+			instante = instante.Add(6 * time.Second)
+		}
+		return instante
+	}
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo", agora: relogio})
+
+	if !strings.Contains(saida, "5 s") {
+		t.Errorf("sem aviso de tempo:\n%s", saida)
+	}
+}
+
+func TestBuscarProfundidadeMaximaDe8(t *testing.T) {
+	raiz := t.TempDir()
+	fundo := raiz
+	for i := 0; i < 10; i++ {
+		fundo = filepath.Join(fundo, fmt.Sprintf("n%d", i))
+	}
+	escrever(t, filepath.Join(fundo, "fundo.txt"), "alvo\n")
+	escrever(t, filepath.Join(raiz, "n0", "n1", "raso.txt"), "alvo\n")
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo"})
+
+	if strings.Contains(saida, "fundo.txt") || !strings.Contains(saida, "raso.txt") {
+		t.Errorf("saida:\n%s", saida)
+	}
+}
+
+func TestBuscarNaoSegueLinkDePastaEPulaPastaSemPermissao(t *testing.T) {
+	raiz := t.TempDir()
+	escrever(t, filepath.Join(raiz, "real", "a.txt"), "alvo\n")
+	if err := os.Symlink(raiz, filepath.Join(raiz, "ciclo")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(raiz, "real"), filepath.Join(raiz, "atalho")); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() != 0 {
+		fechada := filepath.Join(raiz, "fechada")
+		if err := os.Mkdir(fechada, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(fechada, 0o755) })
+	}
+
+	saida := buscar(t, raiz, opcoesBusca{Conteudo: "alvo"})
+
+	if n := strings.Count(saida, "a.txt"); n != 1 {
+		t.Errorf("a.txt apareceu %d vezes (link seguido?):\n%s", n, saida)
+	}
+}
+
+func TestBuscarSemNomeNemConteudoEErro(t *testing.T) {
+	if _, err := buscarArquivos(t.TempDir(), opcoesBusca{}); err == nil || !strings.Contains(err.Error(), "nome ou conteudo") {
+		t.Errorf("err = %v", err)
+	}
+	arquivo := filepath.Join(t.TempDir(), "a.txt")
+	escrever(t, arquivo, "x")
+	if _, err := buscarArquivos(arquivo, opcoesBusca{Nome: "a"}); err == nil || !strings.Contains(err.Error(), "use ler") {
+		t.Errorf("arquivo como raiz: %v", err)
+	}
+}
+
+func TestBuscarSemResultado(t *testing.T) {
+	saida := buscar(t, t.TempDir(), opcoesBusca{Nome: "nadaaqui"})
+	if !strings.Contains(saida, "nenhum resultado") {
+		t.Errorf("saida = %q", saida)
 	}
 }

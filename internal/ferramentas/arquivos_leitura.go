@@ -7,8 +7,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -226,4 +228,175 @@ func lerArquivo(caminho string, aPartirDaLinha, linhas int, revelar bool) (resul
 		fmt.Fprintf(&saida, "[arquivo com %d bytes: li só os primeiros 8 MB]\n", info.Size())
 	}
 	return resultadoLeitura{Texto: strings.TrimRight(saida.String(), "\n"), Ocultos: ocultos}, nil
+}
+
+// --- buscar --------------------------------------------------------------------
+
+const (
+	maxResultadosDaBusca = 100
+	profundidadeDaBusca  = 8
+	tamanhoMaxParaBuscar = 2 * 1024 * 1024
+	prazoDaBusca         = 5 * time.Second
+	larguraDoTrecho      = 160
+)
+
+// Pastas que quase nunca são o que o Arthur quer varrer. Só são puladas
+// quando o caminho pedido não está dentro de uma delas.
+var pastasDeCache = map[string]bool{
+	".git": true, "node_modules": true, ".venv": true, "__pycache__": true, ".cache": true, "vendor": true,
+}
+
+type opcoesBusca struct {
+	Nome           string
+	Conteudo       string
+	IncluirOcultos bool
+
+	agora func() time.Time // relógio injetável nos testes
+}
+
+func casaNome(nome, pedido string) bool {
+	nome, pedido = strings.ToLower(nome), strings.ToLower(pedido)
+	if strings.ContainsAny(pedido, "*?[") {
+		ok, err := filepath.Match(pedido, nome)
+		return err == nil && ok
+	}
+	return strings.Contains(nome, pedido)
+}
+
+func raizDentroDeCache(raiz string) bool {
+	for _, parte := range strings.Split(filepath.ToSlash(raiz), "/") {
+		if pastasDeCache[parte] {
+			return true
+		}
+	}
+	return false
+}
+
+// linhasQueCasam procura o texto no arquivo JÁ MASCARADO. Buscar no texto
+// cru e mascarar só a linha devolvida viraria um oráculo: o modelo
+// perguntaria "o .env contém tal valor?" e a resposta (achou ou não achou)
+// confirmaria o palpite. No texto mascarado, o valor de um segredo não é
+// encontrável por busca nenhuma.
+func linhasQueCasam(caminho string, tamanho int64, conteudo string) []string {
+	if tamanho > tamanhoMaxParaBuscar {
+		return nil
+	}
+	bruto, err := os.ReadFile(caminho)
+	if err != nil || bytes.IndexByte(bruto[:min(len(bruto), bytesParaBinario)], 0) >= 0 {
+		return nil
+	}
+	texto, _ := Mascarar(strings.ToValidUTF8(string(bruto), "�"), CaminhoSensivel(caminho))
+	procurado := strings.ToLower(conteudo)
+	var achadas []string
+	for i, linha := range strings.Split(texto, "\n") {
+		if !strings.Contains(strings.ToLower(linha), procurado) {
+			continue
+		}
+		linha = strings.TrimSpace(linha)
+		if utf8.RuneCountInString(linha) > larguraDoTrecho {
+			linha = string([]rune(linha)[:larguraDoTrecho]) + "…"
+		}
+		achadas = append(achadas, fmt.Sprintf("%s:%d: %s", caminho, i+1, linha))
+	}
+	return achadas
+}
+
+// buscarArquivos procura por nome (trecho ou glob), por conteúdo, ou pelos dois
+// (o nome filtra os arquivos e o conteúdo é procurado dentro deles).
+func buscarArquivos(raiz string, o opcoesBusca) (string, error) {
+	if strings.TrimSpace(o.Nome) == "" && strings.TrimSpace(o.Conteudo) == "" {
+		return "", errors.New("informe nome ou conteudo para buscar")
+	}
+	info, err := os.Stat(raiz)
+	if err != nil {
+		return "", erroDeLeitura(raiz, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s é um arquivo, use ler", raiz)
+	}
+	agora := o.agora
+	if agora == nil {
+		agora = time.Now
+	}
+	inicio := agora()
+	pularCache := !raizDentroDeCache(raiz)
+
+	var resultados []string
+	cortadaPorTempo, cortadaPorQuantidade := false, false
+
+	err = filepath.WalkDir(raiz, func(caminho string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() && caminho != raiz {
+				return filepath.SkipDir // pasta sem permissão no meio: pula
+			}
+			if caminho == raiz {
+				return err
+			}
+			return nil
+		}
+		if agora().Sub(inicio) > prazoDaBusca {
+			cortadaPorTempo = true
+			return filepath.SkipAll
+		}
+		if caminho == raiz {
+			return nil
+		}
+		nome := d.Name()
+		rel, _ := filepath.Rel(raiz, caminho)
+		if strings.Count(filepath.ToSlash(rel), "/")+1 > profundidadeDaBusca {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !o.IncluirOcultos && strings.HasPrefix(nome, ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil // não segue links: evita ciclo e fuga para fora da pasta pedida
+		}
+		if d.IsDir() {
+			if pularCache && pastasDeCache[nome] {
+				return filepath.SkipDir
+			}
+			if o.Conteudo == "" && o.Nome != "" && casaNome(nome, o.Nome) {
+				resultados = append(resultados, "pasta    "+caminho+"/")
+			}
+			return nil
+		}
+		if o.Nome != "" && !casaNome(nome, o.Nome) {
+			return nil
+		}
+		if o.Conteudo == "" {
+			resultados = append(resultados, "arquivo  "+caminho)
+		} else if fi, err := d.Info(); err == nil {
+			resultados = append(resultados, linhasQueCasam(caminho, fi.Size(), o.Conteudo)...)
+		}
+		if len(resultados) >= maxResultadosDaBusca {
+			cortadaPorQuantidade = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", erroDeLeitura(raiz, err)
+	}
+
+	if len(resultados) == 0 {
+		return "nenhum resultado em " + raiz, nil
+	}
+	if len(resultados) > maxResultadosDaBusca {
+		resultados = resultados[:maxResultadosDaBusca]
+	}
+	saida := strings.Join(resultados, "\n")
+	if cortadaPorQuantidade {
+		saida += fmt.Sprintf("\n[busca cortada em %d resultados: refine o pedido]", maxResultadosDaBusca)
+	}
+	if cortadaPorTempo {
+		saida += "\n[busca cortada: passou de 5 s; refine o pedido ou procure numa pasta menor]"
+	}
+	return saida, nil
 }
