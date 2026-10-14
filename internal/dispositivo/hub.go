@@ -147,6 +147,19 @@ func (h *Hub) Desregistrar(c Conexao) {
 	}
 }
 
+// Enviar manda um envelope ao device conectado sem esperar resposta (aviso,
+// como o "silencio" do áudio do turno de texto). Sem device, devolve
+// ErroDispositivoAusente.
+func (h *Hub) Enviar(envelope []byte) error {
+	h.mu.Lock()
+	conexao := h.conexao
+	h.mu.Unlock()
+	if conexao == nil {
+		return ErroDispositivoAusente
+	}
+	return conexao.Enviar(envelope)
+}
+
 // UltimoMapa devolve uma cópia da lista do último ver_tela bem-sucedido.
 func (h *Hub) UltimoMapa() []Elemento {
 	h.mu.Lock()

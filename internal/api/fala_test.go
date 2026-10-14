@@ -418,3 +418,48 @@ func TestLogDoTurnoDeTextoSemStreamingDizMenosUm(t *testing.T) {
 		t.Errorf("o turno de texto não usa streaming e devia logar -1: %s", saida.String())
 	}
 }
+
+// Achado do Arthur no aceite: o áudio do turno de TEXTO toca no app, o device
+// não sabe e o James escutava a si mesmo. O jamesd avisa o device de quanto
+// tempo ficar calado.
+func TestTurnoDeTextoAvisaODeviceParaFicarCalado(t *testing.T) {
+	servidor, s := servidorDeFala(t, &providerDeFala{rodadas: []rodadaDeFala{
+		{deltas: []string{"Resposta do texto."}, resposta: agente.Resposta{Texto: "Resposta do texto."}},
+	}})
+	s.DiretorioAudio = t.TempDir()
+	s.Sintetizador = &voz.Sintetizador{
+		DiretorioSaida: s.DiretorioAudio,
+		Timeout:        time.Second,
+		Executor: func(_ context.Context, _, _, arquivo string) error {
+			return os.WriteFile(filepath.Clean(arquivo), []byte("RIFF"), 0o600) // sem cabeçalho: cai na estimativa
+		},
+	}
+	urlBase := "ws" + strings.TrimPrefix(servidor.URL, "http")
+	app, _, err := websocket.DefaultDialer.Dial(urlBase+"/ws", nil)
+	if err != nil {
+		t.Fatalf("erro ao conectar o app: %v", err)
+	}
+	defer app.Close()
+	doApp := leitorDoApp(app)
+	device := conectarDevice(t, servidor)
+
+	if err := app.WriteJSON(Envelope{Tipo: "mensagem", ID: "t1", Dados: codificarDados(map[string]string{"texto": "digitado"})}); err != nil {
+		t.Fatal(err)
+	}
+	coletarEventosDoApp(t, doApp)
+
+	_ = device.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var env Envelope
+	if err := device.ReadJSON(&env); err != nil {
+		t.Fatalf("o device não recebeu nada: %v", err)
+	}
+	if env.Tipo != "silencio" {
+		t.Fatalf("tipo = %q, queria silencio", env.Tipo)
+	}
+	var dados struct {
+		Segundos float64 `json:"segundos"`
+	}
+	if err := json.Unmarshal(env.Dados, &dados); err != nil || dados.Segundos < 2 {
+		t.Errorf("segundos = %v (err %v), queria pelo menos 2 (duração estimada + folga)", dados.Segundos, err)
+	}
+}

@@ -15,8 +15,10 @@ import (
 
 	"james/internal/agente"
 	"james/internal/armazenamento/postgres"
+	"james/internal/dispositivo"
 	"james/internal/ferramentas"
 	"james/internal/permissao"
+	"james/internal/voz"
 )
 
 var upgrader = websocket.Upgrader{
@@ -326,7 +328,9 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	// Gerar áudio aqui também faria o James falar duas vezes (device e app).
 	audioID := ""
 	if modo != agente.ModoVoz {
-		audioID = s.gerarAudioDaResposta(ctx, resp.Texto)
+		var duracao time.Duration
+		audioID, duracao = s.gerarAudioDaResposta(ctx, resp.Texto)
+		s.avisarSilencioAoDevice(duracao)
 	}
 	return resp, audioID, nil
 }
@@ -400,16 +404,44 @@ func nomeDoModo(m agente.Modo) string {
 // gerarAudioDaResposta é melhor-esforço: se o Sintetizador não estiver
 // configurado (testes, por exemplo) ou a geração falhar, devolve "" e loga
 // — nunca derruba o turno por causa do áudio (mesma filosofia de R2).
-func (s *Servidor) gerarAudioDaResposta(ctx context.Context, texto string) string {
+//
+// Devolve também quanto tempo o áudio dura (do cabeçalho do WAV; se não der,
+// estimado pelo texto), para o device ficar calado enquanto o app fala.
+func (s *Servidor) gerarAudioDaResposta(ctx context.Context, texto string) (string, time.Duration) {
 	if s.Sintetizador == nil || texto == "" {
-		return ""
+		return "", 0
 	}
 	id := uuid.NewString()
-	if _, err := s.Sintetizador.Gerar(ctx, texto, s.VozTTS, id); err != nil {
+	caminho, err := s.Sintetizador.Gerar(ctx, texto, s.VozTTS, id)
+	if err != nil {
 		slog.Error("erro ao gerar áudio da resposta", "erro", err)
-		return ""
+		return "", 0
 	}
-	return id
+	duracao, err := voz.DuracaoDoWAV(caminho)
+	if err != nil {
+		duracao = voz.EstimarDuracao(voz.LimparParaFala(texto))
+	}
+	return id, duracao
+}
+
+// folgaDoAudioDoApp cobre o app buscar o áudio, decodificar e começar a tocar,
+// mais a guarda de eco do device depois do fim.
+const folgaDoAudioDoApp = 1500 * time.Millisecond
+
+// avisarSilencioAoDevice diz ao device que o app vai falar por `duracao`: a
+// meia-duplex do device só cobre a fala que ele mesmo toca, e o James
+// escutava o áudio do chat de texto saindo da caixa de som.
+func (s *Servidor) avisarSilencioAoDevice(duracao time.Duration) {
+	if duracao <= 0 || s.DispositivoHub == nil {
+		return
+	}
+	bruto, err := json.Marshal(Envelope{Tipo: "silencio", Dados: codificarDados(payloadSilencio{Segundos: (duracao + folgaDoAudioDoApp).Seconds()})})
+	if err != nil {
+		return
+	}
+	if err := s.DispositivoHub.Enviar(bruto); err != nil && !errors.Is(err, dispositivo.ErroDispositivoAusente) {
+		slog.Warn("não consegui avisar o device do silêncio", "erro", err)
+	}
 }
 
 // descricaoDaConfirmacao pergunta à ferramenta o que a chamada vai fazer,

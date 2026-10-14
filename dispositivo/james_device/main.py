@@ -307,6 +307,7 @@ def main():
         manipulador_acao=plataforma.ponte_de_tela(),
         ao_fala_frase=fala.frase if fala else None,
         ao_fala_fim=fala.fim if fala else None,
+        ao_silencio=fala.silencio if fala else None,
         ao_fala_erro=fala.erro if fala else None,
     )
     if config is not None:

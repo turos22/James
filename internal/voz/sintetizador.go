@@ -6,6 +6,7 @@ package voz
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 )
 
 type Sintetizador struct {
@@ -66,6 +68,53 @@ func (s *Sintetizador) Gerar(ctx context.Context, texto, voz, id string) (string
 		return "", fmt.Errorf("erro ao gerar áudio: %w", err)
 	}
 	return arquivo, nil
+}
+
+// DuracaoDoWAV lê a duração de um WAV PCM pelo cabeçalho (taxa de bytes e
+// tamanho do chunk data). Serve para dizer ao device quanto tempo o app vai
+// falar, e o James não escutar a si mesmo.
+func DuracaoDoWAV(caminho string) (time.Duration, error) {
+	arquivo, err := os.Open(caminho)
+	if err != nil {
+		return 0, err
+	}
+	defer arquivo.Close()
+
+	cabecalho := make([]byte, 12)
+	if _, err := io.ReadFull(arquivo, cabecalho); err != nil || string(cabecalho[0:4]) != "RIFF" || string(cabecalho[8:12]) != "WAVE" {
+		return 0, errors.New("não é um WAV válido")
+	}
+	var taxaDeBytes uint32
+	for {
+		chunk := make([]byte, 8)
+		if _, err := io.ReadFull(arquivo, chunk); err != nil {
+			return 0, errors.New("WAV sem chunk data")
+		}
+		tamanho := binary.LittleEndian.Uint32(chunk[4:8])
+		switch string(chunk[0:4]) {
+		case "fmt ":
+			fmtChunk := make([]byte, tamanho)
+			if _, err := io.ReadFull(arquivo, fmtChunk); err != nil || len(fmtChunk) < 12 {
+				return 0, errors.New("chunk fmt ilegível")
+			}
+			taxaDeBytes = binary.LittleEndian.Uint32(fmtChunk[8:12])
+		case "data":
+			if taxaDeBytes == 0 {
+				return 0, errors.New("WAV com data antes de fmt")
+			}
+			return time.Duration(float64(tamanho) / float64(taxaDeBytes) * float64(time.Second)), nil
+		default:
+			if _, err := arquivo.Seek(int64(tamanho)+int64(tamanho%2), io.SeekCurrent); err != nil {
+				return 0, err
+			}
+		}
+	}
+}
+
+// EstimarDuracao é o plano B quando o cabeçalho não serve: a voz do Piper
+// fala uns 12 caracteres por segundo.
+func EstimarDuracao(texto string) time.Duration {
+	return time.Duration(float64(utf8.RuneCountInString(texto)) / 12 * float64(time.Second))
 }
 
 // NovoSintetizadorPiper gera a voz do turno de texto no servidor de TTS local

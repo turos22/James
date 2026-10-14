@@ -421,3 +421,19 @@ func TestDeviceNovoNaoHerdaOMapaDoVelho(t *testing.T) {
 		t.Error("o mapa sobreviveu à saída do device")
 	}
 }
+
+func TestEnviarAoDeviceMandaOEnvelopeEDevolveAusenteSemDevice(t *testing.T) {
+	h := NovoHub()
+	if err := h.Enviar([]byte(`{"tipo":"silencio"}`)); !errors.Is(err, ErroDispositivoAusente) {
+		t.Fatalf("sem device: err = %v", err)
+	}
+	conexao := &conexaoFalsa{}
+	h.Registrar(conexao)
+
+	if err := h.Enviar([]byte(`{"tipo":"silencio"}`)); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if bruto, ok := conexao.primeiroEnviado(); !ok || string(bruto) != `{"tipo":"silencio"}` {
+		t.Errorf("enviado = %q", bruto)
+	}
+}

@@ -405,3 +405,8 @@ Script: `docs/superpowers/spikes/2026-10-13-tela-wayland/verificar_b2.py` (mesma
 | 8 | `abrir` aceita qualquer esquema de URL | **corrigido**: só http, https e mailto |
 
 Efeito colateral útil: o `ExecutorKWin` ganhou caminho D-Bus único por instância (os testes ao vivo juntos colidiam na conexão compartilhada). Mutação do achado 2 (voltar ao mapa velho) derruba 2 testes.
+
+### Achados do aceite do Arthur (Task 18, parcial) — 2026-10-13
+
+- **Eco no turno de texto (bug meu, da spec da voz em tempo real):** o áudio da resposta de um turno DIGITADO toca no app; a meia-duplex do device só cobria a fala tocada por ele, então o James escutava a si mesmo e podia se acordar. Correção: o jamesd, depois de gerar o áudio do turno de texto, manda ao device `{"tipo":"silencio","dados":{"segundos":N}}` (N = duração do WAV lida do cabeçalho, ou estimada pelo texto a 12 caracteres/s, mais 1,5 s de folga para o app buscar e começar a tocar); `Fala.silencio` deixa a escuta surda por esse tempo (o maior prazo vence; teto de 120 s; valor inválido é ignorado). Turno de voz não manda silêncio. Testes: duração do WAV (com chunk LIST no meio), `Hub.Enviar`, evento chegando ao device no turno de texto, e os quatro casos do `Fala.silencio`.
+- **`digitar` recusado com a área de transferência rica:** o Arthur copiou algo (HTML ou imagem) e a barra do Firefox, que ignora a inserção direta, caiu para colar e foi recusada pela regra do code-review (achado 3). A decisão sobre o que fazer com HTML ficou com o Arthur.
