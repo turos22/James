@@ -168,3 +168,236 @@ func TestListarErrosClaros(t *testing.T) {
 		}
 	}
 }
+
+// --- ler (spec 2026-10-14 arquivos, seção 4) -----------------------------------
+
+func linhasNumeradas(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "linha %d\n", i)
+	}
+	return b.String()
+}
+
+func TestLerDevolveLinhasNumeradas(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "a.txt")
+	escrever(t, arquivo, "primeira\nsegunda\nterceira\n")
+
+	r, err := lerArquivo(arquivo, 1, 0, false)
+	if err != nil {
+		t.Fatalf("erro: %v", err)
+	}
+
+	for _, esperado := range []string{"     1  primeira", "     2  segunda", "     3  terceira"} {
+		if !strings.Contains(r.Texto, esperado) {
+			t.Errorf("faltou %q:\n%s", esperado, r.Texto)
+		}
+	}
+	if strings.Contains(r.Texto, "continua") {
+		t.Error("avisou de continuação num arquivo que cabe inteiro")
+	}
+}
+
+func TestLerCorta200LinhasEDizDeOndeContinuar(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "a.txt")
+	escrever(t, arquivo, linhasNumeradas(450))
+
+	r, _ := lerArquivo(arquivo, 1, 0, false)
+
+	if !strings.Contains(r.Texto, "   200  linha 200") || strings.Contains(r.Texto, "   201  linha 201") {
+		t.Errorf("devia ir até a linha 200:\n...%s", r.Texto[len(r.Texto)-150:])
+	}
+	if !strings.Contains(r.Texto, "a_partir_da_linha: 201") {
+		t.Errorf("não diz de onde continuar:\n...%s", r.Texto[len(r.Texto)-150:])
+	}
+
+	segunda, _ := lerArquivo(arquivo, 201, 0, false)
+	if !strings.Contains(segunda.Texto, "   201  linha 201") || !strings.Contains(segunda.Texto, "   400  linha 400") {
+		t.Errorf("a segunda página está errada:\n%s", segunda.Texto[:200])
+	}
+}
+
+func TestLerRespeitaOTetoDeLinhasEDeBytes(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "a.txt")
+	escrever(t, arquivo, linhasNumeradas(5000))
+
+	r, _ := lerArquivo(arquivo, 1, 99999, false)
+	if strings.Contains(r.Texto, "  2001  linha 2001") {
+		t.Error("passou do teto de 2000 linhas")
+	}
+
+	// 32 KB por chamada, mesmo com poucas linhas longas.
+	longas := filepath.Join(t.TempDir(), "longas.txt")
+	escrever(t, longas, strings.Repeat(strings.Repeat("x", 4000)+"\n", 30))
+	r2, _ := lerArquivo(longas, 1, 0, false)
+	if len(r2.Texto) > 34*1024 {
+		t.Errorf("devolveu %d bytes, o teto é 32 KB", len(r2.Texto))
+	}
+	if !strings.Contains(r2.Texto, "continua na linha") {
+		t.Error("cortou por bytes sem avisar de onde continuar")
+	}
+}
+
+func TestLerCortaLinhaGiganteComAviso(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "min.js")
+	escrever(t, arquivo, strings.Repeat("a", 20000)+"\nfim\n")
+
+	r, _ := lerArquivo(arquivo, 1, 0, false)
+
+	if !strings.Contains(r.Texto, "linha cortada") || !strings.Contains(r.Texto, "20000 bytes") {
+		t.Errorf("sem aviso de linha cortada:\n%s", r.Texto[:100])
+	}
+	if !strings.Contains(r.Texto, "fim") {
+		t.Error("a linha seguinte sumiu")
+	}
+}
+
+func TestLerRecusaBinarioEAceitaUTF8Quebrado(t *testing.T) {
+	pasta := t.TempDir()
+	binario := filepath.Join(pasta, "x.bin")
+	if err := os.WriteFile(binario, []byte("abc\x00def"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := lerArquivo(binario, 1, 0, false)
+	if err != nil || !strings.Contains(r.Texto, "arquivo binário, não leio (7 bytes)") {
+		t.Errorf("binário: %q, %v", r.Texto, err)
+	}
+
+	quebrado := filepath.Join(pasta, "q.txt")
+	if err := os.WriteFile(quebrado, []byte("ok \xff\xfe fim\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err = lerArquivo(quebrado, 1, 0, false)
+	if err != nil || !strings.Contains(r.Texto, "ok ") || !strings.Contains(r.Texto, "fim") {
+		t.Errorf("UTF-8 quebrado: %q, %v", r.Texto, err)
+	}
+}
+
+func TestLerCasosDeBorda(t *testing.T) {
+	pasta := t.TempDir()
+	vazio := filepath.Join(pasta, "vazio.txt")
+	escrever(t, vazio, "")
+	r, err := lerArquivo(vazio, 1, 0, false)
+	if err != nil || !strings.Contains(r.Texto, "(arquivo vazio)") {
+		t.Errorf("vazio: %q, %v", r.Texto, err)
+	}
+
+	if _, err := lerArquivo(pasta, 1, 0, false); err == nil || !strings.Contains(err.Error(), "use listar") {
+		t.Errorf("pasta: %v", err)
+	}
+	if _, err := lerArquivo(filepath.Join(pasta, "nao-existe"), 1, 0, false); err == nil || !strings.Contains(err.Error(), "não existe") {
+		t.Errorf("inexistente: %v", err)
+	}
+
+	curto := filepath.Join(pasta, "curto.txt")
+	escrever(t, curto, "a\nb\n")
+	if _, err := lerArquivo(curto, 10, 0, false); err == nil || !strings.Contains(err.Error(), "só tem 2 linhas") {
+		t.Errorf("além do fim: %v", err)
+	}
+
+	if os.Geteuid() != 0 {
+		fechado := filepath.Join(pasta, "fechado.txt")
+		escrever(t, fechado, "x")
+		if err := os.Chmod(fechado, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(fechado, 0o644) })
+		if _, err := lerArquivo(fechado, 1, 0, false); err == nil || !strings.Contains(err.Error(), "sem permissão") {
+			t.Errorf("sem permissão: %v", err)
+		}
+	}
+}
+
+func TestLerArquivoGrandeAvisaQueLeuSoOComeco(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "grande.log")
+	escrever(t, arquivo, strings.Repeat("linha do log\n", 800_000)) // ~10 MB
+
+	r, err := lerArquivo(arquivo, 1, 0, false)
+
+	if err != nil || !strings.Contains(r.Texto, "primeiros 8 MB") {
+		t.Errorf("sem aviso do teto de leitura: %v\n...%s", err, r.Texto[len(r.Texto)-200:])
+	}
+}
+
+// --- máscara aplicada pelo ler -----------------------------------------------
+
+func TestLerMascaraOEnvEMantemOsNomes(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), ".env")
+	escrever(t, arquivo, "# Credenciais\nCLAUDE_API_KEY="+"valorSecreto123"+"\nPORT=8080\n")
+
+	r, err := lerArquivo(arquivo, 1, 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(r.Texto, "valorSecreto123") || strings.Contains(r.Texto, "8080") {
+		t.Errorf("um valor vazou:\n%s", r.Texto)
+	}
+	for _, mantido := range []string{"# Credenciais", "CLAUDE_API_KEY=" + marcaOculta, "PORT=" + marcaOculta} {
+		if !strings.Contains(r.Texto, mantido) {
+			t.Errorf("faltou %q:\n%s", mantido, r.Texto)
+		}
+	}
+}
+
+func TestLerMascaraCredencialEPEMEmArquivoComum(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), "notas.txt")
+	chave := chaveAnthropicDeTeste()
+	escrever(t, arquivo, "oi\nchave: "+chave+"\n"+blocoPEM("CORPODACHAVEAAAA", "OUTROCORPOBBBB")+"\nfim\n")
+
+	r, _ := lerArquivo(arquivo, 1, 0, false)
+
+	for _, vazou := range []string{chave, "CORPODACHAVEAAAA", "OUTROCORPOBBBB"} {
+		if strings.Contains(r.Texto, vazou) {
+			t.Errorf("vazou %q:\n%s", vazou, r.Texto)
+		}
+	}
+	if !strings.Contains(r.Texto, "[chave privada omitida: 4 linhas]") || !strings.Contains(r.Texto, "fim") {
+		t.Errorf("saída:\n%s", r.Texto)
+	}
+}
+
+func TestLerMascaraPorLinkParaChaveSSH(t *testing.T) {
+	pasta := t.TempDir()
+	escrever(t, filepath.Join(pasta, ".ssh", "id_rsa"), "senha: "+"valorSecreto123"+"\n")
+	atalho := filepath.Join(pasta, "atalho")
+	if err := os.Symlink(filepath.Join(pasta, ".ssh", "id_rsa"), atalho); err != nil {
+		t.Fatal(err)
+	}
+
+	r, _ := lerArquivo(atalho, 1, 0, false)
+
+	if strings.Contains(r.Texto, "valorSecreto123") {
+		t.Errorf("o link escapou da máscara:\n%s", r.Texto)
+	}
+}
+
+func TestLerMascaraAntesDeCortarEmPaginas(t *testing.T) {
+	// O bloco PEM começa na linha 2 e a leitura pede a partir da 3: o miolo não
+	// pode aparecer só porque o BEGIN ficou na página anterior.
+	arquivo := filepath.Join(t.TempDir(), "notas.txt")
+	escrever(t, arquivo, "um\n"+blocoPEM("MIOLOSECRETO1", "MIOLOSECRETO2")+"\ndepois\n")
+
+	r, _ := lerArquivo(arquivo, 3, 0, false)
+
+	if strings.Contains(r.Texto, "MIOLOSECRETO") {
+		t.Errorf("o miolo da chave vazou numa leitura paginada:\n%s", r.Texto)
+	}
+}
+
+func TestLerSemMascaraDevolveOTextoCruEOsOcultos(t *testing.T) {
+	arquivo := filepath.Join(t.TempDir(), ".env")
+	escrever(t, arquivo, "CHAVE=valorSecreto123\n")
+
+	r, err := lerArquivo(arquivo, 1, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(r.Texto, "CHAVE=valorSecreto123") {
+		t.Errorf("revelar devia mostrar o valor:\n%s", r.Texto)
+	}
+	if len(r.Ocultos) != 1 || r.Ocultos[0] != "valorSecreto123" {
+		t.Errorf("Ocultos = %v", r.Ocultos)
+	}
+}
