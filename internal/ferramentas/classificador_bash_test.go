@@ -229,3 +229,34 @@ func TestShellNaoPedeAprovacaoQuandoOMaiorQueNaoEscreveArquivo(t *testing.T) {
 		}
 	}
 }
+
+// Achados da revisão de 2026-10-14: comandos de leitura que, com certa opção,
+// apagam ou gravam arquivo.
+func TestShellPedeAprovacaoParaFindSortEGitQueMudamArquivo(t *testing.T) {
+	for _, comando := range []string{
+		"find . -name '*.tmp' -delete", "find /tmp/x -type f -delete -print",
+		"find . -fprint saida.txt", "find . -fprint0 saida.txt", "find . -fprintf saida.txt '%p'", "find . -fls lista.txt",
+		"sort -o f f", "sort -ro f f", "sort --output=f f", "sort --output f f", "cat f | sort -o g",
+		"git clean -fd", "git clean -fdx", "git -C ~/p clean -f",
+		"git reset --hard", "git reset --hard HEAD~1", "git -c core.x=1 reset --hard",
+		"git restore f", "git restore --staged f", "git restore .",
+	} {
+		if !ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = false, queria true", comando)
+		}
+	}
+}
+
+func TestShellNaoPedeAprovacaoParaFindSortEGitSoDeLeitura(t *testing.T) {
+	for _, comando := range []string{
+		"find . -name '*.go' -print", "find . -type f -mtime -1", "find . -name 'delete*'",
+		"sort f", "sort -n f", "sort -u -k2 f", "cat f | sort | uniq -c",
+		"git status", "git log --oneline", "git diff", "git diff --stat", "git show HEAD",
+		"git reset", "git reset HEAD f", "git reset --soft HEAD~1",
+		"git -C ~/p status", "git branch", "git stash list",
+	} {
+		if ComandoBashPrecisaConfirmacao(comando) {
+			t.Errorf("ComandoBashPrecisaConfirmacao(%q) = true, queria false", comando)
+		}
+	}
+}

@@ -274,6 +274,33 @@ func tarEscreve(args []string) bool {
 	return false
 }
 
+// gitMudaArquivos diz se o subcomando do git apaga ou sobrescreve arquivos da
+// árvore de trabalho: clean, reset --hard e restore. Limites conhecidos:
+// checkout/switch -f e stash descartam alterações e não são pegos aqui.
+func gitMudaArquivos(args []string) bool {
+	sub := ""
+	resto := args
+	for i := 0; i < len(args); i++ {
+		t := args[i]
+		if t == "-C" || t == "-c" { // opção global com valor
+			i++
+			continue
+		}
+		if strings.HasPrefix(t, "-") {
+			continue
+		}
+		sub, resto = t, args[i+1:]
+		break
+	}
+	switch sub {
+	case "clean", "restore":
+		return true
+	case "reset":
+		return opcaoLonga(resto, "--hard")
+	}
+	return false
+}
+
 // comandoEscreve diz se este comando simples cria, copia, move ou edita
 // arquivos pelas opções que passou.
 func comandoEscreve(nome string, args []string) bool {
@@ -293,6 +320,18 @@ func comandoEscreve(nome string, args []string) bool {
 		return true
 	case "tar":
 		return tarEscreve(args)
+	case "find":
+		// -exec já cai no verbo "exec" da tabela (-ok não é coberto).
+		for _, t := range args {
+			switch t {
+			case "-delete", "-fprint", "-fprint0", "-fprintf", "-fls":
+				return true
+			}
+		}
+	case "sort":
+		return opcaoCurta(args, "o", "kStT") || opcaoLonga(args, "--output")
+	case "git":
+		return gitMudaArquivos(args)
 	case "sed":
 		return opcaoCurta(args, "i", "efl") || opcaoLonga(args, "--in-place")
 	case "perl":
