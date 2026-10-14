@@ -84,7 +84,7 @@ Cada resultado de leitura de arquivo sensível chega ao modelo normalmente; o ef
 ## 6. Trava de segredo na memória
 
 - `SegredosLidos` guarda os valores com a hora de entrada, até um teto de 500 valores, e esquece o que passou de 1 hora.
-- `salvar_na_memoria` recusa com a mensagem "essa nota contém um valor que veio de um arquivo sensível; guarde só a conclusão, sem o valor". O texto também é recusado se casar com um padrão de credencial (chave da Anthropic, do Google, token do GitHub, PEM, URL com senha) mesmo sem leitura prévia. Os padrões já existem em `internal/higiene`.
+- `salvar_na_memoria` recusa com a mensagem "essa nota contém um valor que veio de um arquivo sensível; guarde só a conclusão, sem o valor". O texto também é recusado se casar com um padrão de credencial (chave da Anthropic, do Google, token do GitHub, PEM, URL com senha) mesmo sem leitura prévia. Os padrões já existem em `internal/higiene`, mas **não são exportados**: a implementação expõe `higiene.ParecaCredencial(texto string) bool`, que usa a mesma lista da varredura do repositório (uma lista só, sem cópia).
 - É melhor-esforço: o modelo pode reescrever um segredo com outras palavras, e a trava não pega isso. O prompt continua pedindo "uma frase, suas palavras".
 
 ## 7. Prompt (`prompts/sistema.md`)
