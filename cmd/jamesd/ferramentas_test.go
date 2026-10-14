@@ -212,3 +212,23 @@ func TestRevelarEMemoriaNoRegistroRealCompartilhamOSegredo(t *testing.T) {
 		t.Fatalf("a memória aceitou o valor revelado: %v", err)
 	}
 }
+
+// Sem as ferramentas de arquivo (Windows), a regra 6 do prompt mandaria o
+// modelo chamar uma ferramenta que não existe e proibiria cat/ls/find.
+func TestPromptAvisaQueNaoHaFerramentaDeArquivoQuandoNaoSuportado(t *testing.T) {
+	base := "REGRA 6. ARQUIVOS: use a ferramenta arquivos"
+
+	semSuporte := ajustarPromptParaPlataforma(base, false)
+	if !strings.HasPrefix(semSuporte, base) {
+		t.Error("o prompt original foi alterado em vez de acrescido")
+	}
+	for _, trecho := range []string{"NÃO existem", "arquivos", "alterar_arquivos", "ignore a regra 6"} {
+		if !strings.Contains(semSuporte, trecho) {
+			t.Errorf("o aviso não diz %q:\n%s", trecho, semSuporte)
+		}
+	}
+
+	if comSuporte := ajustarPromptParaPlataforma(base, true); comSuporte != base {
+		t.Errorf("com suporte o prompt deveria ficar igual, veio %q", comSuporte)
+	}
+}

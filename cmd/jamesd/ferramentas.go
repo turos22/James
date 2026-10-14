@@ -57,6 +57,17 @@ func registrarArquivos(registro ferramentas.Registro, segredos *ferramentas.Segr
 	return nil
 }
 
+// ajustarPromptParaPlataforma acrescenta ao prompt o que a plataforma não tem.
+// Sem as ferramentas de arquivo (Windows), a regra 6 mandaria o modelo chamar
+// uma ferramenta que não existe e proibiria cat/ls/find pelo terminal.
+func ajustarPromptParaPlataforma(prompt string, arquivosSuportado bool) string {
+	if arquivosSuportado {
+		return prompt
+	}
+	return prompt + "\n\nNESTA MÁQUINA as ferramentas arquivos e alterar_arquivos NÃO existem: " +
+		"ignore a regra 6 e use o terminal para olhar e alterar arquivos."
+}
+
 // registrarMemoria registra salvar_na_memoria ligada ao MESMO SegredosLidos de
 // registrarArquivos: sem essa ligação, a trava que barra o valor revelado de um
 // .env na memória não existiria. Função à parte para o teste cobrir a fiação

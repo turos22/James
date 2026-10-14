@@ -142,7 +142,7 @@ func executar() error {
 			OrcamentoTokens: cfg.OrcamentoResumo,
 		},
 		Notas:               vaultMemoria,
-		SistemaPrompt:       string(sistemaPrompt),
+		SistemaPrompt:       ajustarPromptParaPlataforma(string(sistemaPrompt), ferramentas.ArquivosSuportado),
 		Clientes:            api.NovoClientesHub(),
 		AprovacoesPendentes: api.NovoRegistroAprovacoesPendentes(),
 		TimeoutAprovacao:    time.Duration(cfg.TimeoutAprovacaoSegundos) * time.Second,
