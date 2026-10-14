@@ -1,6 +1,6 @@
 # James: tela e janelas no Wayland (B2)
 
-Status: **rascunho para aprovação do Arthur** (2026-10-13)
+Status: **aprovada pelo Arthur** (2026-10-13)
 Branch: `feat/tela-wayland` (a partir de `main` em `a8061c0`)
 Spikes: `docs/superpowers/spikes/2026-10-13-tela-wayland.md` (commit `3a09ad0`)
 Plano-mãe: `docs/superpowers/plans/2026-10-09-james-analise-stt-e-fedora.md`, item B2
