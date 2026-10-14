@@ -108,3 +108,71 @@ func TestManipularInterfaceNivelPerigoso(t *testing.T) {
 		t.Error("manipular_interface deve ser NivelPerigoso")
 	}
 }
+
+// --- B2: aprovação para clique e tecla destrutivos (D10) ---------------------
+
+type ponteComMapa struct {
+	ponteFalsa
+	mapa []dispositivo.Elemento
+}
+
+func (p *ponteComMapa) UltimoMapa() []dispositivo.Elemento { return p.mapa }
+
+func manipularComMapa(elementos ...dispositivo.Elemento) *ManipularInterface {
+	return NovoManipularInterface(&ponteComMapa{mapa: elementos})
+}
+
+func TestClicarElementoDestrutivoPeloIdPedeAprovacao(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e7", Nome: "Excluir", Tipo: "Button"},
+		dispositivo.Elemento{ID: "e1", Nome: "Novo", Tipo: "Button"})
+
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e7"}) {
+		t.Error("clicar em Excluir pelo id não pediu aprovação")
+	}
+	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e1"}) {
+		t.Error("clicar em Novo pediu aprovação")
+	}
+}
+
+func TestClicarElementoDestrutivoPeloNomePedeAprovacaoMesmoSemMapa(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+
+	if !m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "nome": "Mover para a lixeira"}) {
+		t.Error("nome destrutivo nos argumentos não pediu aprovação")
+	}
+}
+
+func TestIdForaDoMapaNaoPedeAprovacao(t *testing.T) {
+	// O device recusa sozinho ("não achei o elemento"), e não há o que aprovar.
+	m := manipularComMapa(dispositivo.Elemento{ID: "e1", Nome: "Novo"})
+
+	if m.ConfirmacaoNecessaria(map[string]any{"acao": "clicar_elemento", "elemento_id": "e99"}) {
+		t.Error("id desconhecido pediu aprovação")
+	}
+}
+
+func TestTeclaDeletePedeAprovacao(t *testing.T) {
+	m := NovoManipularInterface(&ponteFalsa{})
+	for _, tecla := range []string{"delete", "Delete", "shift+delete", "Shift + Delete", "del"} {
+		if !m.ConfirmacaoNecessaria(map[string]any{"acao": "tecla", "texto": tecla}) {
+			t.Errorf("tecla %q não pediu aprovação", tecla)
+		}
+	}
+	for _, tecla := range []string{"enter", "ctrl+l", "backspace"} {
+		if m.ConfirmacaoNecessaria(map[string]any{"acao": "tecla", "texto": tecla}) {
+			t.Errorf("tecla %q pediu aprovação", tecla)
+		}
+	}
+}
+
+func TestClickEDigitarNaoPedemAprovacao(t *testing.T) {
+	m := manipularComMapa(dispositivo.Elemento{ID: "e1", Nome: "Excluir"})
+	for _, args := range []map[string]any{
+		{"acao": "click", "x": 1.0, "y": 1.0},
+		{"acao": "digitar", "texto": "excluir tudo"},
+	} {
+		if m.ConfirmacaoNecessaria(args) {
+			t.Errorf("%v pediu aprovação", args)
+		}
+	}
+}

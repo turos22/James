@@ -14,10 +14,58 @@ import (
 // continua existindo como escape para canvas/jogo, sem árvore de elementos.
 type ManipularInterface struct {
 	Ponte dispositivo.Ponte
+	// Mapa dá o nome de "e7" antes do clique, para a aprovação do clique
+	// destrutivo (D10 da spec 2026-10-13 B2). Nil: só o nome passado nos
+	// argumentos é conferido.
+	Mapa FonteDeMapa
 }
 
+// FonteDeMapa é o que dá a lista do último ver_tela — *dispositivo.Hub implementa.
+type FonteDeMapa interface {
+	UltimoMapa() []dispositivo.Elemento
+}
+
+// NovoManipularInterface usa a própria ponte como fonte do mapa quando ela
+// sabe dar um (o Hub sabe).
 func NovoManipularInterface(ponte dispositivo.Ponte) *ManipularInterface {
-	return &ManipularInterface{Ponte: ponte}
+	m := &ManipularInterface{Ponte: ponte}
+	if fonte, ok := ponte.(FonteDeMapa); ok {
+		m.Mapa = fonte
+	}
+	return m
+}
+
+// ConfirmacaoNecessaria implementa ExigeConfirmacao: clique em elemento de
+// nome destrutivo e tecla Delete pedem aprovação; o resto roda livre
+// (decisão do Arthur). Clique por coordenada não entra aqui: o device recusa
+// clique por coordenada em cima de elemento listado (D10 d), e é isso que
+// impede de contornar esta checagem.
+func (m *ManipularInterface) ConfirmacaoNecessaria(args map[string]any) bool {
+	acao, _ := args["acao"].(string)
+	switch acao {
+	case "clicar_elemento":
+		return Destrutivo(m.nomeDoElemento(args))
+	case "tecla":
+		texto, _ := args["texto"].(string)
+		return teclaApaga(texto)
+	}
+	return false
+}
+
+// nomeDoElemento resolve o nome pelo id no último mapa, ou usa o nome dos
+// argumentos. Os dois contam: se qualquer um for destrutivo, pede.
+func (m *ManipularInterface) nomeDoElemento(args map[string]any) string {
+	nome, _ := args["nome"].(string)
+	id, _ := args["elemento_id"].(string)
+	if id == "" || m.Mapa == nil {
+		return nome
+	}
+	for _, e := range m.Mapa.UltimoMapa() {
+		if e.ID == id {
+			return e.Nome + " " + nome
+		}
+	}
+	return nome
 }
 
 func (m *ManipularInterface) Declaracao() Declaracao {
