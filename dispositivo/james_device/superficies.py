@@ -21,7 +21,15 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Superficie:
     """Um monitor. `origem_x`/`origem_y` são a posição do canto superior
-    esquerdo no espaço global do desktop; `escala` é 1.0 para 100%."""
+    esquerdo no espaço global do desktop; `escala` é 1.0 para 100%.
+
+    `largura`/`altura` estão no espaço de coordenada do PROTOCOLO, e `fator`
+    leva desse espaço ao espaço global. No Windows os dois são pixel físico e
+    `fator` é 1. No Linux (D9 da spec 2026-10-13 B2) o protocolo usa o pixel
+    da imagem que o modelo recebe, reduzida a 1280 de largura, e o desktop
+    trabalha em coordenada lógica: `fator` = largura lógica / largura da
+    imagem. Sem ele, o clique estimado na imagem cairia fora na proporção da
+    redução."""
 
     id: str
     largura: int
@@ -30,6 +38,7 @@ class Superficie:
     origem_y: int
     escala: float
     primaria: bool
+    fator: float = 1.0
 
 
 def listar() -> list[Superficie]:
@@ -52,13 +61,35 @@ def para_global(superficie: Superficie, x: int, y: int) -> tuple[int, int]:
     """Coordenada local da superfície para coordenada global do desktop.
     Esquecer esta soma faz o clique cair no monitor errado — e o feedback de
     tela.py reporta com honestidade o elemento errado, o que torna o bug
-    plausível e difícil de rastrear."""
-    return (superficie.origem_x + x, superficie.origem_y + y)
+    plausível e difícil de rastrear.
+
+    Arredonda em vez de truncar: com fator 1,5, truncar puxaria todo clique
+    meio pixel lógico para cima e para a esquerda."""
+    return (
+        superficie.origem_x + round(x * superficie.fator),
+        superficie.origem_y + round(y * superficie.fator),
+    )
 
 
 def para_local(superficie: Superficie, x: int, y: int) -> tuple[int, int]:
     """Inverso de para_global."""
-    return (x - superficie.origem_x, y - superficie.origem_y)
+    return (
+        round((x - superficie.origem_x) / superficie.fator),
+        round((y - superficie.origem_y) / superficie.fator),
+    )
+
+
+def tamanho_da_imagem(largura_logica: int, altura_logica: int, largura: int = 1280) -> tuple[int, int, float]:
+    """Tamanho da imagem que vai ao modelo e o fator imagem → lógico.
+
+    A API da Anthropic reduz sozinha imagem com mais de 1568 px no lado
+    maior; mandar já reduzido mantém o espaço de coordenada que o modelo vê
+    igual ao que o device usa. Monitor menor que a largura alvo não é
+    ampliado (ampliar só borra e não acrescenta informação)."""
+    if largura_logica <= largura:
+        return largura_logica, altura_logica, 1.0
+    fator = largura_logica / largura
+    return largura, round(altura_logica / fator), fator
 
 
 def contendo(superficies: list[Superficie], x: int, y: int) -> Superficie | None:
@@ -66,8 +97,10 @@ def contendo(superficies: list[Superficie], x: int, y: int) -> Superficie | None
     acontece: com monitores desalinhados, existem pontos dentro do retângulo
     que engloba tudo mas fora de qualquer monitor."""
     for superficie in superficies:
-        dentro_x = superficie.origem_x <= x < superficie.origem_x + superficie.largura
-        dentro_y = superficie.origem_y <= y < superficie.origem_y + superficie.altura
+        largura = superficie.largura * superficie.fator
+        altura = superficie.altura * superficie.fator
+        dentro_x = superficie.origem_x <= x < superficie.origem_x + largura
+        dentro_y = superficie.origem_y <= y < superficie.origem_y + altura
         if dentro_x and dentro_y:
             return superficie
     return None
