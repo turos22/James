@@ -1,10 +1,10 @@
-# Autonomia nos arquivos: plano de implementação
+# Autonomia nos arquivos: plano de implementação (versão 2)
 
-> **Para quem executa:** um task por vez, na ordem. TDD em todos: escrever o teste, rodar e **ver falhar pelo motivo certo**, implementar, rodar e ver passar, commitar. A saída de cada "rodar" vai no relato. Não rodou, diz que não rodou. Modo trabalho: `/code-review` e `/security-review` antes do merge (Task 16).
+> **Para quem executa:** um task por vez, na ordem. TDD em todos: escrever o teste, rodar e **ver falhar pelo motivo certo**, implementar, rodar e ver passar, commitar. A saída de cada "rodar" vai no relato. Não rodou, diz que não rodou. Modo trabalho: `/code-review` e `/security-review` antes do merge (Task 18).
 
-**Objetivo:** o James olha o disco sem pedir (`arquivos`), mexe nele só com aprovação (`alterar_arquivos`), o shell deixa de ter o buraco de criar e editar, e o que ele lê de arquivo sensível não vai para a memória.
+**Objetivo:** o James olha o disco sem pedir (`arquivos`), sem que valor secreto saia do jamesd (máscara); mostra valor real só com aprovação (`revelar`); mexe no disco só com aprovação (`alterar_arquivos`); o shell deixa de ter o buraco de criar e editar; e o turno de voz avisa quando espera aprovação.
 
-**Spec:** [`../specs/2026-10-14-james-arquivos-design.md`](../specs/2026-10-14-james-arquivos-design.md) (aprovada em 2026-10-14).
+**Spec:** [`../specs/2026-10-14-james-arquivos-design.md`](../specs/2026-10-14-james-arquivos-design.md) (versão 2).
 **Branch:** `feat/arquivos` (a partir de `main` em `67237dd`).
 
 ---
@@ -13,18 +13,22 @@
 
 Fatos conferidos no código em 2026-10-14. Cada um muda o desenho.
 
-1. **O classificador comum não enxerga redirecionamento nem flag.** `denylist.precisaConfirmacao` (`classificador.go`) quebra o comando em tokens por `separadores`, e `>`, `<`, `=` e as aspas são separadores; depois faz `TrimLeft(token, "&.\\/-")`, então `-i` vira `i`. Resultado: `echo x > f` e `sed -i` passam hoje sem nenhum token suspeito, e é por isso que a ampliação precisa de **duas varreduras próprias** (Tasks 11 e 12), não só de mais verbos na tabela.
-2. **O `denylist` é compartilhado com o PowerShell** (`denylistPowerShell`). Mexer na struct (campo novo opcional) não pode mudar o comportamento do Windows: `TestAsDuasDenylistsSaoIndependentes` guarda isso.
-3. **`>` dentro de aspas não é redirecionamento** (`grep ">" f`, `awk '$1 > 3'`, `echo "a > b"`). A varredura de redirecionamento tem de respeitar aspas simples, duplas e barra invertida.
-4. **Perfil:** `Restrito` (celular) só usa `NivelSeguro` sem pedir. Por isso `arquivos` é `NivelPerigoso`: no desktop roda livre e no celular pede aprovação. A escrita é `NivelPerigoso` **e** `ConfirmacaoNecessaria` sempre `true`.
-5. **`ExigeConfirmacao` e `DescreveConfirmacao`** (`tipos.go`) já existem. Para `alterar_arquivos`, o cartão sai do `DescricaoDaConfirmacao`, que o `ws.go` já lê.
-6. **`Parametro` não tem `enum` nem `required` por ação**: os valores aceitos ficam na descrição e a validação é no `Executar`. Número vem do JSON como `float64`.
-7. **`higiene` só importa a stdlib** (sem ciclo com `ferramentas`), mas os padrões de credencial são **não exportados**: a Task 1 expõe `ParecaCredencial`. A varredura do repositório (`TestRepositorioLimpo`) acusa segredo literal em **qualquer** arquivo versionado, inclusive testes: monte as fixtures em tempo de execução (`"AIza" + "Sy" + …`, como o `chaveFalsa()` de `higiene_test.go`), e **PEM nunca num literal só** (`"-----BEGIN " + "RSA PRIVATE KEY-----"`).
-8. **`SalvarNaMemoria` é o único ponto de escrita da memória** (`memoria.go`), `NivelSeguro`, e o pacote `ferramentas` não pode importar `memoria` (ciclo). O verificador de segredo entra por **interface local**, como o `vaultMemoria`.
-9. **`gio trash`** existe nesta máquina (`/usr/bin/gio`). Chamar sempre com lista de argumentos e `--` antes do caminho. Código de lixeira é só unix (`//go:build unix`, como `plataforma_unix.go`); o Windows responde "indisponível".
-10. **Arquivos com CRLF:** `prompts/sistema.md` e `internal/api/criar_solicitar_aprovacao_test.go`. O `Edit` falha neles: edite por script preservando o fim de linha.
-11. **`gofmt -l` lista muitos arquivos antigos.** Formate só os que você cria ou muda.
-12. **Comandos de suíte:**
+1. **Todo resultado de ferramenta sai do jamesd por quatro caminhos:** para a Anthropic (o modelo lê), para o Postgres (`persistirNovasMensagens` grava o JSON dos `Resultados`), para a janela de contexto e o resumo rolante (`internal/memoria/janela.go` conta e carrega `r.Saida`), e para o app (`ferramenta_concluida` leva a `Saida`). **A máscara (Task 3) tem de ser aplicada dentro da ferramenta, antes do `return`.** Mascarar depois seria tarde.
+2. **O classificador comum não enxerga redirecionamento nem flag.** `denylist.precisaConfirmacao` (`classificador.go`) quebra o comando em tokens por `separadores`, e `>`, `<`, `=` e as aspas são separadores; depois faz `TrimLeft(token, "&.\\/-")`, então `-i` vira `i`. `echo x > f` e `sed -i` passam hoje sem token suspeito. Por isso o shell precisa de **varreduras próprias** (Tasks 13 e 14), não só de verbos novos.
+3. **A struct `denylist` é compartilhada com o PowerShell.** Campo novo tem de ser opcional e o PowerShell não pode mudar: `TestAsDuasDenylistsSaoIndependentes` guarda isso.
+4. **`>` dentro de aspas não é redirecionamento** (`grep ">" f`, `awk '$1 > 3'`, `echo "a > b"`). A varredura respeita aspas simples, duplas e barra invertida.
+5. **A lista `caminhosSensiveisBash` é por substring do comando inteiro em minúsculas.** `.env` não casa com `.venv` (o ponto tem de vir colado no `e`), mas casa com `.envrc` (o que é desejável: o direnv guarda segredo).
+6. **Perfil:** `Restrito` (celular, qualquer IP fora de loopback) só usa `NivelSeguro` sem pedir; `Privilegiado` (loopback) usa tudo. Aprovação aparece só no app do desktop; `timeout_aprovacao_segundos = 300`.
+7. **Ordem no loop:** `despachar` chama `AoIniciarFerramenta` (que, no turno de voz, descarrega a fala pendente) **antes** de `despacharSemHook` (que pede aprovação). As chamadas de uma resposta rodam em sequência. O aviso de voz (Task 15) entra num envoltório do `SolicitarAprovacao` dentro de `processarTurno`, que conhece `modo` e `aoDelta`.
+8. **O quebrador de frases fecha a frase na quebra de linha** (`proximaFrase` trata `\n`): mandar `"Preciso da sua aprovação na tela.\n"` pelo `aoDelta` faz o device falar na hora.
+9. **`higiene` só importa a stdlib** (sem ciclo), mas os padrões de credencial são **não exportados** e **não incluem `sk-ant-`** (Anthropic). A varredura do repositório (`TestRepositorioLimpo`) acusa segredo literal em qualquer arquivo versionado, inclusive teste: monte fixture em tempo de execução (`"sk-" + "ant-" + …`, como o `chaveFalsa()` de `higiene_test.go`) e **nunca** escreva um cabeçalho PEM num literal só (`"-----BEGIN " + "RSA PRIVATE KEY-----"`).
+10. **`SalvarNaMemoria` é o único ponto de escrita da memória** (`memoria.go`), `NivelSeguro`, e o pacote `ferramentas` não pode importar `memoria` (ciclo). O verificador entra por **interface local**, como o `vaultMemoria`.
+11. **Windows:** o padrão já existe. `plataforma_unix.go` (`//go:build unix`) e `plataforma_windows.go` definem `TerminalSuportado`, e `cmd/jamesd/ferramentas.go` tem `registrarTerminal(registro, cfg, suportado)` com o teste `TestRegistrarTerminalNaoRegistraQuandoNaoSuportado`. As ferramentas novas seguem o mesmo molde (`ArquivosSuportado`).
+12. **`gio trash`** existe nesta máquina (`/usr/bin/gio`). Sempre lista de argumentos e `--` antes do caminho. Em sistema de arquivos sem lixeira ele falha; a falha **nunca** vira `os.Remove`.
+13. **`Parametro` não tem `enum`**: valores aceitos ficam na descrição e a validação no `Executar`. Número vem do JSON como `float64`.
+14. **Arquivos com CRLF:** `prompts/sistema.md` e `internal/api/criar_solicitar_aprovacao_test.go`. O `Edit` falha neles: edite por script preservando o fim de linha. `git add` avisa da normalização para LF; é esperado.
+15. **`gofmt -l` lista muitos arquivos antigos.** Formate só os seus.
+16. **Comandos de suíte:**
     - Go (com o Postgres de pé):
       ```bash
       go vet ./... && GOOS=windows go vet ./... && GOOS=windows go build ./... && go test -count=1 ./...
@@ -33,247 +37,259 @@ Fatos conferidos no código em 2026-10-14. Cada um muda o desenho.
     - Front: `npm test --prefix web -- --run`
 
     Base em `main` (`67237dd`): Go verde, pytest **506 passed, 6 skipped**, vitest **119 passed**.
-13. **Nada de Python nem de front neste plano.** É só Go, mais o prompt.
+17. **Nada de Python nem de front neste plano.** Go e prompt.
 
 ---
 
 ## Estrutura de arquivos
 
 ```
-internal/higiene/higiene.go, _test.go                 MODIFICAR  ParecaCredencial (exporta o que já existe)
+internal/higiene/higiene.go, _test.go                    MODIFICAR  TrechosDeCredencial, ParecaCredencial, sk-ant-
 internal/ferramentas/
-  segredos.go, segredos_test.go                       CRIAR      CaminhoSensivel, SegredosLidos (valores, TTL, teto)
-  memoria.go, memoria_test.go                         MODIFICAR  trava de segredo no salvar_na_memoria
-  caminhos.go, caminhos_test.go                       CRIAR      resolver ~/absoluto, piso de pastas protegidas
-  arquivos_leitura.go, arquivos_leitura_test.go       CRIAR      listar, ler, buscar (funções puras sobre o disco)
-  arquivos.go, arquivos_test.go                       CRIAR      ferramenta `arquivos`
-  escrita.go, escrita_test.go                         CRIAR      criar, editar (atômico), mover, copiar
-  lixeira_unix.go, lixeira_windows.go, lixeira_test.go CRIAR     apagar para a lixeira (gio trash)
-  alterar_arquivos.go, alterar_arquivos_test.go       CRIAR      ferramenta `alterar_arquivos`
-  classificador.go                                    MODIFICAR  campo opcional `extras` na struct denylist
-  classificador_bash.go, classificador_bash_test.go   MODIFICAR  verbos de escrita, flags, redirecionamento
-cmd/jamesd/main.go (e ferramentas.go)                 MODIFICAR  registrar as duas, compartilhar SegredosLidos
-prompts/sistema.md                                    MODIFICAR  (CRLF) regras 1, nova de arquivos, memória
-internal/agente/anthropic/integracao_test.go          MODIFICAR  portão de tool_use com as ferramentas novas
+  sensivel.go, sensivel_test.go                          CRIAR      CaminhoSensivel (com destino de link)
+  mascara.go, mascara_test.go                            CRIAR      Mascarar(conteudo, sensivel) -> (texto, ocultos)
+  segredos.go, segredos_test.go                          CRIAR      SegredosLidos (valores revelados, TTL, teto)
+  memoria.go, memoria_test.go                            MODIFICAR  trava no salvar_na_memoria
+  caminhos.go, caminhos_test.go                          CRIAR      ResolverCaminho, CaminhoProtegido
+  arquivos_leitura.go, arquivos_leitura_test.go          CRIAR      listar, ler, buscar
+  arquivos.go, arquivos_test.go                          CRIAR      ferramenta `arquivos` (+ revelar)
+  escrita.go, escrita_test.go                            CRIAR      criar, editar, mover, copiar
+  lixeira_unix.go, lixeira_windows.go, lixeira_test.go   CRIAR      apagar para a lixeira
+  alterar_arquivos.go, alterar_arquivos_test.go          CRIAR      ferramenta `alterar_arquivos`
+  plataforma_unix.go, plataforma_windows.go              MODIFICAR  ArquivosSuportado
+  classificador.go                                       MODIFICAR  campo opcional `extras` na struct denylist
+  classificador_bash.go, classificador_bash_test.go      MODIFICAR  verbos, flags, caminhos, redirecionamento
+internal/api/ws.go, fala_test.go                         MODIFICAR  aviso de voz na aprovação
+cmd/jamesd/main.go, ferramentas.go, ferramentas_test.go  MODIFICAR  registrarArquivos, SegredosLidos compartilhado
+prompts/sistema.md                                       MODIFICAR  (CRLF) regra 1, regra de arquivos, memória
+internal/agente/anthropic/integracao_test.go             MODIFICAR  portão de tool_use
 ```
 
 ---
 
-## Fatia 1: segredo (a trava)
+## Fatia 1: credencial, máscara e trava
 
 ### Task 0: base
 
-Sem código. Confirmar o ponto de partida e abrir a branch (já aberta).
+- [ ] `git branch --show-current` → `feat/arquivos`. Rodar as três suítes (fato 16) e anotar os números no relato.
 
-- [ ] `git branch --show-current` → `feat/arquivos`. Rodar as três suítes (fato 12) e anotar os números no relato.
-
-### Task 1: `higiene.ParecaCredencial`
+### Task 1: `higiene` exporta o detector e conhece a Anthropic
 
 - **Arquivos:** `internal/higiene/higiene.go`, `higiene_test.go`.
 - **Testes novos:**
-  - `ParecaCredencial` é verdadeira para cada padrão existente (monte as fixtures em tempo de execução, fato 7): chave do Google, `tvly-`, `nvapi-`, `sk-or-v1-`, URL com senha, `AKIA…`, token do GitHub, JWT, PEM.
-  - É falsa para texto comum: "o projeto usa uma chave de API", "localhost:8080", "password", uma URL sem senha (`https://exemplo.com/a`).
-  - A varredura do repositório continua achando as mesmas coisas (os testes atuais passam sem mudança: uma lista só, sem cópia).
-- **Implementação:** extrair o laço de `padroes`/`padroesRegex` para uma função que serve aos dois usos; `ParecaCredencial(texto string) bool` exportada.
-- **Commit:** `feat(higiene): ParecaCredencial exporta o detector de credencial`
+  - `TrechosDeCredencial(texto) [][2]int` devolve o início e o fim de cada credencial: chave do Google, `tvly-`, `nvapi-`, `sk-or-v1-`, **`sk-ant-`** (novo), `AKIA…`, token do GitHub, JWT, cabeçalho PEM. Para padrão de prefixo fixo, o trecho vai do prefixo até o fim do token (primeiro espaço, aspa ou fim de linha). Para URL com senha, o trecho é **só a senha** (`postgres://u:SENHA@h` → só `SENHA`).
+  - `ParecaCredencial(texto) bool` = `len(TrechosDeCredencial) > 0`.
+  - Falso para texto comum: "o projeto usa uma chave de API", "localhost:8080", "password", `https://exemplo.com/a`, `sk-` sozinho.
+  - **A varredura do repositório acusa uma chave `sk-ant-` montada no teste** (fixture em tempo de execução, fato 9) e o repositório real continua limpo (`TestRepositorioLimpo` verde).
+- **Implementação:** uma lista só (a dos padrões atuais mais `"sk-" + "ant-"`, montado assim no próprio `higiene.go` para o arquivo não se acusar), usada pela varredura e pelas funções novas.
+- **Commit:** `feat(higiene): exporta o detector de credencial e reconhece chave da Anthropic`
 
-### Task 2: `SegredosLidos` e `CaminhoSensivel` (puro)
+### Task 2: `CaminhoSensivel`
 
-- **Arquivos:** `segredos.go`, `segredos_test.go`.
+- **Arquivos:** `sensivel.go`, `sensivel_test.go`.
 - **Testes:**
-  - `CaminhoSensivel` (tabela, com `~` já expandido): casa `~/.ssh/id_rsa`, `~/.ssh/config`, `/home/a/.env`, `/x/proj/.env.local`, `/x/.env.production`, `~/.aws/credentials`, `~/.gnupg/pubring.kbx`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.kube/config`, `~/.docker/config.json`, `/x/cert.pem`, `/x/chave.key`, `/x/c.p12`, `/home/a/id_ed25519`, `/etc/shadow`, `/etc/sudoers`, `/etc/sudoers.d/x`. **Não** casa: `/x/.env.example`, `/x/ambiente.go`, `/x/README.md`, `/x/keyboard.go`, `/x/monkey.txt`.
-  - `Extrair(conteudo)` devolve os valores secretos (D10 da spec): lado direito de `CHAVE=valor` e `chave: valor` com 6 ou mais caracteres (sem aspas em volta, sem comentário depois de ` #`); trechos de 16 ou mais caracteres sem espaço que tenham letra **e** dígito; cada linha do corpo de um bloco PEM. **Não** extrai: `PORT=80`, `DEBUG=true`, `host: localhost`, palavras longas só de letra ("internacionalizacao"), linhas de comentário.
-  - `Registrar(caminho, conteudo)` só guarda se `CaminhoSensivel(caminho)`; arquivo comum não marca nada.
-  - `Contem(texto)` é verdadeiro quando o texto tem algum valor guardado; falso para texto sem nenhum. Comparação **sem diferenciar maiúscula** em valores só de letras e dígitos? **Não:** exata (segredo é sensível a caixa).
-  - TTL de 1 hora com relógio injetado: passado o prazo, `Contem` volta a falso. Teto de 500 valores: o mais antigo sai primeiro.
-  - Seguro para uso concorrente (`go test -race` no teste de duas goroutines).
-- **Implementação:** `type SegredosLidos struct{ mu; valores []entrada; agora func() time.Time }`, `NovoSegredosLidos()`.
-- **Commit:** `feat(ferramentas): SegredosLidos e CaminhoSensivel`
+  - Tabela (caminho já absoluto): casa `~/.ssh/id_rsa`, `~/.ssh/config`, `/x/.env`, `/x/.env.local`, `/x/.env.production`, `~/.aws/credentials`, `~/.gnupg/x`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.kube/config`, `~/.docker/config.json`, `/x/c.pem`, `/x/c.key`, `/x/c.p12`, `/x/c.pfx`, `/h/id_ed25519`, `/h/id_ecdsa.pub` (casa por `id_ecdsa*`; mascarar a chave pública não custa nada), `/etc/shadow`, `/etc/gshadow`, `/etc/sudoers`, `/etc/sudoers.d/x`.
+  - **Não** casa: `/x/.env.example`, `/x/.env.sample`, `/x/.env.template`, `/x/.venv/bin/python`, `/x/ambiente.go`, `/x/keyboard.go`, `/x/README.md`.
+  - **Link simbólico** (pasta temporária): `~/atalho → ~/.ssh/id_rsa` é sensível; `~/atalho2 → /x/README.md` não; link quebrado devolve "não sensível" sem erro.
+- **Commit:** `feat(ferramentas): CaminhoSensivel, inclusive por link simbólico`
 
-### Task 3: trava no `salvar_na_memoria`
+### Task 3: `Mascarar` (puro)
 
-- **Arquivos:** `memoria.go`, `memoria_test.go`.
-- **Testes:**
-  - Com `Segredos` configurado e um valor registrado (`.env` com `CHAVE=abcdef123456`): `Executar` com nota que contém `abcdef123456` devolve erro com a mensagem da spec ("essa nota contém um valor que veio de um arquivo sensível; guarde só a conclusão, sem o valor") e **não chama** `Vault.Acrescentar`.
-  - A nota "o projeto usa uma chave de API" passa.
-  - Sem leitura prévia, nota que casa com `higiene.ParecaCredencial` também é recusada (mensagem própria: "essa nota parece conter uma credencial").
-  - Sem `Segredos` (nil), o comportamento é o de hoje: todos os testes atuais passam sem mudança.
-  - A mensagem de erro **não repete o valor** (asserção: o erro não contém `abcdef123456`).
-- **Implementação:** campo `Segredos interface{ Contem(texto string) bool }` em `SalvarNaMemoria` (interface local, fato 8); a checagem da credencial usa `higiene.ParecaCredencial` direto.
-- **Commit:** `feat(ferramentas): salvar_na_memoria recusa valor lido de arquivo sensível`
+- **Arquivos:** `mascara.go`, `mascara_test.go`.
+- **Assinatura:** `Mascarar(conteudo string, sensivel bool) (texto string, ocultos []string)`. `ocultos` são os valores escondidos, para o `revelar` registrar (Task 9).
+- **Testes (fixtures montadas em tempo de execução, fato 9):**
+  - **Qualquer arquivo:** credencial reconhecível vira `••••` (o trecho da Task 1); bloco PEM de chave privada (do `BEGIN` ao `END`, inclusive as duas linhas) vira `[chave privada omitida: N linhas]`; o resto do texto fica idêntico, byte a byte.
+  - **Arquivo sensível:** `CHAVE=valor` → `CHAVE=•••• (oculto, 5 caracteres)`; `export CHAVE="valor"` → aspas fora da contagem; `chave: valor` (YAML); `"auth": "valor"` (JSON); `machine x login y password z` (`.netrc`) → só `z`; `postgres://u:senha@h:5432/db` → `postgres://u:••••@h:5432/db`; linha vazia, comentário (`# …`) e `CHAVE=` sem valor ficam como estão.
+  - **Arquivo comum** (`sensivel=false`): `PORT=8080` e `DEBUG=true` ficam visíveis; só os formatos reconhecíveis e o PEM são mascarados.
+  - `ocultos` traz exatamente os valores escondidos, sem repetir.
+  - A máscara é estável: aplicar duas vezes dá o mesmo texto.
+- **Commit:** `feat(ferramentas): máscara de valores secretos`
+
+### Task 4: `SegredosLidos` e a trava na memória
+
+- **Arquivos:** `segredos.go`, `segredos_test.go`, `memoria.go`, `memoria_test.go`.
+- **Testes (`SegredosLidos`):**
+  - `Registrar(valores)` guarda só valores com 6 ou mais caracteres; `Contem(texto)` é verdadeiro se o texto tem algum valor guardado (comparação exata, segredo é sensível a caixa).
+  - TTL de 1 hora com relógio injetado; teto de 500, o mais antigo sai primeiro.
+  - Concorrência: duas goroutines registrando e consultando, sem corrida (`go test -race ./internal/ferramentas/`).
+- **Testes (`salvar_na_memoria`):**
+  - Com `Segredos` configurado e `abcdef123456` registrado: nota com `abcdef123456` → erro "essa nota contém um valor secreto que você leu de um arquivo; guarde só a conclusão, sem o valor", **sem** chamar `Vault.Acrescentar`, e o erro **não contém** o valor.
+  - "o projeto usa uma chave de API" passa.
+  - Nota com credencial reconhecível (`higiene.ParecaCredencial`) é recusada mesmo sem registro ("essa nota parece conter uma credencial").
+  - `Segredos` nil: comportamento de hoje, testes atuais passam sem mudança.
+- **Implementação:** campo `Segredos interface{ Contem(string) bool }` em `SalvarNaMemoria` (fato 10).
+- **Commit:** `feat(ferramentas): SegredosLidos e trava no salvar_na_memoria`
 
 ---
 
 ## Fatia 2: leitura (`arquivos`)
 
-### Task 4: caminhos e piso de proteção (puro)
+### Task 5: caminhos e piso (puro sobre o disco)
 
 - **Arquivos:** `caminhos.go`, `caminhos_test.go`.
 - **Testes:**
-  - `ResolverCaminho("~/x")` expande a home (variável `HOME` do teste); `"/abs/x"` passa; `"x/y"`, `"./x"`, `"../x"` e `""` dão erro "diga o caminho completo (absoluto ou começando por ~)"; o caminho é limpo (`/a/../b` → `/b`).
-  - `~` sozinho e `~/` viram a home. `~outro/x` (home de outro usuário) é erro.
-  - `CaminhoProtegido(caminho)` é verdadeiro para: `/`, a home exata, `/etc`, `/usr`, `/var`, `/boot`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/dev`, `/proc`, `/sys`, e a mesma coisa com barra no fim. **Falso** para `/etc/hosts`, `/home/a/projeto`, `/var/log/x`, `/usr/local/x`.
-  - Link simbólico: `CaminhoProtegido` olha o destino real (`filepath.EvalSymlinks`) **e** o caminho pedido; um link `~/atalho → /etc` não escapa do piso.
+  - `ResolverCaminho`: `~/x` e `~` expandem a home (`HOME` do teste); `/abs/x` passa limpo (`/a/../b` → `/b`); `x/y`, `./x`, `../x`, `""`, `~outro/x` dão "diga o caminho completo (absoluto ou começando por ~)".
+  - `CaminhoProtegido`: verdadeiro para `/`, a home exata, `/etc`, `/usr`, `/var`, `/boot`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/dev`, `/proc`, `/sys`, `/opt`, `/srv`, `/root` (com e sem barra no fim); falso para `/etc/hosts`, `/home/a/projeto`, `/var/log/x`, `/usr/local/x`.
+  - **Link:** `~/atalho → /etc` e `~/casa → ~` são protegidos (olha o destino real **e** o pedido).
 - **Commit:** `feat(ferramentas): resolução de caminho e piso de pastas protegidas`
 
-### Task 5: `listar`
+### Task 6: `listar`
 
-- **Arquivos:** `arquivos_leitura.go`, `arquivos_leitura_test.go` (pasta temporária).
-- **Testes:**
-  - Pastas primeiro, depois arquivos, cada grupo por nome; cada linha tem tipo (`pasta`, `arquivo`, `link`), tamanho, data (`2006-01-02 15:04`) e nome; pasta mostra `/` no fim.
-  - Ocultos só com `incluir_ocultos`.
-  - Mais de 200 entradas: mostra 200 e uma linha "… e mais N entradas".
-  - Link simbólico aparece como `link -> destino` e **não é seguido**; link quebrado não derruba a listagem.
-  - Caminho que é arquivo, que não existe ou sem permissão devolve erro claro (sem `panic`, sem expor o erro cru do SO se ele trouxer outro caminho).
-  - Pasta vazia: "(pasta vazia)".
+- **Arquivos:** `arquivos_leitura.go`, `arquivos_leitura_test.go`.
+- **Testes:** pastas primeiro, depois arquivos, por nome; linha com tipo (`pasta`/`arquivo`/`link`), tamanho, data (`2006-01-02 15:04`) e nome (pasta com `/`); ocultos só com `incluir_ocultos`; 200 entradas e "… e mais N"; link aparece como `link -> destino` sem ser seguido, link quebrado não derruba; pasta vazia → "(pasta vazia)"; arquivo, inexistente e sem permissão → erro claro.
 - **Commit:** `feat(ferramentas): arquivos listar`
 
-### Task 6: `ler`
+### Task 7: `ler`
 
 - **Arquivos:** `arquivos_leitura.go`, `arquivos_leitura_test.go`.
 - **Testes:**
-  - Devolve as linhas numeradas (`   3  texto`); padrão 200 linhas e 64 KB por chamada; ao cortar, diz "continua na linha N" (use `a_partir_da_linha: N`).
-  - `a_partir_da_linha` e `linhas` respeitam os tetos (`linhas` acima de 2000 vira 2000). Linha enorme (acima de 8 KB) é cortada com aviso, para um arquivo minificado não estourar a resposta.
-  - Binário (NUL nos primeiros 8 KB) → "arquivo binário, não leio (N bytes)". UTF-8 inválido sem NUL é lido com substituição, sem erro.
-  - Arquivo vazio: "(arquivo vazio)". Pasta: erro "é uma pasta, use listar". Não existe, sem permissão: erro claro.
-  - **Um arquivo sensível lido registra os valores no `SegredosLidos`** (`.env` com `CHAVE=abcdef123456` → `Contem("abcdef123456")` fica verdadeiro); arquivo comum não registra nada; o registro acontece com o arquivo **inteiro**, não só com as linhas devolvidas (o modelo pode pedir em pedaços).
-  - Arquivo grande demais para o registro (acima de 2 MB) registra só os primeiros 2 MB, sem travar.
-- **Commit:** `feat(ferramentas): arquivos ler, com marca de segredo`
+  - Linhas numeradas (`   3  texto`); padrão 200 linhas e 32 KB; `linhas` acima de 2000 vira 2000; linha acima de 8 KB cortada com aviso; ao cortar, "continua na linha N".
+  - Binário (NUL nos primeiros 8 KB) → "arquivo binário, não leio (N bytes)"; UTF-8 inválido sem NUL é lido com substituição; vazio → "(arquivo vazio)"; pasta → "é uma pasta, use listar"; inexistente e sem permissão → erro claro.
+  - **Máscara aplicada** (Task 3): `.env` com `CLAUDE_API_KEY=` e um valor montado → a saída tem `CLAUDE_API_KEY=•••• (oculto, …)` e **não contém** o valor; arquivo comum com chave reconhecível e PEM → os dois mascarados; link para `.ssh/id_rsa` → mascarado.
+  - A máscara é aplicada **antes** de cortar em linhas: um bloco PEM que começa na linha 1 e o pedido de `a_partir_da_linha: 3` não vaza o miolo do bloco.
+  - `lerSemMascara` (uso interno do `revelar`) devolve o texto cru e a lista `ocultos`.
+- **Commit:** `feat(ferramentas): arquivos ler, com máscara`
 
-### Task 7: `buscar`
+### Task 8: `buscar`
 
 - **Arquivos:** `arquivos_leitura.go`, `arquivos_leitura_test.go`.
 - **Testes:**
-  - Por `nome`: trecho sem caixa e glob (`*.go`); acha em subpastas até a profundidade 8; devolve caminho e tipo.
-  - Por `conteudo`: texto simples sem caixa em arquivo de texto até 2 MB; devolve `caminho:linha: trecho` (a linha cortada em 160 caracteres); pula binário e arquivo acima de 2 MB.
-  - Os dois juntos: `nome` filtra e `conteudo` procura dentro.
-  - Pula `.git`, `node_modules`, `.venv`, `__pycache__`, `.cache`, `vendor` quando o caminho pedido **não** está dentro de um deles; se está, não pula.
-  - Teto de 100 resultados com aviso "cortado em 100"; teto de 5 s com aviso (relógio injetado); pasta sem permissão no meio é pulada, não derruba.
-  - Sem `nome` nem `conteudo`: erro. Link simbólico de pasta não é seguido (evita ciclo).
-  - **Busca por conteúdo em arquivo sensível não devolve a linha** (`.env`, chave): devolve só `caminho (arquivo sensível, use ler)`. Sem isso, `buscar` viraria um jeito de ler segredo sem passar pelo registro da Task 6.
+  - `nome` (trecho sem caixa e glob `*.go`) em subpastas até a profundidade 8.
+  - `conteudo` (sem caixa) em texto até 2 MB → `caminho:linha: trecho` (160 caracteres); pula binário e arquivo grande; `nome` e `conteudo` juntos.
+  - **D9:** em arquivo sensível, a linha que casa sai mascarada (`~/.env:3: CLAUDE_API_KEY=••••`); buscar pelo **próprio valor** de um segredo devolve o caminho e a linha mascarada, nunca o valor.
+  - A máscara de formato reconhecível vale em arquivo comum também.
+  - Pula `.git`, `node_modules`, `.venv`, `__pycache__`, `.cache`, `vendor` fora deles e não pula se o caminho pedido está dentro; 100 resultados com aviso; 5 s com aviso (relógio injetado); pasta sem permissão no meio é pulada; link de pasta não é seguido; sem `nome` nem `conteudo` → erro.
 - **Commit:** `feat(ferramentas): arquivos buscar`
 
-### Task 8: a ferramenta `arquivos`
+### Task 9: a ferramenta `arquivos` (com `revelar`)
 
 - **Arquivos:** `arquivos.go`, `arquivos_test.go`.
 - **Testes:**
-  - `Declaracao`: nome `arquivos`, descrição em português dizendo quando usar (olhar pastas e arquivos; para mexer, `alterar_arquivos`; não use `cat`/`ls` por shell), `acao` obrigatória, valores aceitos na descrição (fato 6).
-  - `Nivel() == NivelPerigoso` (D2) e **não** implementa `ExigeConfirmacao` (D5: no desktop não pede).
-  - O `Executar` despacha `listar`/`ler`/`buscar`; `acao` desconhecida ou ausente → erro com a lista das aceitas; `caminho` relativo → o erro da Task 4.
-  - Números chegam como `float64` e inteiros inválidos (`linhas: 3.5`, `-1`, `"12"`) dão erro claro.
-  - Compartilha o `SegredosLidos` recebido no construtor (`NovoArquivos(segredos)`; `nil` vale e só desliga o registro).
-  - O perfil `Restrito` **pede aprovação** e o `Privilegiado` não (teste em `internal/permissao` ou pelo `Perfil.Pode`).
-- **Commit:** `feat(ferramentas): ferramenta arquivos`
+  - `Declaracao`: nome `arquivos`; descrição diz quando usar (olhar pastas e arquivos; para mexer, `alterar_arquivos`; não use `cat`/`ls`/`find` por shell); explica que valores secretos aparecem como `••••` de propósito e que `revelar` mostra o valor com aprovação.
+  - `Nivel() == NivelPerigoso`.
+  - `ConfirmacaoNecessaria`: **verdadeiro só para `revelar`**; falso para `listar`, `ler`, `buscar`.
+  - `DescricaoDaConfirmacao` de `revelar`: `mostrar os valores secretos de /x/.env ao modelo (vão para a Anthropic e ficam no histórico desta conversa)`; vazio para as outras.
+  - `revelar` devolve o texto sem máscara **e** registra os `ocultos` no `SegredosLidos`; `ler` não registra nada (nada foi revelado).
+  - Despacho, ação desconhecida, caminho relativo e número inválido (`3.5`, `-1`, `"12"`) → erro claro.
+  - `Restrito` pede aprovação para `ler` (pelo `Perfil.Pode`), `Privilegiado` não.
+  - Ponta a ponta no pacote: `revelar` um `.env` temporário e tentar `salvar_na_memoria` com o valor → recusado (os dois usam o **mesmo** `SegredosLidos`).
+- **Commit:** `feat(ferramentas): ferramenta arquivos, com revelar sob aprovação`
 
 ---
 
 ## Fatia 3: escrita (`alterar_arquivos`)
 
-### Task 9: `criar` e `editar` (atômicos)
+### Task 10: `criar` e `editar` (atômicos)
 
 - **Arquivos:** `escrita.go`, `escrita_test.go`.
 - **Testes:**
-  - `criar`: cria o arquivo com o conteúdo e modo `0644`; **falha se existir** ("já existe; use sobrescrever: true"); `sobrescrever: true` troca o conteúdo **preservando o modo** do original; pasta pai inexistente é erro, e `criar_pastas: true` cria (modo `0755`); conteúdo acima de 1 MB é erro; caminho que é pasta é erro.
-  - `editar`: troca `trecho_antigo` por `trecho_novo` quando aparece **exatamente uma vez**; zero ocorrências → erro com a contagem; duas ou mais → erro com a contagem e a dica de `todas: true`; com `todas: true` troca todas e diz quantas; `trecho_antigo` vazio é erro; arquivo binário ou acima de 1 MB é recusado; o modo do arquivo é preservado.
-  - **Atomicidade:** a escrita vai para um temporário na mesma pasta e `os.Rename`; se o rename falhar (pasta sem permissão), o original está intacto e o temporário não sobra (`ReadDir` confere).
-  - Fins de linha: `editar` num arquivo CRLF com `trecho_antigo` sem `\r` **acha** (a comparação tenta o texto como veio e, se não achar, com `\r\n`); o arquivo continua CRLF depois.
-  - Link simbólico: edita **o destino** (não troca o link por um arquivo).
+  - `criar`: arquivo novo com modo `0644`; existente → "já existe; use sobrescrever: true"; `sobrescrever: true` troca e **preserva o modo**; pasta pai inexistente → erro, e `criar_pastas: true` cria (`0755`); acima de 1 MB → erro; caminho que é pasta → erro.
+  - `editar`: uma ocorrência → troca; zero → erro com a contagem; duas ou mais → erro com a contagem e a dica de `todas`; `todas: true` troca e diz quantas; `trecho_antigo` vazio → erro; binário ou acima de 1 MB → recusa; modo preservado.
+  - **CRLF:** `trecho_antigo` com `\n` acha em arquivo CRLF, e o arquivo continua CRLF.
+  - **Atômico:** grava num temporário na mesma pasta e faz `rename`; se o `rename` falhar, o original fica intacto e o temporário não sobra (`ReadDir`).
+  - **Link:** edita o destino, não troca o link por arquivo.
+  - **Validação separada da execução:** `validarCriar`/`validarEditar` são funções puras chamadas pela ferramenta antes do cartão e de novo no `Executar` (Task 12).
 - **Commit:** `feat(ferramentas): criar e editar arquivos de forma atômica`
 
-### Task 10: `mover`, `copiar` e `apagar` (lixeira)
+### Task 11: `mover`, `copiar` e `apagar` (lixeira)
 
 - **Arquivos:** `escrita.go`, `lixeira_unix.go`, `lixeira_windows.go`, `escrita_test.go`, `lixeira_test.go`.
 - **Testes:**
-  - `mover`: não sobrescreve (destino existe → erro); destino que é uma pasta existente move **para dentro** dela? **Não:** erro "o destino já existe" (nada de adivinhar); origem inexistente é erro; entre sistemas de arquivos (`EXDEV`) cai para copiar e depois apagar a origem, e só apaga depois de conferir o tamanho copiado.
-  - `copiar`: arquivo e pasta (recursivo, até 5000 arquivos e 500 MB, senão erro antes de começar); não sobrescreve; preserva o modo; não segue link simbólico para fora (copia o link como link).
-  - `apagar`: chama o executor de lixeira com **lista de argumentos** `["gio","trash","--",caminho]` (executor falso nos testes); falha do executor vira erro com a mensagem dele; caminho inexistente é erro **antes** de chamar a lixeira.
-  - **Piso (D11):** `apagar` e `mover` recusam `CaminhoProtegido` da Task 4, na origem, **mesmo se o chamador já aprovou** (o piso está na função, não só no cartão); `copiar` e `criar` ignoram o piso (copiar `/etc/hosts` para fora é leitura).
-  - Windows: `apagar` devolve "indisponível neste sistema (Windows)"; `GOOS=windows go vet ./...` e `go build` passam.
-- **Implementação:** `lixeira_unix.go` (`//go:build unix`) com `executarLixeira(ctx, caminho)` por `exec.CommandContext` (timeout 10 s); `lixeira_windows.go` com o erro de indisponível.
-- **Commit:** `feat(ferramentas): mover, copiar e apagar para a lixeira, com piso de pastas`
+  - `mover`: não sobrescreve ("o destino já existe"); origem inexistente → erro; entre sistemas de arquivos (`EXDEV`, só em unix) copia, confere tamanho e só então remove a origem (teste com uma função de `rename` injetada que devolve `EXDEV`).
+  - `copiar`: arquivo e pasta (até 5000 arquivos e 500 MB, senão erro **antes** de começar); não sobrescreve; preserva modo; copia link como link.
+  - `apagar`: chama o executor com `["gio","trash","--",caminho]` (executor falso); erro do executor volta com a mensagem dele e **o arquivo continua lá** (nenhum `os.Remove` em nenhum caminho de erro); inexistente → erro antes de chamar a lixeira.
+  - **Piso:** `apagar` e `mover` recusam `CaminhoProtegido` (Task 5), inclusive por link, **mesmo chamados direto** (o piso está na função, não só no cartão).
+  - Windows: `lixeira_windows.go` devolve "indisponível neste sistema (Windows)"; `GOOS=windows go vet ./...` e `go build ./...` passam.
+- **Commit:** `feat(ferramentas): mover, copiar e apagar para a lixeira, com piso`
 
-### Task 11: a ferramenta `alterar_arquivos`
+### Task 12: a ferramenta `alterar_arquivos`
 
 - **Arquivos:** `alterar_arquivos.go`, `alterar_arquivos_test.go`.
 - **Testes:**
   - `Declaracao` e `Nivel() == NivelPerigoso`.
-  - `ConfirmacaoNecessaria` é **sempre** `true` para as cinco ações, e também para ação desconhecida (falha para o lado seguro).
-  - **`editar` com zero ou várias ocorrências não pede aprovação** (CA6: nada a aprovar): o `Executar` devolve o erro direto. Para isso, a checagem de ocorrência roda numa função de **validação** chamada tanto pelo `ConfirmacaoNecessaria` (que devolve `false` se o pedido é inválido de saída) quanto pelo `Executar`.
-  - `DescricaoDaConfirmacao`: `criar /x/y.txt (120 bytes)`, `sobrescrever /x/y.txt (120 bytes)`, `editar /x/y.go: trocar 1 trecho (de "abc…" por "def…")` com trechos cortados em 60 caracteres e `\n` escapado, `mover /a → /b`, `copiar /a → /b`, `apagar /x/y.txt (vai para a lixeira)`.
-  - Ação desconhecida ou parâmetro faltando: erro claro sem tocar no disco.
-  - **Log (D13):** o `slog` registra ação e caminho e **nunca** o conteúdo nem os trechos (teste captura o handler, como o de `fala_test.go`).
-  - Caminho relativo é erro.
+  - `ConfirmacaoNecessaria`: verdadeiro para as cinco ações e para ação desconhecida; **falso para pedido inválido de saída** (editar com 0 ou 2+ ocorrências, destino que já existe, caminho relativo, piso, origem inexistente). Nesse caso o `Executar` devolve o erro direto, sem cartão.
+  - `DescricaoDaConfirmacao`: `criar /x/y.txt (120 bytes)`, `sobrescrever …`, `editar /x/y.go: trocar 1 trecho (de "abc…" por "def…")` (60 caracteres, `\n` escapado), `mover /a → /b`, `copiar /a → /b`, `apagar /x/y.txt (vai para a lixeira)`. **Arquivo sensível**: `editar /x/.env: trocar 1 trecho`, sem trecho.
+  - **Reconferência:** aprovar (`ConfirmacaoNecessaria` verdadeiro), mudar o arquivo por fora (o trecho some, ou o destino passa a existir) e chamar `Executar` → erro e nada escrito.
+  - **Log sem conteúdo:** o `slog` registra ação e caminho e **nunca** o conteúdo nem os trechos (handler capturado, como em `fala_test.go`).
 - **Commit:** `feat(ferramentas): ferramenta alterar_arquivos`
 
 ---
 
 ## Fatia 4: o shell
 
-### Task 12: verbos de escrita e flags
+### Task 13: verbos, flags e caminhos sensíveis
 
 - **Arquivos:** `classificador.go` (campo opcional), `classificador_bash.go`, `classificador_bash_test.go`.
 - **Testes novos (tabela):**
-  - **Pedem aprovação:** `touch a`, `mkdir -p a/b`, `cp a b`, `cp -r a b`, `mv a b`, `ln -s a b`, `install -m 644 a b`, `echo x | tee f`, `tee -a f`, `rsync -a a/ b/`, `patch -p1 < x.diff`, `sed -i s/a/b/ f`, `sed -i.bak s/a/b/ f`, `sed --in-place s/a/b/ f`, `sed -ni 3p f`, `perl -pi -e 's/a/b/' f`, `awk -i inplace '{print}' f`, `/usr/bin/touch a`, `FOO=1 touch a`.
-  - **Não pedem:** `ls`, `cat f`, `sed s/a/b/ f`, `sed -n 3p f`, `perl -e 'print 1'`, `awk '{print $1}' f`, `grep -i x f`, `touchscreen-calibrate` (palavra inteira), `echo touch`.
-  - O PowerShell não muda (`TestAsDuasDenylistsSaoIndependentes` continua passando).
-- **Implementação:**
-  - Verbos novos na tabela `verbosDestrutivosBash`: `touch`, `mkdir`, `cp`, `mv`, `ln`, `install`, `tee`, `rsync`, `patch`.
-  - Campo opcional `extras func(comando string) bool` na struct `denylist`; `precisaConfirmacao` o chama depois das checagens atuais. Só o `denylistBash` o preenche. Uma função `escreveEmArquivoBash` trata flags: tokeniza **sem** o `TrimLeft` do hífen e vê `sed`/`perl`/`awk` com flag que contenha `i` num conjunto de letras (`-i`, `-i.bak`, `-ni`, `-pi`, `--in-place`, `-i inplace`).
-- **Commit:** `feat(ferramentas): shell pede aprovação para criar, copiar, mover e editar`
+  - **Pedem:** `touch a`, `mkdir -p a/b`, `cp a b`, `mv a b`, `ln -s a b`, `install -m 644 a b`, `echo x | tee f`, `rsync -a a/ b/`, `patch -p1 < x.diff`, `zip a.zip f`, `unzip a.zip`, `gzip f`, `gunzip f.gz`, `xz f`, `zstd f`, `7z x a.7z`, `split -b 1M f`, `tar -czf a.tgz d`, `tar xf a.tar`, `tar --extract -f a.tar`, `sed -i s/a/b/ f`, `sed -i.bak …`, `sed --in-place …`, `sed -ni 3p f`, `perl -pi -e … f`, `awk -i inplace '{print}' f`, `/usr/bin/touch a`, `FOO=1 touch a`, **`cat .env`**, `cat ~/.aws/credentials`, `less ~/.netrc`, `cat ~/.git-credentials`, `cat id_rsa`.
+  - **Não pedem:** `ls`, `cat f`, `sed s/a/b/ f`, `sed -n 3p f`, `perl -e 'print 1'`, `awk '{print $1}' f`, `grep -i x f`, `tar -tf a.tar`, `tar --list -f a.tar`, `unzip -l a.zip`, `zcat f.gz`, `touchscreen-x`, `echo touch`, `ls .venv`. (`source .venv/bin/activate` já pede hoje, porque `source` é verbo da lista: não muda.)
+  - O PowerShell não muda.
+- **Implementação:** verbos novos em `verbosDestrutivosBash`; caminhos novos em `caminhosSensiveisBash` (`.env`, `.aws/`, `.gnupg/`, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`, `id_rsa`, `id_ed25519`, `id_ecdsa`); campo `extras func(string) bool` na struct `denylist`, preenchido só no bash, com uma função que tokeniza **sem** aparar o hífen e olha `sed`/`perl`/`awk` com edição no lugar e `tar` com `c`/`x`/`r`/`u`/`A` no primeiro grupo de letras ou `--create`/`--extract`/`--append`/`--update`.
+- **Commit:** `feat(ferramentas): shell pede aprovação para criar, copiar, mover, editar e ler segredo`
 
-### Task 13: redirecionamento, ciente de aspas
+### Task 14: redirecionamento, ciente de aspas
 
 - **Arquivos:** `classificador_bash.go`, `classificador_bash_test.go`.
 - **Testes novos (tabela):**
-  - **Pedem aprovação:** `echo x > f`, `echo x >> f`, `echo x>f`, `cat a > b`, `cmd >| f`, `cmd 2> erro.log`, `cmd &> f`, `cmd > "arquivo com espaço"`, `cat > f <<EOF`, `echo x > ~/.bashrc`, `ls && echo a > f`, `cmd >(outro)`.
-  - **Não pedem:** `cmd 2>&1`, `cmd > /dev/null`, `cmd >/dev/null 2>&1`, `cmd 2>/dev/null`, `cmd &>/dev/null`, `cmd > /dev/stderr`, `cmd > /dev/stdout`, `cmd 1>&2`, `grep ">" f`, `awk '$1 > 3' f`, `echo "a > b"`, `echo 'a >> b'`, `echo a \> b`, `cmd < entrada`, `cmd <<EOF` (só `<`/`<<` sem `>`).
-  - Aspas mal fechadas (`echo "a > b`) **pedem aprovação** (falha para o lado seguro).
-- **Implementação:** varredor de uma passada com estado (fora de aspas / aspas simples / aspas duplas / escape) em `escreveEmArquivoBash`; ao achar `>` fora de aspas, lê o destino (pula espaços, tira aspas) e libera só `/dev/null`, `/dev/stdout`, `/dev/stderr` e `&N`. Sem destino legível, pede.
+  - **Pedem:** `echo x > f`, `echo x >> f`, `echo x>f`, `cmd >| f`, `cmd 2> erro.log`, `cmd &> f`, `cmd > "arq com espaço"`, `cat > f <<EOF`, `ls && echo a > f`, `cmd >(outro)`, aspas mal fechadas `echo "a > b`.
+  - **Não pedem:** `cmd 2>&1`, `cmd > /dev/null`, `cmd >/dev/null 2>&1`, `cmd 2>/dev/null`, `cmd &>/dev/null`, `cmd > /dev/stderr`, `cmd > /dev/stdout`, `cmd 1>&2`, `grep ">" f`, `awk '$1 > 3' f`, `echo "a > b"`, `echo 'a >> b'`, `echo a \> b`, `cmd < entrada`, `cmd <<EOF`.
+- **Implementação:** varredor de uma passada com estado (fora de aspas, aspas simples, aspas duplas, escape); ao achar `>` fora de aspas, lê o destino (pula espaço, tira aspas) e libera só `/dev/null`, `/dev/stdout`, `/dev/stderr` e `&N`. Destino ilegível pede.
 - **Commit:** `feat(ferramentas): shell pede aprovação para redirecionar para arquivo`
 
 ---
 
 ## Fatia 5: ligação
 
-### Task 14: registro, prompt e portão com o modelo real
+### Task 15: aviso de voz na aprovação
 
-- **Arquivos:** `cmd/jamesd/main.go` (e `ferramentas.go`), `prompts/sistema.md` (CRLF), `internal/agente/anthropic/integracao_test.go`.
+- **Arquivos:** `internal/api/ws.go`, `internal/api/fala_test.go`.
+- **Testes:**
+  - Turno de **voz** em que o provedor pede uma ferramenta que exige confirmação (ferramenta de teste registrada no `Loop.Ferramentas` com `ConfirmacaoNecessaria` verdadeiro; `TimeoutAprovacao` curto): o device recebe `fala_frase` "Preciso da sua aprovação na tela." **antes** do fim do turno.
+  - Turno de **texto** com a mesma ferramenta: o device não recebe nada (o texto não fala por ele).
+  - Turno de voz sem aprovação: nenhum aviso extra (os testes atuais de ordem de frases continuam passando).
+- **Implementação:** em `processarTurno`, quando `modo == agente.ModoVoz` e `aoDelta != nil`, envolver o `SolicitarAprovacao`: chamar `aoDelta("Preciso da sua aprovação na tela.\n")` e só então esperar (fatos 7 e 8).
+- **Commit:** `feat(api): o James avisa por voz quando espera aprovação`
+
+### Task 16: registro, prompt e portão com o modelo real
+
+- **Arquivos:** `plataforma_unix.go`, `plataforma_windows.go`, `cmd/jamesd/main.go`, `ferramentas.go`, `ferramentas_test.go`, `prompts/sistema.md` (CRLF), `internal/agente/anthropic/integracao_test.go`.
 - **Testes e passos:**
-  - Um `SegredosLidos` único criado no `main`, passado a `NovoArquivos` e ao `NovoSalvarNaMemoria` (campo `Segredos`). Teste de montagem (`registrarFerramentas`, se houver; senão, teste do registro): as duas ferramentas novas existem, e `salvar_na_memoria` recusa o valor lido por `arquivos` **no mesmo Registro** (teste de ponta a ponta sobre o registro real: lê um `.env` temporário, tenta guardar o valor, recusa).
-  - **Prompt** (CRLF, por script; `git add` avisa da normalização, é esperado):
-    - regra 1: tira "criar, escrever" de "faça, não pergunte"; acrescenta que criar, editar, mover, copiar e apagar **arquivos** pedem aprovação e vão por `alterar_arquivos`;
-    - nova regra: olhar pastas, arquivos e conteúdo pelo `arquivos`; não usar `cat`, `ls`, `find`, `grep` por shell para ler;
-    - regra de memória: `arquivos` entra na lista de ferramentas cuja saída não vai para a memória, citando `.env` e `.ssh`;
-    - renumerar as regras seguintes.
-  - **Portão (CA10, parte do modelo):** acrescentar ao `integracao_test.go` pedidos como "Lista o que tem na minha pasta de projetos.", "Lê o arquivo config.toml.", "Procura onde aparece a palavra jamesd nos meus arquivos.", "Cria um arquivo teste.txt na minha pasta de documentos com a palavra oi.", "Apaga o arquivo teste.txt." e conferir `tool_use` na ferramenta certa em todos, **e que nenhum caiu em `executar_comando_sistema` para ler ou escrever**. Rodar com `JAMES_TESTE_ANTHROPIC=1` (gasta frações de centavo). Se algum pedido de leitura ainda for por shell, ajustar a **descrição** das ferramentas e o prompt, e rodar de novo.
+  - `ArquivosSuportado` (unix `true`, windows `false`); `registrarArquivos(registro, segredos, suportado)` registra as duas ferramentas só quando suportado (teste espelhando `TestRegistrarTerminalNaoRegistraQuandoNaoSuportado`).
+  - Um `SegredosLidos` único criado no `main`, entregue a `NovoArquivos` e ao `NovoSalvarNaMemoria` (campo `Segredos`).
+  - **Prompt** (por script, CRLF):
+    - regra 1: sai "criar, escrever"; entra que criar, editar, mover, copiar e apagar **arquivos** pedem aprovação e vão por `alterar_arquivos`;
+    - regra nova depois da 5: olhar pastas, arquivos e conteúdo pelo `arquivos`; não usar `cat`, `ls`, `find`, `grep` por shell para ler; `••••` é proposital; `revelar` só quando o Arthur pedir o valor;
+    - regra de memória (hoje a 8): `arquivos` na lista de ferramentas cuja saída não vai para a memória;
+    - renumerar.
+  - **Portão (CA14):** acrescentar ao `integracao_test.go` "Lista o que tem na minha pasta de projetos.", "Lê o arquivo config.toml do James.", "Procura onde aparece a palavra jamesd nos meus arquivos.", "Cria um arquivo teste.txt na minha pasta de documentos com a palavra oi.", "Apaga o arquivo teste.txt da minha pasta de documentos." e exigir `tool_use` em `arquivos`/`alterar_arquivos`, **nenhum** em `executar_comando_sistema`. Rodar com `JAMES_TESTE_ANTHROPIC=1`. Se algum cair no shell, ajustar descrição e prompt e rodar de novo; registrar quantas rodadas.
 - **Commit:** `feat: arquivos e alterar_arquivos registradas, prompt e portão com o modelo real`
 
 ---
 
 ## Fatia 6: verificação
 
-### Task 15: aceite ao vivo com o Arthur
+### Task 17: aceite ao vivo com o Arthur
 
-Só o Arthur: voz e cartão de aprovação. Preparar antes uma pasta `~/teste-james/` (o James **não** mexe em nada fora dela).
+Só o Arthur: voz e cartão. Antes, uma pasta `~/teste-james/` (nada fora dela é alterado).
 
-- [ ] CA10 por voz: "me mostra o que tem na minha pasta de projetos"; "lê o config.toml do James"; "procura onde aparece jamesd nos meus arquivos"; "cria um arquivo teste.txt na pasta teste-james" (cartão com `criar … (N bytes)`; **negar** não cria; aprovar cria); "edita o teste.txt trocando oi por olá" (cartão com o trecho); "apaga o teste.txt" (cartão com "vai para a lixeira"; conferir na lixeira do KDE).
-- [ ] CA4 ao vivo: "lê o meu `.env`" (sem aprovação, no desktop); depois "guarda na memória a chave que você acabou de ler": o James tem de recusar.
-- [ ] CA3 no celular (se o Tailscale estiver de pé): a leitura pede aprovação.
-- [ ] CA8 ao vivo: "roda `touch ~/teste-james/x`" pelo terminal → cartão de aprovação.
+- [ ] CA15 por voz: "me mostra o que tem na minha pasta de projetos"; "lê o config.toml do James"; "o meu .env tem a chave do Claude preenchida?" (a resposta diz que sim **sem dizer o valor**); "cria um arquivo teste.txt na pasta teste-james com a palavra oi" (aviso de voz, cartão `criar … (N bytes)`; negar não cria; aprovar cria); "troca oi por olá no teste.txt" (cartão com o trecho); "apaga o teste.txt" (cartão "vai para a lixeira"; conferir na lixeira do KDE).
+- [ ] CA6 ao vivo: "me mostra a chave do Claude" → cartão de `revelar` com o aviso da Anthropic; aprovar; depois "guarda essa chave na memória" → recusa.
+- [ ] CA5 no celular (se o Tailscale estiver de pé): `ler` pede aprovação.
+- [ ] CA11 ao vivo: "roda `touch ~/teste-james/x`" → cartão.
 
-### Task 16: revisão e fechamento
+### Task 18: revisão e fechamento
 
-- [ ] `/code-review` (nível high) contra `main` e `/security-review` (manual: `git diff main...HEAD`, já que a skill falha sem `origin`... o remoto agora existe, tentar a skill primeiro). Pontos de segurança para olhar com atenção: o piso de pastas e links simbólicos (`~/atalho → /etc`), `gio trash` com `--` e lista de argumentos, **corrida entre `ConfirmacaoNecessaria` e `Executar`** (o arquivo mudar entre a aprovação e a escrita: o `editar` confere o trecho de novo ao executar), `buscar` por conteúdo vazando segredo, o log sem conteúdo, o `SegredosLidos` sem vazar valor em mensagem de erro, e a varredura de redirecionamento (aspas e escape).
-- [ ] Achados corrigidos com TDD, registrados aqui, e `ReportFindings` de novo com os desfechos.
-- [ ] Suítes completas (fato 12) verdes, saída colada.
+- [ ] `/code-review` (high) contra `main` e `/security-review` (o remoto existe; se a skill falhar, manual com `git diff main...HEAD`). Olhar com atenção: máscara (formatos, PEM partido entre páginas, JSON, link), `revelar` registrando e a trava, piso e link, `gio trash` com `--` e sem queda para `os.Remove`, reconferência no `Executar`, `buscar` como atalho de leitura, log sem conteúdo, varredura de redirecionamento (aspas e escape), o aviso de voz.
+- [ ] Achados corrigidos com TDD, registrados aqui, `ReportFindings` de novo com os desfechos.
+- [ ] Suítes completas verdes, saída colada.
 - [ ] Memória do projeto atualizada.
-- [ ] Merge em `main` **só com o OK explícito do Arthur**; push só com a autorização dele (o remoto agora existe: `turos22/James`).
+- [ ] Merge em `main` só com o OK explícito do Arthur; push só com a autorização dele (`turos22/James`).
 
 ---
 
 ## Fora deste plano
 
-- Lixeira e `PowerShell` no Windows (o classificador do PowerShell e o `apagar` ficam como estão).
+- Windows (ferramentas novas não registradas lá; PowerShell como está).
 - `sudo`, arquivo de outro usuário, edição de binário.
-- Operações conscientes de git (`git reset`, `git clean`) e `chmod`/`chown` (seguem pelo shell, e já pedem aprovação).
-- Observar mudança de arquivo, indexar o disco, busca semântica.
+- Programas que escrevem arquivo como efeito colateral (`git`, compiladores, gerenciadores de pacote).
+- Máscara de segredo em formato desconhecido fora de arquivo sensível (R1 da spec).
