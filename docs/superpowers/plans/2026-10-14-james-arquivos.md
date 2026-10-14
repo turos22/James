@@ -293,3 +293,26 @@ Só o Arthur: voz e cartão. Antes, uma pasta `~/teste-james/` (nada fora dela �
 - `sudo`, arquivo de outro usuário, edição de binário.
 - Programas que escrevem arquivo como efeito colateral (`git`, compiladores, gerenciadores de pacote).
 - Máscara de segredo em formato desconhecido fora de arquivo sensível (R1 da spec).
+
+---
+
+## Registro da execução (2026-10-14)
+
+Tasks 0 a 16 feitas, cada uma com teste vermelho antes, mutação do ponto de segurança e suíte Go verde (`go vet`, `GOOS=windows go vet/build`, `go test`). Commits: `c1defca`, `5244c6a`, `cf4659c`, `349f594`, `ec99165`, `989c38b`, `635b011`, `530acd4`, `d5dcc76`, `9a33d15`, `635b344`, `4ac0328`, `541d743`, `9a1995d`, `1ef8d81`, `7638c4a`.
+
+### Desvios da spec e achados
+
+- **A busca por conteúdo roda no texto já mascarado** (Task 8). A spec dizia que buscar pelo valor "devolve o caminho e a linha mascarada"; isso viraria um **oráculo** (o modelo perguntaria "o `.env` contém tal valor?" e a resposta confirmaria o palpite). Agora buscar pelo valor de um segredo não acha nada e não vaza nada.
+- **Uma mutação minha não foi aplicada** na Task 8 (o `sed` procurava um literal diferente do que estava no arquivo) e passou em silêncio. Foi refeita com um script que **imprime quantas trocas fez**, e as duas falhas esperadas apareceram. Desde então todas as mutações confirmam a contagem de trocas.
+- **Quebrador de frases** (Task 15): o fato 8 do plano estava errado. Ponto no fim do buffer esperava o próximo caractere mesmo quando era uma quebra de linha, então o aviso de aprovação por voz só saía **depois** da aprovação expirar (medido: +3,01 s com a aprovação pendente por 3 s). Corrigido no `internal/voz/fala.go`: ponto + quebra de linha fecha a frase na hora.
+- **`install` só no começo do comando** (Task 13): `pip install` e `npm install` continuam livres; `install -m 644 a b` (o comando do coreutils) pede. Os verbos da tabela (`touch`, `cp`, `mv`...) casam em **qualquer posição**, como o resto da tabela já fazia, então `echo touch` pede aprovação (o plano dizia o contrário).
+- **Testes antigos mudaram de lado de propósito:** `mkdir -p`, `cp` e `echo > arquivo` estavam como "passa livre" nos testes da denylist; a regra do Arthur inverte exatamente isso.
+- **Quirk antigo, não é desta fatia:** `du -sh .` pede aprovação desde antes (o classificador apara o hífen e `-sh` vira `sh`, que é verbo de shell). Anotado como dívida, sem mexer.
+- **`prompts/sistema.md` agora é LF**, não CRLF (o git normalizou num commit anterior): a edição detecta o fim de linha.
+- **Portão com o Haiku 5.5** (CA14): 20 de 20 em duas rodadas; os sete pedidos de arquivo nunca caem no terminal. "Troca a palavra oi por olá no arquivo" começa por `arquivos` (olha antes de editar), o que é o certo. "Lista os arquivos da pasta atual" oscila entre `arquivos` e terminal (relativo e ambíguo de propósito).
+- **Prova ao vivo com dado real:** o `.env` do projeto tem 5 valores; `ler` e `buscar` no projeto inteiro não deixaram nenhum aparecer, e os 5 nomes de chave ficaram visíveis.
+
+### O que falta
+
+- Task 17 (aceite com o Arthur: voz, cartão de aprovação, lixeira do KDE, celular).
+- Task 18 (revisão, memória, merge e push só com o OK dele).
