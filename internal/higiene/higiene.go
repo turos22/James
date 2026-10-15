@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -40,6 +41,58 @@ var padroesRegex = []struct {
 	{"token-github", regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{36,}`)},
 	{"jwt", regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)},
 	{"chave-privada-pem", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
+	// Chave da Anthropic (a que o James usa). O prefixo é montado por
+	// concatenação pelo mesmo motivo de padroes, e o corpo de 20 ou mais
+	// caracteres deixa de fora fixtures curtas de teste (sk-ant-teste).
+	{"chave-anthropic", regexp.MustCompile(`sk-` + `ant-[A-Za-z0-9_-]{20,}`)},
+}
+
+// TrechosDeCredencial devolve o início e o fim (em bytes) de cada credencial
+// reconhecível no texto, pela MESMA lista da varredura do repositório (uma
+// lista só, sem cópia). Serve a quem precisa esconder o valor (a máscara das
+// ferramentas de arquivo) e a quem só precisa saber se há uma (a memória).
+//
+// Para prefixo fixo, o trecho vai do prefixo até o fim do token (espaço, aspa,
+// vírgula, ponto e vírgula ou fim). Para URL com senha, o trecho é só a senha.
+func TrechosDeCredencial(texto string) [][2]int {
+	var trechos [][2]int
+	for _, padrao := range padroes {
+		for resto := 0; resto < len(texto); {
+			i := strings.Index(texto[resto:], padrao)
+			if i < 0 {
+				break
+			}
+			inicio := resto + i
+			fim := inicio + len(padrao)
+			for fim < len(texto) && !strings.ContainsRune(" \t\r\n\"'`,;)]}<>", rune(texto[fim])) {
+				fim++
+			}
+			trechos = append(trechos, [2]int{inicio, fim})
+			resto = fim
+		}
+	}
+	for _, pr := range padroesRegex {
+		for _, m := range pr.padrao.FindAllStringSubmatchIndex(texto, -1) {
+			if pr.nome == "connection-string-com-senha" {
+				// O padrão cobre esquema, usuário, senha e arroba; o segredo é só a senha.
+				corpo := texto[m[0]:m[1]]
+				sep := strings.Index(corpo[3:], ":")
+				if sep < 0 {
+					continue
+				}
+				trechos = append(trechos, [2]int{m[0] + 3 + sep + 1, m[1] - 1})
+				continue
+			}
+			trechos = append(trechos, [2]int{m[0], m[1]})
+		}
+	}
+	sort.Slice(trechos, func(a, b int) bool { return trechos[a][0] < trechos[b][0] })
+	return trechos
+}
+
+// ParecaCredencial diz se o texto contém alguma credencial reconhecível.
+func ParecaCredencial(texto string) bool {
+	return len(TrechosDeCredencial(texto)) > 0
 }
 
 // diretoriosIgnorados nunca entram na varredura: são dependências de

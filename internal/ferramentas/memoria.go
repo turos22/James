@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"james/internal/higiene"
 )
 
 // vaultMemoria é o subconjunto de memoria.Vault que esta ferramenta precisa.
@@ -30,6 +32,12 @@ type vaultMemoria interface {
 // deixaria de ser usada.
 type SalvarNaMemoria struct {
 	Vault vaultMemoria
+
+	// Segredos, quando não nil, recusa a nota que contenha um valor que o
+	// Arthur mandou revelar de um arquivo secreto (spec 2026-10-14 arquivos,
+	// D11). Interface local, como vaultMemoria: ferramentas não importa o
+	// que não precisa.
+	Segredos interface{ Contem(texto string) bool }
 }
 
 func NovoSalvarNaMemoria(v vaultMemoria) *SalvarNaMemoria {
@@ -66,6 +74,16 @@ func (s *SalvarNaMemoria) Executar(_ context.Context, args map[string]any) (stri
 	texto, _ := args["texto"].(string)
 	if strings.TrimSpace(assunto) == "" || strings.TrimSpace(texto) == "" {
 		return "", fmt.Errorf("parâmetros assunto e texto são obrigatórios")
+	}
+
+	// As mensagens de recusa nunca repetem o valor: o erro volta ao modelo, vai
+	// ao banco e à tela.
+	if s.Segredos != nil && s.Segredos.Contem(texto) {
+		return "", fmt.Errorf("essa nota contém um valor secreto que você leu de um arquivo; " +
+			"guarde só a conclusão, sem o valor")
+	}
+	if higiene.ParecaCredencial(texto) {
+		return "", fmt.Errorf("essa nota parece conter uma credencial; guarde só a conclusão, sem o valor")
 	}
 
 	if err := s.Vault.Acrescentar(assunto, texto); err != nil {

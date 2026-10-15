@@ -100,9 +100,17 @@ func executar() error {
 		}
 	}
 
+	// Um SegredosLidos só, dividido entre quem revela um valor secreto (arquivos)
+	// e quem guarda memória (salvar_na_memoria): é o que impede o valor revelado
+	// de virar nota.
+	segredosLidos := ferramentas.NovoSegredosLidos()
+	if err := registrarArquivos(registro, segredosLidos, ferramentas.ArquivosSuportado); err != nil {
+		return err
+	}
+
 	vaultMemoria := memoria.NovoVault(cfg.MemoriaDiretorio, cfg.OrcamentoNotas)
-	if err := registro.Registrar(ferramentas.NovoSalvarNaMemoria(vaultMemoria)); err != nil {
-		return fmt.Errorf("registrar salvar_na_memoria: %w", err)
+	if err := registrarMemoria(registro, vaultMemoria, segredosLidos); err != nil {
+		return err
 	}
 
 	raizSPA, err := fs.Sub(web.Dist, "dist")
@@ -134,7 +142,7 @@ func executar() error {
 			OrcamentoTokens: cfg.OrcamentoResumo,
 		},
 		Notas:               vaultMemoria,
-		SistemaPrompt:       string(sistemaPrompt),
+		SistemaPrompt:       ajustarPromptParaPlataforma(string(sistemaPrompt), ferramentas.ArquivosSuportado),
 		Clientes:            api.NovoClientesHub(),
 		AprovacoesPendentes: api.NovoRegistroAprovacoesPendentes(),
 		TimeoutAprovacao:    time.Duration(cfg.TimeoutAprovacaoSegundos) * time.Second,

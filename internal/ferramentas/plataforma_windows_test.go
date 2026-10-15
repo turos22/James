@@ -17,3 +17,10 @@ func TestTerminalNoWindowsUsaPowerShell(t *testing.T) {
 		t.Error("Get-Process não deveria exigir confirmação no Windows")
 	}
 }
+
+func TestArquivosNaoSuportadoNoWindows(t *testing.T) {
+	// Spec 2026-10-14 arquivos, D18: lá nada muda.
+	if ArquivosSuportado {
+		t.Fatal("ArquivosSuportado = true no Windows")
+	}
+}

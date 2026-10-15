@@ -11,6 +11,7 @@ import (
 	"james/internal/agente/gemini"
 	"james/internal/config"
 	"james/internal/ferramentas"
+	"james/internal/memoria"
 	"james/internal/voz"
 )
 
@@ -36,6 +37,48 @@ func registrarTerminal(registro ferramentas.Registro, cfg *config.Config, suport
 		return nil
 	}
 	return registro.Registrar(construirComandoSistema(cfg))
+}
+
+// registrarArquivos registra arquivos e alterar_arquivos (spec 2026-10-14
+// arquivos) só onde a plataforma suporta (ferramentas.ArquivosSuportado).
+// segredos é o MESMO SegredosLidos que o salvar_na_memoria recebe: é assim que
+// um valor revelado de um .env fica barrado na memória.
+func registrarArquivos(registro ferramentas.Registro, segredos *ferramentas.SegredosLidos, suportado bool) error {
+	if !suportado {
+		slog.Warn("ferramentas de arquivo desligadas nesta plataforma")
+		return nil
+	}
+	if err := registro.Registrar(ferramentas.NovoArquivos(segredos)); err != nil {
+		return fmt.Errorf("registrar arquivos: %w", err)
+	}
+	if err := registro.Registrar(ferramentas.NovoAlterarArquivos()); err != nil {
+		return fmt.Errorf("registrar alterar_arquivos: %w", err)
+	}
+	return nil
+}
+
+// ajustarPromptParaPlataforma acrescenta ao prompt o que a plataforma não tem.
+// Sem as ferramentas de arquivo (Windows), a regra 6 mandaria o modelo chamar
+// uma ferramenta que não existe e proibiria cat/ls/find pelo terminal.
+func ajustarPromptParaPlataforma(prompt string, arquivosSuportado bool) string {
+	if arquivosSuportado {
+		return prompt
+	}
+	return prompt + "\n\nNESTA MÁQUINA as ferramentas arquivos e alterar_arquivos NÃO existem: " +
+		"ignore a regra 6 e use o terminal para olhar e alterar arquivos."
+}
+
+// registrarMemoria registra salvar_na_memoria ligada ao MESMO SegredosLidos de
+// registrarArquivos: sem essa ligação, a trava que barra o valor revelado de um
+// .env na memória não existiria. Função à parte para o teste cobrir a fiação
+// de verdade, já que o main não dá para rodar em teste.
+func registrarMemoria(registro ferramentas.Registro, vault *memoria.Vault, segredos *ferramentas.SegredosLidos) error {
+	salvar := ferramentas.NovoSalvarNaMemoria(vault)
+	salvar.Segredos = segredos
+	if err := registro.Registrar(salvar); err != nil {
+		return fmt.Errorf("registrar salvar_na_memoria: %w", err)
+	}
+	return nil
 }
 
 // construirBusca aplica timeout e limite de resultados vindos do config.toml

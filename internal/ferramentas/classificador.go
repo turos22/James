@@ -139,6 +139,11 @@ type denylist struct {
 	// verbo passa livre. No PowerShell fica desligado, preservando a
 	// política de 2026-08-11 exatamente como era.
 	porBasename bool
+
+	// extras, quando não nil, é uma checagem a mais sobre o comando CRU (com
+	// aspas, hífens e redirecionamento que os tokens acima não enxergam). Só o
+	// bash a usa (spec 2026-10-14 arquivos, D15); o PowerShell fica como está.
+	extras func(comando string) bool
 }
 
 var denylistPowerShell = denylist{
@@ -159,6 +164,10 @@ func ComandoPowerShellPrecisaConfirmacao(comando string) bool {
 func (d denylist) precisaConfirmacao(comando string) bool {
 	c := strings.TrimSpace(comando)
 	if c == "" {
+		return true
+	}
+
+	if d.extras != nil && d.extras(c) {
 		return true
 	}
 

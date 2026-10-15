@@ -30,3 +30,9 @@ func TestTerminalNoUnixUsaBashComDenylist(t *testing.T) {
 		t.Errorf("saída = %q, queria conter oi", saida)
 	}
 }
+
+func TestArquivosSuportadoNoUnix(t *testing.T) {
+	if !ArquivosSuportado {
+		t.Fatal("ArquivosSuportado = false no unix: arquivos e alterar_arquivos existem aqui")
+	}
+}

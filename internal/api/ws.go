@@ -264,7 +264,6 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 		*sessaoID = sessao.ID
 	}
 
-	tamanhoAntes := len(*historico)
 	janela := s.Memoria.Montar(*historico)
 	entrada := agente.Mensagem{Papel: agente.PapelUsuario, Texto: texto}
 
@@ -311,7 +310,18 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 	// → ferramentas.
 	ctx = ferramentas.ComSessao(ctx, sessaoID.String())
 
-	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, s.criarSolicitarAprovacao(*sessaoID))
+	solicitarAprovacao := s.criarSolicitarAprovacao(*sessaoID)
+	if modo == agente.ModoVoz && aoDelta != nil {
+		// Por voz o Arthur não está olhando a tela: sem este aviso o James esperaria o
+		// clique de aprovar (até o timeout de 5 minutos) calado. O "\n" fecha a
+		// frase no quebrador, e ela vai ao device na hora (spec 2026-10-14, D14).
+		interna := solicitarAprovacao
+		solicitarAprovacao = func(ctx context.Context, chamada agente.ChamadaFerramenta) (bool, error) {
+			aoDelta(avisoDeAprovacaoPorVoz + "\n")
+			return interna(ctx, chamada)
+		}
+	}
+	resp, mensagens, err := loop.Executar(ctx, sistemaPrompt, janela, entrada, perfil, solicitarAprovacao)
 	if err != nil {
 		return agente.Resposta{}, "", err
 	}
@@ -321,8 +331,13 @@ func (s *Servidor) processarTurno(ctx context.Context, modo agente.Modo, perfil 
 		"cache", resp.Uso.CacheLeitura, "pensamento", resp.Uso.Pensamento,
 		"primeiro_delta_ms", primeiroDelta, "dur_ms", time.Since(inicioDoTurno).Milliseconds())
 
+	// O loop devolve as mensagens a partir da JANELA (janela + entrada + o que
+	// veio do turno), não do histórico completo: quando a conversa passa do
+	// orçamento a janela é mais curta, e usar len(*historico) como ponto de
+	// partida estourava o slice (panic) ou pulava mensagens novas sem erro. O
+	// que é novo começa depois da janela.
 	*historico = mensagens
-	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, tamanhoAntes)
+	s.persistirNovasMensagens(ctx, *sessaoID, mensagens, len(janela))
 
 	// Na voz quem fala é o device, frase a frase, enquanto o modelo escreve.
 	// Gerar áudio aqui também faria o James falar duas vezes (device e app).
@@ -460,12 +475,35 @@ func (s *Servidor) descricaoDaConfirmacao(chamada agente.ChamadaFerramenta) stri
 	return ""
 }
 
+// argumentosParaRegistro devolve os argumentos como podem ser GRAVADOS no
+// Postgres (tabela aprovacoes e coluna chamadas): a ferramenta que sabe que o
+// conteúdo pode ser segredo (ArgumentosRegistraveis) esconde os valores. O
+// cartão de aprovação não usa isto, e a chamada que o loop executa não é tocada.
+func (s *Servidor) argumentosParaRegistro(chamada agente.ChamadaFerramenta) map[string]any {
+	if s.Loop == nil || s.Loop.Ferramentas == nil {
+		return chamada.Args
+	}
+	ferramenta, ok := s.Loop.Ferramentas.Buscar(chamada.Nome)
+	if !ok {
+		return chamada.Args
+	}
+	if registravel, ok := ferramenta.(ferramentas.ArgumentosRegistraveis); ok {
+		return registravel.ArgumentosParaRegistro(chamada.Args)
+	}
+	return chamada.Args
+}
+
+// avisoDeAprovacaoPorVoz é o que o James diz quando um turno falado espera
+// aprovação do Arthur na tela.
+const avisoDeAprovacaoPorVoz = "Preciso da sua aprovação na tela."
+
 // criarSolicitarAprovacao devolve o callback que o Loop chama quando um
 // perfil Restrito pede uma ferramenta perigosa: cria a aprovação pendente,
 // avisa os clientes Privilegiado, e espera decisão ou timeout (R4).
 func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarAprovacao {
 	return func(ctx context.Context, chamada agente.ChamadaFerramenta) (bool, error) {
-		argumentosJSON, _ := json.Marshal(chamada.Args)
+		registrados := s.argumentosParaRegistro(chamada)
+		argumentosJSON, _ := json.Marshal(registrados)
 		aprovacao, err := s.Aprovacoes.Criar(ctx, sessaoID, chamada.Nome, argumentosJSON, "cliente-restrito")
 		if err != nil {
 			return false, err
@@ -477,6 +515,10 @@ func (s *Servidor) criarSolicitarAprovacao(sessaoID uuid.UUID) agente.SolicitarA
 		// roda antes de qualquer validação de argumento, então uma chamada
 		// sem parâmetros chegaria ao front como argumentos: null — e o card
 		// de aprovação itera esse valor. "Sem argumentos" é objeto vazio.
+		// O cartão leva o texto REAL, não o mascarado: é a tela do Arthur e a
+		// única barreira antes do disco. Escondido, um
+		// "credential_process = curl ... | sh" num ~/.aws/config passaria como
+		// se fosse uma chave qualquer.
 		argumentos := chamada.Args
 		if argumentos == nil {
 			argumentos = map[string]any{}
@@ -534,7 +576,12 @@ func (s *Servidor) persistirNovasMensagens(ctx context.Context, sessaoID uuid.UU
 		var chamadasJSON []byte
 		switch {
 		case len(m.Chamadas) > 0:
-			chamadasJSON, _ = json.Marshal(m.Chamadas)
+			registradas := make([]agente.ChamadaFerramenta, len(m.Chamadas))
+			for i, c := range m.Chamadas {
+				registradas[i] = c
+				registradas[i].Args = s.argumentosParaRegistro(c)
+			}
+			chamadasJSON, _ = json.Marshal(registradas)
 		case len(m.Resultados) > 0:
 			chamadasJSON, _ = json.Marshal(m.Resultados)
 		}

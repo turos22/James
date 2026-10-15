@@ -30,6 +30,26 @@ describe("Aba Mensagens", () => {
     expect(screen.getByText("são 14h32.")).toBeTruthy();
   });
 
+  // Achado do aceite da autonomia de arquivos: uma chave (texto longo sem espaço)
+  // vazou para fora do balão e abriu uma barra de rolagem horizontal na lista.
+  // O jsdom não calcula layout; este teste trava as classes que resolvem, e a
+  // medida real foi feita no navegador.
+  it("o balão encolhe e quebra texto longo sem espaço, e a lista não rola de lado", () => {
+    const chaveLonga = "sk-ant-" + "x".repeat(150);
+    const estado: EstadoTurno = {
+      ...estadoInicial,
+      sessaoAtual: "11111111-1111-1111-1111-111111111111",
+      mensagens: [{ papel: "james", texto: `A chave é ${chaveLonga}` }],
+    };
+    render(<AbaMensagens estado={estado} conexao="conectado" tentativa={0} aoEnviar={vi.fn()} aoNovaSessao={vi.fn()} />);
+
+    const balao = screen.getByText(/A chave é/).closest("div[class*='rounded-2xl']") as HTMLElement;
+    expect(balao.className).toContain("min-w-0");
+    expect(balao.className).toContain("[overflow-wrap:anywhere]");
+    const lista = balao.parentElement!.parentElement as HTMLElement;
+    expect(lista.className).toContain("overflow-x-hidden");
+  });
+
   // O "online" verde fixo do design de referência mentiria durante uma queda.
   it("mostra o estado real da conexão", () => {
     const { rerender } = render(
